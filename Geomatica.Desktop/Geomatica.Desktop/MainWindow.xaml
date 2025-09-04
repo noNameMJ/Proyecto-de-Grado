@@ -1,0 +1,38 @@
+﻿<Window x:Class="Geomatica.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:esri="http://schemas.esri.com/arcgis/runtime/2013"
+        Title="GEOMÁTICA - Visor de Proyectos" Height="720" Width="1180">
+    <DockPanel>
+        <!-- Panel lateral de filtros -->
+        <StackPanel DockPanel.Dock="Left" Width="320" Background="#F7F7F7" Padding="12">
+            <TextBlock Text="Filtros" FontWeight="Bold" FontSize="16" Margin="0,0,0,12"/>
+            <TextBlock Text="Palabra clave"/>
+            <TextBox x:Name="txtQuery" Margin="0,4,0,10"/>
+            <TextBlock Text="Rango temporal"/>
+            <StackPanel Orientation="Horizontal" Margin="0,4,0,10">
+                <DatePicker x:Name="dpDesde" Width="150"/>
+                <DatePicker x:Name="dpHasta" Width="150" Margin="8,0,0,0"/>
+            </StackPanel>
+            <TextBlock Text="Área de interés"/>
+            <ComboBox x:Name="cmbAOI" Margin="0,4,0,10"/>
+            <Button Content="Buscar" Command="{Binding BuscarCommand}" Height="34"/>
+            <ListBox ItemsSource="{Binding Resultados}" DisplayMemberPath="Titulo" Height="220"/>
+            <Separator Margin="0,12,0,12"/>
+            <TextBlock Text="Resultados" FontWeight="SemiBold"/>
+            <ListBox x:Name="lstResultados" Height="220"/>
+            <Button x:Name="btnDescargar" Content="Descargar seleccionado" Height="32" Margin="0,10,0,0"/>
+        </StackPanel>
+
+        <!-- Mapa -->
+        <Grid>
+            <esri:MapView x:Name="mapView">
+                <esri:Map>
+                    <esri:Basemap>
+                        <esri:BasemapStyle BasemapStyle="ArcGISTopographic" />
+                    </esri:Basemap>
+                </esri:Map>
+            </esri:MapView>
+        </Grid>
+    </DockPanel>
+</Window>

@@ -1,0 +1,43 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.14.36414.22 d17.14
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Geomatica.Desktop", "Geomatica.Desktop\Geomatica.Desktop.csproj", "{3E54D94B-1210-4C5F-94B9-90A17F5B3D6E}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Geomatica.AppCore", "Geomatica.AppCore\Geomatica.AppCore.csproj", "{1FC93550-D32D-49E9-A38B-A0226E5DAB9D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Geomatica.Data", "Geomatica.Data\Geomatica.Data.csproj", "{CC2CEFB0-4F75-4E92-9FD5-F2E09F632D97}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Geomatica.Domain", "Geomatica.Domain\Geomatica.Domain.csproj", "{18B68B26-4B68-4E82-9F4C-EFF85BE00BE7}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{3E54D94B-1210-4C5F-94B9-90A17F5B3D6E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3E54D94B-1210-4C5F-94B9-90A17F5B3D6E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3E54D94B-1210-4C5F-94B9-90A17F5B3D6E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3E54D94B-1210-4C5F-94B9-90A17F5B3D6E}.Release|Any CPU.Build.0 = Release|Any CPU
+		{1FC93550-D32D-49E9-A38B-A0226E5DAB9D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1FC93550-D32D-49E9-A38B-A0226E5DAB9D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1FC93550-D32D-49E9-A38B-A0226E5DAB9D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1FC93550-D32D-49E9-A38B-A0226E5DAB9D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{CC2CEFB0-4F75-4E92-9FD5-F2E09F632D97}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{CC2CEFB0-4F75-4E92-9FD5-F2E09F632D97}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{CC2CEFB0-4F75-4E92-9FD5-F2E09F632D97}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{CC2CEFB0-4F75-4E92-9FD5-F2E09F632D97}.Release|Any CPU.Build.0 = Release|Any CPU
+		{18B68B26-4B68-4E82-9F4C-EFF85BE00BE7}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{18B68B26-4B68-4E82-9F4C-EFF85BE00BE7}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{18B68B26-4B68-4E82-9F4C-EFF85BE00BE7}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{18B68B26-4B68-4E82-9F4C-EFF85BE00BE7}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {EFE4F4FC-37AB-49EF-B8D3-BF28CD32A5A4}
+	EndGlobalSection
+EndGlobal
