@@ -38,13 +38,10 @@ namespace UserAuth
                 // Create a challenge request for portal credentials (OAuth credential request for arcgis.com)
                 CredentialRequestInfo challengeRequest = new CredentialRequestInfo
                 {
-                    // Use the OAuth authorization code workflow.
-                    GenerateTokenOptions = new GenerateTokenOptions
-                    {
-                        TokenAuthenticationType = TokenAuthenticationType.OAuthAuthorizationCode
-                    },
+                    // Usa el tipo de autenticación Token directamente.
+                    AuthenticationType = AuthenticationType.Token,
 
-                    // Indicate the url (portal) to authenticate with (ArcGIS Online)
+                    // Indica la url (portal) para autenticar (ArcGIS Online)
                     ServiceUri = new Uri(ArcGISOnlineUrl)
                 };
 
@@ -84,7 +81,7 @@ namespace UserAuth
             private Window? _authWindow;
 
             // Use a TaskCompletionSource to track the completion of the authorization.
-            private TaskCompletionSource<IDictionary<string, string>> _tcs;
+            private TaskCompletionSource<IDictionary<string, string>>? _tcs;
 
             // URL for the authorization callback result (the redirect URI configured for your application).
             private string _callbackUrl = "";
@@ -162,7 +159,7 @@ namespace UserAuth
                 }
 
                 // If the task wasn't completed, the user must have closed the window without logging in.
-                if (!_tcs.Task.IsCompleted)
+                if (_tcs != null && !_tcs.Task.IsCompleted)
                 {
                     // Set the task completion source exception to indicate a canceled operation.
                     _tcs.SetCanceled();
@@ -197,7 +194,10 @@ namespace UserAuth
                     IDictionary<string, string> authResponse = DecodeParameters(uri);
 
                     // Set the result for the task completion source.
-                    _tcs.SetResult(authResponse);
+                    if (_tcs != null)
+                    {
+                        _tcs.SetResult(authResponse);
+                    }
 
                     // Close the window.
                     if (_authWindow != null)

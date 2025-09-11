@@ -54,7 +54,7 @@ namespace DisplayAMap
         {
 
             // Create a new map with a 'topographic vector' basemap.
-            var map = new Map(BasemapStyle.ArcGISTopographic);
+            var map = new Map(BasemapStyle.ArcGISDarkGray);
 
             // Set the initial viewpoint around the Santa Monica Mountains in California.
             var mapCenterPoint = new MapPoint(-118.805, 34.027, SpatialReferences.Wgs84);

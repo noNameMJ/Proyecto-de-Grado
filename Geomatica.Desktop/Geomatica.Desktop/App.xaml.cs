@@ -1,10 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
-using System.Configuration;
-using System.Data;
 using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
 using System.Windows;
 
 namespace Geomatica.Desktop
@@ -15,12 +10,19 @@ namespace Geomatica.Desktop
         {
             base.OnStartup(e);
 
-            // Leer la clave API desde el archivo API_KEY.txt
-            string apiKey = File.ReadAllText("API_KEY.txt").Trim();
-            Esri.ArcGISRuntime.ArcGISRuntimeEnvironment.ApiKey = apiKey;
+            // Leer la clave API desde el archivo API_KEY.txt si existe (opcional para funcionalidades online).
+            string apiPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "API_KEY.txt");
+            if (File.Exists(apiPath))
+            {
+                string apiKey = File.ReadAllText(apiPath).Trim();
+                if (!string.IsNullOrWhiteSpace(apiKey))
+                {
+                    Esri.ArcGISRuntime.ArcGISRuntimeEnvironment.ApiKey = apiKey;
+                }
+            }
 
-            // Call a function to set up the AuthenticationManager for OAuth.
-            UserAuth.ArcGISLoginPrompt.SetChallengeHandler();
+            // Si quieres modo offline completo, no inicialices el handler OAuth.
+            // UserAuth.ArcGISLoginPrompt.SetChallengeHandler();
         }
     }
 }
