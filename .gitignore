@@ -76,3 +76,4 @@ $RECYCLE.BIN/
 
 # Paquetes de símbolos
 *.snupkg
+/Geomatica.Desktop/Geomatica.Desktop/API_KEY.txt

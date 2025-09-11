@@ -2,12 +2,16 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
   </PropertyGroup>
 
+  <ItemGroup>
+	<Compile Remove="AuthenticationHelper.cs" />
+  </ItemGroup>
+	
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
     <PackageReference Include="Esri.ArcGISRuntime.WPF" Version="200.8.0" />
@@ -17,12 +21,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Geomatica.AppCore\Geomatica.AppCore.csproj" />
     <ProjectReference Include="..\Geomatica.Domain\Geomatica.Domain.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Compile Update="Views\MapaView.xaml.cs">
-      <SubType>Code</SubType>
-    </Compile>
   </ItemGroup>
 
 </Project>

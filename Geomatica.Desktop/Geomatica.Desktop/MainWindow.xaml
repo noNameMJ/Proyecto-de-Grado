@@ -5,7 +5,7 @@
         Title="GEOMÁTICA - Visor de Proyectos" Height="720" Width="1180">
     <DockPanel>
         <!-- Panel lateral de filtros -->
-        <StackPanel DockPanel.Dock="Left" Width="320" Background="#F7F7F7" Padding="12">
+        <StackPanel DockPanel.Dock="Left" Width="320" Background="#F7F7F7" Margin="12,0,12,0">
             <TextBlock Text="Filtros" FontWeight="Bold" FontSize="16" Margin="0,0,0,12"/>
             <TextBlock Text="Palabra clave"/>
             <TextBox x:Name="txtQuery" Margin="0,4,0,10"/>
@@ -26,13 +26,8 @@
 
         <!-- Mapa -->
         <Grid>
-            <esri:MapView x:Name="mapView">
-                <esri:Map>
-                    <esri:Basemap>
-                        <esri:BasemapStyle BasemapStyle="ArcGISTopographic" />
-                    </esri:Basemap>
-                </esri:Map>
-            </esri:MapView>
+            <esri:MapView x:Name="MainMapView"
+              Map="{Binding Map, Source={StaticResource MapViewModel}}" />
         </Grid>
     </DockPanel>
 </Window>
