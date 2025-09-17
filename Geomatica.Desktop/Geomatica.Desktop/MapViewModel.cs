@@ -57,8 +57,8 @@ namespace Geomatica.Desktop
             var map = new Map(BasemapStyle.ArcGISTopographic);
 
             // Set the initial viewpoint around the Santa Monica Mountains in California.
-            var mapCenterPoint = new MapPoint(-118.805, 34.027, SpatialReferences.Wgs84);
-            map.InitialViewpoint = new Viewpoint(mapCenterPoint, 100000);
+            var mapCenterPoint = new MapPoint(-74.146592, 4.680486, SpatialReferences.Wgs84);
+            map.InitialViewpoint = new Viewpoint(mapCenterPoint, 12000000);
 
             // Set the view model's Map property with the map.
             Map = map;
