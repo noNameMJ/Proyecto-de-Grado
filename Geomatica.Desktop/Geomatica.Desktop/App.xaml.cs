@@ -1,28 +1,35 @@
 ﻿using System;
-using System.IO;
 using System.Windows;
+using Esri.ArcGISRuntime;
+using Microsoft.Extensions.Configuration;
 
-namespace Geomatica.Desktop
+public partial class App : Application
 {
-    public partial class App : Application
+    private IConfiguration? _configuration;
+
+    protected override void OnStartup(StartupEventArgs e)
     {
-        protected override void OnStartup(StartupEventArgs e)
+        // Combina User Secrets (local) y variables de entorno
+        _configuration = new ConfigurationBuilder()
+            .AddEnvironmentVariables()
+            .AddUserSecrets<App>()
+            .Build();
+
+        // Lee primero de User Secrets (clave "ArcGIS:ApiKey"), si no está, usa variable de entorno ARCGIS_API_KEY
+        var apiKey = _configuration["ArcGIS:ApiKey"] ?? Environment.GetEnvironmentVariable("ARCGIS_API_KEY");
+
+        if (string.IsNullOrWhiteSpace(apiKey))
         {
-            base.OnStartup(e);
-
-            // Leer la clave API desde el archivo API_KEY.txt si existe (opcional para funcionalidades online).
-            string apiPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "..", "..", "..", "API_KEY.txt");
-            if (File.Exists(apiPath))
-            {
-                string apiKey = File.ReadAllText(apiPath).Trim();
-                if (!string.IsNullOrWhiteSpace(apiKey))
-                {
-                    Esri.ArcGISRuntime.ArcGISRuntimeEnvironment.ApiKey = apiKey;
-                }
-            }
-
-            // Si quieres modo offline completo, no inicialices el handler OAuth.
-            // UserAuth.ArcGISLoginPrompt.SetChallengeHandler();
+            MessageBox.Show("API key de ArcGIS no encontrada. Configurela con __Manage User Secrets__ o como variable de entorno 'ARCGIS_API_KEY'.", "Falta API Key", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
+        else
+        {
+            ArcGISRuntimeEnvironment.ApiKey = apiKey;
+
+            // Mensaje visible en UI (evita mostrar la clave)
+            System.Diagnostics.Trace.WriteLine($"ArcGIS API key presente: {!string.IsNullOrWhiteSpace(ArcGISRuntimeEnvironment.ApiKey)}");
+        }
+
+        base.OnStartup(e);
     }
 }
