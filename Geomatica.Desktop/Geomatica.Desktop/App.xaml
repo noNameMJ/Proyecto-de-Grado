@@ -1,8 +1,15 @@
 ﻿<Application x:Class="Geomatica.Desktop.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:Geomatica.Desktop"
+             xmlns:views="clr-namespace:Geomatica.Desktop.Views"
+             xmlns:vms="clr-namespace:Geomatica.Desktop.ViewModels"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
+        <DataTemplate DataType="{x:Type vms:MapaViewModel}">
+            <views:MapaView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vms:ArchivosViewModel}">
+            <views:ArchivosView/>
+        </DataTemplate>
     </Application.Resources>
 </Application>

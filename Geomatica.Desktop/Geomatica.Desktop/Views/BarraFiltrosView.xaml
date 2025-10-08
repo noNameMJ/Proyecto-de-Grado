@@ -1,0 +1,25 @@
+﻿<UserControl x:Class="Geomatica.Desktop.Views.BarraFiltrosView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Width="320" Background="#F7F7F7" Margin="12,0,12,0">
+        <TextBlock Text="Filtros" FontWeight="Bold" FontSize="16" Margin="0,0,0,12"/>
+        <TextBlock Text="Palabra clave"/>
+        <TextBox Text="{Binding PalabraClave, UpdateSourceTrigger=PropertyChanged}" Margin="0,4,0,10"/>
+
+        <TextBlock Text="Rango temporal"/>
+        <StackPanel Orientation="Horizontal" Margin="0,4,0,10">
+            <DatePicker SelectedDate="{Binding Desde}" Width="150"/>
+            <DatePicker SelectedDate="{Binding Hasta}" Width="150" Margin="8,0,0,0"/>
+        </StackPanel>
+
+        <TextBlock Text="Área de interés"/>
+        <ComboBox SelectedItem="{Binding AreaInteres}" Margin="0,4,0,10"/>
+
+        <Button Content="Buscar" Command="{Binding BuscarCommand}" Height="34"/>
+        <ListBox ItemsSource="{Binding ResultadosResumen}" Height="55"/>
+        <Separator Margin="0,12,0,12"/>
+        <TextBlock Text="Resultados" FontWeight="SemiBold"/>
+        <ListBox ItemsSource="{Binding ResultadosLista}" Height="195"/>
+        <Button Content="Descargar seleccionado" Command="{Binding DescargarCommand}" Height="32" Margin="0,10,0,0"/>
+    </StackPanel>
+</UserControl>

@@ -1,0 +1,24 @@
+﻿<UserControl x:Class="Geomatica.Desktop.Views.MapaView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:esri="http://schemas.esri.com/arcgis/runtime/2013"
+             xmlns:vm="clr-namespace:Geomatica.Desktop.ViewModels"
+             xmlns:views="clr-namespace:Geomatica.Desktop.Views">
+    <UserControl.Resources>
+        <vm:MapaViewModel x:Key="MapaVM"/>
+        <vm:FiltrosViewModel x:Key="FiltrosVM"/>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="320"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <!-- Barra de filtros extraída -->
+        <views:BarraFiltrosView Grid.Column="0" DataContext="{StaticResource FiltrosVM}"/>
+
+        <!-- Mapa enlazado a tu VM existente -->
+        <esri:MapView Grid.Column="1" x:Name="MainMapView" Map="{Binding Map, Source={StaticResource MapaVM}}"/>
+    </Grid>
+</UserControl>
