@@ -9,18 +9,18 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="320"/>
+            <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
         <!-- Barra de ruta -->
-        <DockPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="8">
+        <!--<DockPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="8">
             <TextBlock Text="Ruta:" VerticalAlignment="Center" Margin="0,0,6,0"/>
             <TextBox Text="{Binding RutaActual, UpdateSourceTrigger=PropertyChanged}" MinWidth="400"/>
             <Button Content="Ir" Margin="8,0,0,0" Command="{Binding IrCommand}"/>
             <Button Content="Arriba" Margin="8,0,0,0" Command="{Binding ArribaCommand}"/>
             <Button Content="Actualizar" Margin="8,0,0,0" Command="{Binding RefrescarCommand}"/>
-        </DockPanel>
+        </DockPanel>-->
 
         <!-- Barra de filtros compartida -->
         <views:BarraFiltrosView Grid.Row="1" Grid.Column="0"
@@ -28,22 +28,22 @@
 
         <!-- Lista y árbol -->
         <Grid Grid.Row="1" Grid.Column="1">
-            <Grid.ColumnDefinitions>
+            <!--<Grid.ColumnDefinitions>
                 <ColumnDefinition Width="280"/>
                 <ColumnDefinition Width="*"/>
-            </Grid.ColumnDefinitions>
+            </Grid.ColumnDefinitions>-->
 
             <!-- Árbol de carpetas -->
-            <TreeView Grid.Column="0" ItemsSource="{Binding Carpetas}" SelectedItemChanged="TreeView_SelectedItemChanged">
+            <!--<TreeView Grid.Column="0" ItemsSource="{Binding Carpetas}" SelectedItemChanged="TreeView_SelectedItemChanged">
                 <TreeView.ItemTemplate>
                     <HierarchicalDataTemplate ItemsSource="{Binding Hijas}">
                         <TextBlock Text="{Binding Nombre}"/>
                     </HierarchicalDataTemplate>
                 </TreeView.ItemTemplate>
-            </TreeView>
+            </TreeView>-->
 
             <!-- Lista de archivos -->
-            <ListView Grid.Column="1" ItemsSource="{Binding Archivos}" SelectedItem="{Binding Seleccionado, Mode=TwoWay}">
+            <ListView ItemsSource="{Binding Archivos}" SelectedItem="{Binding Seleccionado, Mode=TwoWay}">
                 <ListView.View>
                     <GridView>
                         <GridViewColumn Header="Nombre" DisplayMemberBinding="{Binding Nombre}" Width="300"/>
@@ -56,7 +56,7 @@
         </Grid>
 
         <!-- Barra inferior -->
-        <StackPanel Grid.Row="2" Grid.ColumnSpan="2" Orientation="Horizontal" Margin="8">
+        <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" Margin="8">
             <Button Content="Abrir" Command="{Binding AbrirCommand}"/>
             <Button Content="Eliminar" Margin="8,0,0,0" Command="{Binding EliminarCommand}"/>
             <TextBlock Text="{Binding Estado}" Margin="12,0,0,0" VerticalAlignment="Center"/>
