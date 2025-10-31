@@ -1,28 +1,47 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
+using System.ComponentModel;
 
 namespace Geomatica.Desktop.ViewModels
 {
-    public partial class FiltrosViewModel : ObservableObject
+    public partial class FiltrosViewModel : INotifyPropertyChanged
     {
-        [ObservableProperty] private string? palabraClave;
-        [ObservableProperty] private DateTime? desde;
-        [ObservableProperty] private DateTime? hasta;
-        [ObservableProperty] private object? areaInteres;
+        private string? _areaWkt;
+        private DateTime? _desde;
+        private DateTime? _hasta;
+        private string? _palabraClave;
 
-        public ObservableCollection<object> ResultadosResumen { get; } = new();
-        public ObservableCollection<object> ResultadosLista { get; } = new();
+        public string? AreaWkt
+        {
+            get => _areaWkt;
+            set { _areaWkt = value; OnPropertyChanged(); }
+        }
 
-        public IRelayCommand BuscarCommand { get; }
-        public IRelayCommand DescargarCommand { get; }
+        public DateTime? Desde
+        {
+            get => _desde;
+            set { _desde = value; OnPropertyChanged(); }
+        }
+
+        public DateTime? Hasta
+        {
+            get => _hasta;
+            set { _hasta = value; OnPropertyChanged(); }
+        }
+
+        public string? PalabraClave
+        {
+            get => _palabraClave;
+            set { _palabraClave = value; OnPropertyChanged(); }
+        }
 
         public event EventHandler? BuscarSolicitado;
+        public void DispararBuscar() => BuscarSolicitado?.Invoke(this, EventArgs.Empty);
 
-        public FiltrosViewModel()
-        {
-            BuscarCommand = new RelayCommand(() => BuscarSolicitado?.Invoke(this, EventArgs.Empty));
-            DescargarCommand = new RelayCommand(() => { /* placeholder */ });
-        }
+        public event PropertyChangedEventHandler? PropertyChanged;
+        protected void OnPropertyChanged([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
+            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
+
 }

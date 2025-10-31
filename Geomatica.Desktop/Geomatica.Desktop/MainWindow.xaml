@@ -3,10 +3,6 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:Geomatica.Desktop.ViewModels"
         Title="GEOMÁTICA - Visor de Proyectos" Height="748" Width="1180">
-    <Window.DataContext>
-        <vm:MainViewModel/>
-    </Window.DataContext>
-
     <DockPanel>
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Background="#2F2F2F" Height="44">
             <Button Content="Mapa" Command="{Binding ShowMapaCommand}" Margin="8" Padding="12,6"/>

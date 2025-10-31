@@ -1,28 +1,27 @@
 ﻿using Esri.ArcGISRuntime.Geometry;
 using Esri.ArcGISRuntime.Mapping;
+using Geomatica.AppCore.UseCases;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 
 namespace Geomatica.Desktop.ViewModels
 {
-    internal class MapaViewModel : INotifyPropertyChanged
+    public class MapaViewModel : INotifyPropertyChanged
     {
+        private readonly BuscarProyectosUseCase _buscar;     // 1) caso de uso inyectado
         // Referencia opcional a los filtros compartidos
         public FiltrosViewModel? Filtros { get; }
 
         // Nuevo constructor: recibe los filtros (opción B)
-        public MapaViewModel(FiltrosViewModel filtros)
+        public MapaViewModel(BuscarProyectosUseCase buscar, FiltrosViewModel filtros)
         {
+            _buscar = buscar;
             Filtros = filtros;
-            // Si deseas reaccionar a “Buscar” más adelante:
-            // Filtros.BuscarSolicitado += (_,__) => AplicarFiltrosEnMapa();
+            if (Filtros != null)
+                Filtros.BuscarSolicitado += async (_, __) => await AplicarFiltrosEnMapaAsync();
             SetupMap();
         }
 
-        // Constructor existente (compatibilidad): crea filtros locales
-        public MapaViewModel() : this(new FiltrosViewModel())
-        {
-        }
 
         public event PropertyChangedEventHandler? PropertyChanged;
         protected void OnPropertyChanged([CallerMemberName] string propertyName = "")
@@ -34,7 +33,6 @@ namespace Geomatica.Desktop.ViewModels
             get => _map;
             set { _map = value; OnPropertyChanged(); }
         }
-
         private void SetupMap()
         {
             var map = new Map(BasemapStyle.ArcGISTopographic);
@@ -43,11 +41,31 @@ namespace Geomatica.Desktop.ViewModels
             Map = map;
         }
 
-        // Hook opcional para aplicar filtros sobre el mapa
-        private void AplicarFiltrosEnMapa()
+        public async Task OnMapViewChangedAsync(Geometry newExtent)
         {
-            // TODO: usar Filtros?.PalabraClave / Desde / Hasta / AreaInteres
-            // para construir consultas o DefinitionExpression en capas.
+            
+            var geojson = newExtent.ToJson(); // ArcGIS Runtime devuelve JSON de la geometría
+
+            
+            if (Filtros != null)
+            {
+                Filtros.AreaWkt = geojson; // renómbralo si quieres a AreaJson
+                await AplicarFiltrosEnMapaAsync();
+            }
         }
+
+        private async Task AplicarFiltrosEnMapaAsync()
+        {
+            var proyectos = await _buscar.PorAOIAsync(
+                Filtros.AreaWkt,
+                Filtros.Desde,
+                Filtros.Hasta,
+                Filtros.PalabraClave);
+
+            ProyectosCargados?.Invoke(this, proyectos); // usa ?. para evitar NullReference
+        }
+
+        public event EventHandler<IReadOnlyList<Geomatica.Domain.Entities.Proyecto>>? ProyectosCargados;
+
     }
 }

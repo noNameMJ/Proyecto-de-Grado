@@ -1,14 +1,17 @@
 ﻿using Geomatica.Domain.Entities;
-using Geomatica.Domain.Interfaces.Repositories;
+using Geomatica.Domain.Repositories;
+using Geomatica.Domain.ValueObjects;
 
-public class BuscarProyectosUseCase
+namespace Geomatica.AppCore.UseCases;
+
+public sealed class BuscarProyectosUseCase
 {
     private readonly IProyectoRepository _repo;
     public BuscarProyectosUseCase(IProyectoRepository repo) => _repo = repo;
 
-    public Task<IReadOnlyList<ProyectoGeomatico>> EjecutarAsync(
-        string? texto, DateTime? desde, DateTime? hasta,
-        double? minX, double? minY, double? maxX, double? maxY,
-        CancellationToken ct = default)
-        => _repo.BuscarAsync(texto, desde, hasta, minX, minY, maxX, maxY, ct);
+    public Task<IReadOnlyList<Proyecto>> PorAOIAsync(string? wkt, DateTime? desde, DateTime? hasta, string? kw)
+        => _repo.BuscarPorAOIAsync(Aoi.FromWkt(wkt), desde, hasta, kw);
+
+    public Task<IReadOnlyList<Proyecto>> PorCodigosAsync(string? codDpto, string? codMpio, DateTime? desde, DateTime? hasta, string? kw)
+        => _repo.BuscarPorCodigosAsync(codDpto, codMpio, desde, hasta, kw);
 }

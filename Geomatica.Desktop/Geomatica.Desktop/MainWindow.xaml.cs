@@ -1,4 +1,9 @@
-﻿using System.Text;
+﻿using Geomatica.AppCore.UseCases;
+using Geomatica.Data.Repositories;
+using Geomatica.Desktop.ViewModels;
+using Geomatica.Domain.Repositories;
+using Microsoft.Extensions.DependencyInjection;
+using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -21,4 +26,5 @@ namespace Geomatica.Desktop
             InitializeComponent();
         }
     }
+
 }
