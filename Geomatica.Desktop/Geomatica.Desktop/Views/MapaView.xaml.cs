@@ -1,5 +1,4 @@
-﻿using Geomatica.Desktop.ViewModels;
-using System.Windows.Controls;
+﻿using System.Windows.Controls;
 
 namespace Geomatica.Desktop.Views
 {
@@ -8,16 +7,11 @@ namespace Geomatica.Desktop.Views
         public MapaView()
         {
             InitializeComponent();
-
-            // No resolver ni asignar manualmente el ViewModel.
-            // El DataTemplate en App.xaml proporciona la instancia correcta (CurrentView).
-            DataContextChanged += (s, e) =>
+            var filtros = (ViewModels.FiltrosViewModel)Resources["FiltrosVM"];
+            filtros.BuscarSolicitado += (_, __) =>
             {
-                if (e.NewValue is MapaViewModel vm)
-                {
-                    // Si necesitas reaccionar una sola vez a que el VM esté listo,
-                    // hazlo aquí (sin crear/obtener otra instancia).
-                }
+                // Aquí puedes leer filtros.PalabraClave/Desde/Hasta
+                // y reaccionar en el mapa (añadir luego logic).
             };
         }
     }

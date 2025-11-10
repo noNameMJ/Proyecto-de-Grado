@@ -4,34 +4,62 @@
              xmlns:views="clr-namespace:Geomatica.Desktop.Views">
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="280" />
-            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="Auto"/>
+            <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- Barra de filtros (se conserva) -->
-        <views:BarraFiltrosView Grid.Row="0" Grid.Column="0"
-                            DataContext="{Binding Filtros}" />
+        <!-- Barra de ruta -->
+        <!--<DockPanel Grid.Row="0" Grid.ColumnSpan="2" Margin="8">
+            <TextBlock Text="Ruta:" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <TextBox Text="{Binding RutaActual, UpdateSourceTrigger=PropertyChanged}" MinWidth="400"/>
+            <Button Content="Ir" Margin="8,0,0,0" Command="{Binding IrCommand}"/>
+            <Button Content="Arriba" Margin="8,0,0,0" Command="{Binding ArribaCommand}"/>
+            <Button Content="Actualizar" Margin="8,0,0,0" Command="{Binding RefrescarCommand}"/>
+        </DockPanel>-->
 
-        <!-- Lista de proyectos -->
-        <ListView Grid.Row="0" Grid.Column="1"
-              ItemsSource="{Binding Items}"
-              SelectedItem="{Binding SelectedItem, Mode=TwoWay}">
-            <ListView.View>
-                <GridView>
-                    <GridViewColumn Header="Título" DisplayMemberBinding="{Binding Nombre}" />
-                    <GridViewColumn Header="Fecha"  DisplayMemberBinding="{Binding Fecha}" />
-                    <GridViewColumn Header="Dpto"   DisplayMemberBinding="{Binding CodDpto}" />
-                    <GridViewColumn Header="Mpio"   DisplayMemberBinding="{Binding CodMpio}" />
-                </GridView>
-            </ListView.View>
-        </ListView>
+        <!-- Barra de filtros compartida -->
+        <views:BarraFiltrosView Grid.Row="1" Grid.Column="0"
+                             DataContext="{Binding Filtros}"/>
 
-        <!-- Estado -->
-        <TextBlock Grid.Row="1" Grid.ColumnSpan="2"
-               Text="{Binding Estado}" Margin="8" />
+        <!-- Lista y árbol -->
+        <Grid Grid.Row="1" Grid.Column="1">
+            <!--<Grid.ColumnDefinitions>
+                <ColumnDefinition Width="280"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>-->
+
+            <!-- Árbol de carpetas -->
+            <!--<TreeView Grid.Column="0" ItemsSource="{Binding Carpetas}" SelectedItemChanged="TreeView_SelectedItemChanged">
+                <TreeView.ItemTemplate>
+                    <HierarchicalDataTemplate ItemsSource="{Binding Hijas}">
+                        <TextBlock Text="{Binding Nombre}"/>
+                    </HierarchicalDataTemplate>
+                </TreeView.ItemTemplate>
+            </TreeView>-->
+
+            <!-- Lista de archivos -->
+            <ListView ItemsSource="{Binding Archivos}" SelectedItem="{Binding Seleccionado, Mode=TwoWay}">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="Nombre" DisplayMemberBinding="{Binding Nombre}" Width="300"/>
+                        <GridViewColumn Header="Tamaño" DisplayMemberBinding="{Binding Tamano}"/>
+                        <GridViewColumn Header="Fecha" DisplayMemberBinding="{Binding Fecha}"/>
+                        <GridViewColumn Header="Tipo" DisplayMemberBinding="{Binding Tipo}"/>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </Grid>
+
+        <!-- Barra inferior -->
+        <StackPanel Grid.Row="2" Grid.Column="2" Orientation="Horizontal" Margin="8">
+            <Button Content="Abrir" Command="{Binding AbrirCommand}"/>
+            <Button Content="Eliminar" Margin="8,0,0,0" Command="{Binding EliminarCommand}"/>
+            <TextBlock Text="{Binding Estado}" Margin="12,0,0,0" VerticalAlignment="Center"/>
+        </StackPanel>
     </Grid>
 </UserControl>

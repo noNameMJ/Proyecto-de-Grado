@@ -1,47 +1,28 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 
 namespace Geomatica.Desktop.ViewModels
 {
-    public partial class FiltrosViewModel : INotifyPropertyChanged
+    public partial class FiltrosViewModel : ObservableObject
     {
-        private string? _areaWkt;
-        private DateTime? _desde;
-        private DateTime? _hasta;
-        private string? _palabraClave;
+        [ObservableProperty] private string? palabraClave;
+        [ObservableProperty] private DateTime? desde;
+        [ObservableProperty] private DateTime? hasta;
+        [ObservableProperty] private object? areaInteres;
 
-        public string? AreaWkt
-        {
-            get => _areaWkt;
-            set { _areaWkt = value; OnPropertyChanged(); }
-        }
+        public ObservableCollection<object> ResultadosResumen { get; } = new();
+        public ObservableCollection<object> ResultadosLista { get; } = new();
 
-        public DateTime? Desde
-        {
-            get => _desde;
-            set { _desde = value; OnPropertyChanged(); }
-        }
-
-        public DateTime? Hasta
-        {
-            get => _hasta;
-            set { _hasta = value; OnPropertyChanged(); }
-        }
-
-        public string? PalabraClave
-        {
-            get => _palabraClave;
-            set { _palabraClave = value; OnPropertyChanged(); }
-        }
+        public IRelayCommand BuscarCommand { get; }
+        public IRelayCommand DescargarCommand { get; }
 
         public event EventHandler? BuscarSolicitado;
-        public void DispararBuscar() => BuscarSolicitado?.Invoke(this, EventArgs.Empty);
 
-        public event PropertyChangedEventHandler? PropertyChanged;
-        protected void OnPropertyChanged([System.Runtime.CompilerServices.CallerMemberName] string? name = null)
-            => PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        public FiltrosViewModel()
+        {
+            BuscarCommand = new RelayCommand(() => BuscarSolicitado?.Invoke(this, EventArgs.Empty));
+            DescargarCommand = new RelayCommand(() => { /* placeholder */ });
+        }
     }
-
 }
