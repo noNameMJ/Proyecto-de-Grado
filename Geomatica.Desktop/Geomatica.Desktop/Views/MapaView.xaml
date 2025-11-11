@@ -5,7 +5,6 @@
              xmlns:vm="clr-namespace:Geomatica.Desktop.ViewModels"
              xmlns:views="clr-namespace:Geomatica.Desktop.Views">
     <UserControl.Resources>
-        <vm:MapaViewModel x:Key="MapaVM"/>
         <vm:FiltrosViewModel x:Key="FiltrosVM"/>
     </UserControl.Resources>
 
@@ -18,7 +17,23 @@
         <!-- Barra de filtros extraída -->
         <views:BarraFiltrosView Grid.Column="0" DataContext="{StaticResource FiltrosVM}"/>
 
-        <!-- Mapa enlazado a tu VM existente -->
-        <esri:MapView Grid.Column="1" x:Name="MainMapView" Map="{Binding Map, Source={StaticResource MapaVM}}"/>
+        <!-- Mapa enlazado a tu VM (DataContext) -->
+        <Grid Grid.Column="1">
+            <esri:MapView x:Name="controlMapView" Map="{Binding Map}" />
+
+            <!-- Botón Home (esquina inferior derecha) ligado al comando en el VM -->
+            <Button x:Name="HomeButton"
+                    Width="44" Height="44"
+                    FontSize="18"
+                    Content="🏠"
+                    ToolTip="Restaurar vista inicial"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Bottom"
+                    Margin="12"
+                    Command="{Binding HomeCommand}"
+                    Background="White"
+                    Opacity="0.9"
+                    />
+        </Grid>
     </Grid>
 </UserControl>

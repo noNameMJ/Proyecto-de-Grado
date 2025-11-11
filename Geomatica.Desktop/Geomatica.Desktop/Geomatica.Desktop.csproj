@@ -25,6 +25,7 @@
   <ItemGroup>
     <ProjectReference Include="..\Geomatica.AppCore\Geomatica.AppCore.csproj" />
     <ProjectReference Include="..\Geomatica.Domain\Geomatica.Domain.csproj" />
+    <ProjectReference Include="..\Geomatica.Data\Geomatica.Data.csproj" />
   </ItemGroup>
 
 </Project>

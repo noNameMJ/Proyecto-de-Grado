@@ -5,23 +5,39 @@ namespace Geomatica.Desktop.ViewModels
 {
     public partial class MainViewModel : ObservableObject
     {
-        [ObservableProperty] private object currentView;
+        [ObservableProperty] private object? currentView;
         public string CurrentViewName => CurrentView is MapaViewModel ? "Vista: Mapa" : "Vista: Archivos";
 
-        // Instancia compartida
-        public FiltrosViewModel Filtros { get; } = new();
+        public FiltrosViewModel Filtros { get; }
 
-        private readonly MapaViewModel _mapVM;
-        private readonly ArchivosViewModel _filesVM;
+        private readonly Func<MapaViewModel> _mapFactory;
+        private readonly Func<ArchivosViewModel> _filesFactory;
+        private MapaViewModel? _mapVM;
+        private ArchivosViewModel? _filesVM;
 
-        public MainViewModel()
+        public MainViewModel(FiltrosViewModel filtros, Func<MapaViewModel> mapFactory, Func<ArchivosViewModel> filesFactory)
         {
-            _mapVM = new MapaViewModel(Filtros);      // pasar filtros compartidos
-            _filesVM = new ArchivosViewModel(Filtros); // pasar filtros compartidos
-            currentView = _mapVM; // vista inicial
+            Filtros = filtros;
+            _mapFactory = mapFactory;
+            _filesFactory = filesFactory;
+            // No crear vistas aquí: se crearán bajo demanda.
+            currentView = null;
         }
 
-        [RelayCommand] private void ShowMapa() { CurrentView = _mapVM; OnPropertyChanged(nameof(CurrentViewName)); }
-        [RelayCommand] private void ShowArchivos() { CurrentView = _filesVM; OnPropertyChanged(nameof(CurrentViewName)); }
+        [RelayCommand]
+        private void ShowMapa()
+        {
+            _mapVM ??= _mapFactory();
+            CurrentView = _mapVM;
+            OnPropertyChanged(nameof(CurrentViewName));
+        }
+
+        [RelayCommand]
+        private void ShowArchivos()
+        {
+            _filesVM ??= _filesFactory();
+            CurrentView = _filesVM;
+            OnPropertyChanged(nameof(CurrentViewName));
+        }
     }
 }

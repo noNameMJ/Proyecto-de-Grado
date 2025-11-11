@@ -1,62 +1,135 @@
 ﻿using Geomatica.Domain.Entities;
 using Geomatica.Domain.Interfaces.Repositories;
 using Npgsql;
+using NpgsqlTypes;
 using System.Text;
+using System.Diagnostics;
 
-public class ProyectoRepository : IProyectoRepository
+namespace Geomatica.Data.Repositories
 {
-    private readonly string _cs;
-    public ProyectoRepository(string connectionString) => _cs = connectionString;
-
-    public async Task<IReadOnlyList<ProyectoGeomatico>> BuscarAsync(
-        string? texto, DateTime? desde, DateTime? hasta,
-        double? minX, double? minY, double? maxX, double? maxY,
-        CancellationToken ct = default)
+    public interface IProyectoRepository
     {
-        await using var conn = new NpgsqlConnection(_cs);
-        await conn.OpenAsync(ct);
-        var cmd = conn.CreateCommand();
-        var sb = new StringBuilder(@"
-            SELECT id, titulo, fecha, palabras_clave, responsable, ruta_archivos, tipo_recurso,
-                   ST_XMin(geom) AS minx, ST_YMin(geom) AS miny,
-                   ST_XMax(geom) AS maxx, ST_YMax(geom) AS maxy
-            FROM proyectos_geom
-            WHERE 1=1 ");
+        Task<IReadOnlyList<ProyectoDto>> ListarAsync(DateTime? desde = null, DateTime? hasta = null, string? keyword = null, string? areaJson = null);
+        Task<IReadOnlyList<string>> ObtenerCodigosMunicipioAsync(IReadOnlyList<int> idsProyecto);
+    }
 
-        if (!string.IsNullOrWhiteSpace(texto))
-        { sb.Append(" AND (unaccent(lower(titulo)) LIKE unaccent(lower(@q)) OR unaccent(lower(palabras_clave)) LIKE unaccent(lower(@q))) "); cmd.Parameters.AddWithValue("q", $"%{texto}%"); }
-        if (desde.HasValue) { sb.Append(" AND fecha >= @desde "); cmd.Parameters.AddWithValue("desde", desde.Value); }
-        if (hasta.HasValue) { sb.Append(" AND fecha <= @hasta "); cmd.Parameters.AddWithValue("hasta", hasta.Value); }
-        if (minX.HasValue && minY.HasValue && maxX.HasValue && maxY.HasValue)
-        {
-            sb.Append(" AND ST_Intersects(geom, ST_MakeEnvelope(@minx,@miny,@maxx,@maxy, 4326)) ");
-            cmd.Parameters.AddWithValue("minx", minX.Value);
-            cmd.Parameters.AddWithValue("miny", minY.Value);
-            cmd.Parameters.AddWithValue("maxx", maxX.Value);
-            cmd.Parameters.AddWithValue("maxy", maxY.Value);
-        }
-        sb.Append(" ORDER BY fecha DESC LIMIT 200; ");
-        cmd.CommandText = sb.ToString();
+    public sealed record ProyectoDto(int Id, string Titulo, double Lon, double Lat, string? RutaArchivos);
 
-        var list = new List<ProyectoGeomatico>();
-        await using var reader = await cmd.ExecuteReaderAsync(ct);
-        while (await reader.ReadAsync(ct))
+    public sealed class ProyectoRepository : IProyectoRepository
+    {
+        private readonly string _cn;
+        public ProyectoRepository(string connectionString) => _cn = connectionString;
+
+        public async Task<IReadOnlyList<ProyectoDto>> ListarAsync(DateTime? desde = null, DateTime? hasta = null, string? keyword = null, string? areaJson = null)
         {
-            list.Add(new ProyectoGeomatico
+            const string sql = @"
+                SELECT p.id_proyecto, p.titulo,
+                       ST_X(p.geom) AS lon, ST_Y(p.geom) AS lat,
+                       p.ruta_archivos
+                FROM geovisor.proyecto p
+                WHERE (@desde IS NULL OR p.fecha >= @desde)
+                  AND (@hasta IS NULL OR p.fecha <= @hasta)
+                  AND (@kw IS NULL OR p.palabra_clave ILIKE '%'||@kw||'%')
+                  AND (
+                      @area IS NULL
+                      OR ST_Intersects(
+                          p.geom,
+                          ST_SetSRID(ST_GeomFromGeoJSON(@area),4686)
+                      )
+                  )
+                ORDER BY p.fecha NULLS LAST, p.id_proyecto;";
+
+            var builder = new NpgsqlConnectionStringBuilder(_cn);
+            Debug.WriteLine($"[ProyectoRepository] Conectando a Postgres Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}");
+
+            using var con = new NpgsqlConnection(_cn);
+            try
             {
-                Id = reader.GetGuid(0),
-                Titulo = reader.GetString(1),
-                Fecha = reader.GetDateTime(2),
-                PalabrasClave = reader.GetString(3),
-                Responsable = reader.GetString(4),
-                RutaArchivos = reader.GetString(5),
-                TipoRecurso = reader.GetString(6),
-                MinX = reader.GetDouble(7),
-                MinY = reader.GetDouble(8),
-                MaxX = reader.GetDouble(9),
-                MaxY = reader.GetDouble(10)
-            });
+                await con.OpenAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error abriendo conexión: {ex}");
+                Debug.WriteLine($"[ProyectoRepository] Connection target: Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}");
+                throw;
+            }
+
+            using var cmd = new NpgsqlCommand(sql, con);
+            cmd.Parameters.AddWithValue("@desde", (object?)desde ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@hasta", (object?)hasta ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@kw", (object?)keyword ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("@area", (object?)areaJson ?? DBNull.Value);
+
+            try
+            {
+                var list = new List<ProyectoDto>();
+                using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync())
+                {
+                    list.Add(new ProyectoDto(
+                        rd.GetInt32(0),
+                        rd.GetString(1),
+                        rd.IsDBNull(2) ?0 : rd.GetDouble(2),
+                        rd.IsDBNull(3) ?0 : rd.GetDouble(3),
+                        rd.IsDBNull(4) ? null : rd.GetString(4)
+                    ));
+                }
+                return list;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error ejecutando consulta: {ex}");
+                Debug.WriteLine($"[ProyectoRepository] SQL: {cmd.CommandText}");
+                if (cmd.Parameters != null && cmd.Parameters.Count >0)
+                {
+                    foreach (NpgsqlParameter p in cmd.Parameters)
+                    {
+                        Debug.WriteLine($"[ProyectoRepository] Param: {p.ParameterName} = {p.Value}");
+                    }
+                }
+                throw;
+            }
         }
-        return list;
+
+        public async Task<IReadOnlyList<string>> ObtenerCodigosMunicipioAsync(IReadOnlyList<int> idsProyecto)
+        {
+            if (idsProyecto == null || idsProyecto.Count ==0) return Array.Empty<string>();
+
+            const string sql = @"
+                SELECT DISTINCT TRIM(pm.mpio_cdpmp) AS mpio
+                FROM geovisor.proyecto_municipio pm
+                WHERE pm.id_proyecto = ANY(@ids);";
+
+            var builder = new NpgsqlConnectionStringBuilder(_cn);
+            Debug.WriteLine($"[ProyectoRepository] Conectando a Postgres Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}");
+
+            using var con = new NpgsqlConnection(_cn);
+            try
+            {
+                await con.OpenAsync();
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error abriendo conexión (ObtenerCodigosMunicipioAsync): {ex}");
+                throw;
+            }
+
+            using var cmd = new NpgsqlCommand(sql, con);
+            cmd.Parameters.Add("@ids", NpgsqlDbType.Array | NpgsqlDbType.Integer).Value = idsProyecto.ToArray();
+
+            try
+            {
+                var list = new List<string>();
+                using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync()) list.Add(rd.GetString(0));
+                return list;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error ejecutando consulta (ObtenerCodigosMunicipioAsync): {ex}");
+                Debug.WriteLine($"[ProyectoRepository] SQL: {cmd.CommandText}");
+                throw;
+            }
+        }
     }
 }
