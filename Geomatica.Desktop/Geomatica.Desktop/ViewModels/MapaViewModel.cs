@@ -7,6 +7,9 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using CommunityToolkit.Mvvm.Input;
 using System;
+using System.Windows;
+using System.Linq;
+using System.Collections.Generic;
 
 namespace Geomatica.Desktop.ViewModels
 {
@@ -71,6 +74,8 @@ namespace Geomatica.Desktop.ViewModels
 
  private async Task CargarCapasAsync()
  {
+ try
+ {
  _layerMunicipios = await CrearCapaMunicipiosAsync();
  _layerProyectos = await CrearCapaProyectosAsync();
 
@@ -79,7 +84,54 @@ namespace Geomatica.Desktop.ViewModels
 
  await _layerMunicipios.LoadAsync();
  await _layerProyectos.LoadAsync();
+
+ // After layers are loaded, try to zoom to the projects extent (fallback to municipios)
+ try
+ {
+ var extent = _layerProyectos.FullExtent ?? _layerMunicipios.FullExtent;
+ if (extent != null)
+ {
+ // Set LastViewpoint so the view can pick it up when attaching
+ LastViewpoint = new Viewpoint(extent);
+ // Notify Map change so the view handler will reassign the Map and apply LastViewpoint
+ OnPropertyChanged(nameof(Map));
  }
+ }
+ catch (Exception ex)
+ {
+ System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error al calcular extent/zoom: {ex}");
+ }
+ }
+ catch (Exception ex)
+ {
+ System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error en CargarCapasAsync: {ex}");
+ }
+ }
+
+ public async Task CargarResultadosAsync()
+ {
+ try
+ {
+ var items = await _proyectos.ListarAsync();
+ // Ensure UI thread update
+ await Application.Current.Dispatcher.InvokeAsync(() =>
+ {
+ Filtros.ResultadosLista.Clear();
+ Filtros.ResultadosResumen.Clear();
+ foreach (var p in items)
+ {
+ Filtros.ResultadosLista.Add(new FiltrosViewModel.ProyectoItem(p.Id, p.Titulo, p.Lon, p.Lat, p.RutaArchivos));
+ }
+ Filtros.ResultadosResumen.Add($"{items.Count} proyectos");
+ foreach (var p in items.Take(5)) Filtros.ResultadosResumen.Add(p.Titulo);
+ });
+ }
+ catch (Exception ex)
+ {
+ System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error cargando resultados: {ex}");
+ }
+ }
+
  private async Task<FeatureLayer> CrearCapaProyectosAsync()
  {
  // Campos
@@ -110,12 +162,15 @@ namespace Geomatica.Desktop.ViewModels
  await table.AddFeatureAsync(feat);
  }
 
- // Capa con renderer
  var layer = new FeatureLayer(table)
  {
  Renderer = new SimpleRenderer(
  new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.OrangeRed,9))
  };
+
+ // Ensure map contains this layer
+ Map?.OperationalLayers.Add(layer);
+ OnPropertyChanged(nameof(Map));
  return layer;
  }
  private async Task<FeatureLayer> CrearCapaMunicipiosAsync()
@@ -150,6 +205,9 @@ namespace Geomatica.Desktop.ViewModels
  System.Drawing.Color.FromArgb(40,33,150,243),
  new SimpleLineSymbol(SimpleLineSymbolStyle.Solid,
  System.Drawing.Color.FromArgb(180,33,150,243),1.5f)));
+
+ Map?.OperationalLayers.Add(layer);
+ OnPropertyChanged(nameof(Map));
  return layer;
  }
 

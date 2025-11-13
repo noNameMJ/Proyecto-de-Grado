@@ -4,18 +4,14 @@
              xmlns:esri="http://schemas.esri.com/arcgis/runtime/2013"
              xmlns:vm="clr-namespace:Geomatica.Desktop.ViewModels"
              xmlns:views="clr-namespace:Geomatica.Desktop.Views">
-    <UserControl.Resources>
-        <vm:FiltrosViewModel x:Key="FiltrosVM"/>
-    </UserControl.Resources>
-
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="auto"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- Barra de filtros extraída -->
-        <views:BarraFiltrosView Grid.Column="0" DataContext="{StaticResource FiltrosVM}"/>
+        <!-- Barra de filtros: bind al Filtros del ViewModel (no resource local) -->
+        <views:BarraFiltrosView Grid.Column="0" DataContext="{Binding Filtros}"/>
 
         <!-- Mapa enlazado a tu VM (DataContext) -->
         <Grid Grid.Column="1">

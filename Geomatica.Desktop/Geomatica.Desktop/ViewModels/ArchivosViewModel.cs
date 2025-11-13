@@ -2,13 +2,18 @@
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
 using System.IO;
+using System.Linq;
 
 namespace Geomatica.Desktop.ViewModels
 {
     public class CarpetaNode
     {
         public string Ruta { get; set; } = "";
-        public string Nombre => Path.GetFileName(Ruta);
+        public string Nombre => Path.GetFileName(Ruta.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) switch
+        {
+            "" => Ruta, // root
+            var n => n
+        };
         public ObservableCollection<CarpetaNode> Hijas { get; } = new();
     }
 
@@ -30,6 +35,9 @@ namespace Geomatica.Desktop.ViewModels
         public ObservableCollection<CarpetaNode> Carpetas { get; } = new();
         public ObservableCollection<ArchivoItem> Archivos { get; } = new();
 
+        // New combined items collection for Explorer-like view
+        public ObservableCollection<object> Items { get; } = new();
+
         [ObservableProperty] private ArchivoItem? seleccionado;
         [ObservableProperty] private string estado = "";
 
@@ -45,27 +53,48 @@ namespace Geomatica.Desktop.ViewModels
         // EXISTENTE: compatibilidad
         public ArchivosViewModel() : this(new FiltrosViewModel()) { }
 
+        // Rebuild tree when RutaActual changes
+        partial void OnRutaActualChanged(string value)
+        {
+            ConstruirArbolRaiz();
+            RefrescarSegunFiltros();
+        }
+
         private void ConstruirArbolRaiz()
         {
             Carpetas.Clear();
-            foreach (var unidad in DriveInfo.GetDrives().Where(d => d.IsReady))
+            try
             {
-                var nodo = new CarpetaNode { Ruta = unidad.RootDirectory.FullName };
-                CargarHijas(nodo, nivel: 1);
-                Carpetas.Add(nodo);
+                if (!string.IsNullOrWhiteSpace(RutaActual) && Directory.Exists(RutaActual))
+                {
+                    var nodo = new CarpetaNode { Ruta = RutaActual };
+                    CargarHijas(nodo, nivel:1);
+                    Carpetas.Add(nodo);
+                }
+                else
+                {
+                    // fallback: show logical drives (minimal)
+                    foreach (var unidad in DriveInfo.GetDrives().Where(d => d.IsReady))
+                    {
+                        var nodo = new CarpetaNode { Ruta = unidad.RootDirectory.FullName };
+                        CargarHijas(nodo, nivel:1);
+                        Carpetas.Add(nodo);
+                    }
+                }
             }
+            catch { }
         }
 
         private void CargarHijas(CarpetaNode nodo, int nivel)
         {
-            if (nivel > 2) return;
+            if (nivel >3) return; // limit depth
             try
             {
                 foreach (var dir in Directory.EnumerateDirectories(nodo.Ruta))
                 {
                     var child = new CarpetaNode { Ruta = dir };
                     nodo.Hijas.Add(child);
-                    CargarHijas(child, nivel + 1);
+                    CargarHijas(child, nivel +1);
                 }
             }
             catch { }
@@ -79,32 +108,54 @@ namespace Geomatica.Desktop.ViewModels
         private void RefrescarSegunFiltros()
         {
             Archivos.Clear();
+            Items.Clear();
             try
             {
-                IEnumerable<string> files = Directory.Exists(RutaActual)
-                    ? Directory.EnumerateFiles(RutaActual)
-                    : Enumerable.Empty<string>();
-
-                if (!string.IsNullOrWhiteSpace(_filtros?.PalabraClave))
-                    files = files.Where(f => Path.GetFileName(f)
-                               .Contains(_filtros.PalabraClave!, StringComparison.OrdinalIgnoreCase));
-
-                foreach (var f in files)
+                if (!string.IsNullOrWhiteSpace(RutaActual) && Directory.Exists(RutaActual))
                 {
-                    var fi = new FileInfo(f);
-                    if (_filtros?.Desde is DateTime d1 && fi.LastWriteTime < d1) continue;
-                    if (_filtros?.Hasta is DateTime d2 && fi.LastWriteTime > d2) continue;
-
-                    Archivos.Add(new ArchivoItem
+                    // add subfolders first
+                    IEnumerable<string> dirs = Directory.EnumerateDirectories(RutaActual);
+                    foreach (var d in dirs)
                     {
-                        Nombre = fi.Name,
-                        Tipo = fi.Extension,
-                        Tamano = $"{fi.Length / 1024.0:0.0} KB",
-                        Fecha = fi.LastWriteTime,
-                        RutaCompleta = fi.FullName
-                    });
+                        var node = new CarpetaNode { Ruta = d };
+                        Items.Add(node);
+                    }
+
+                    // then files
+                    IEnumerable<string> files = Directory.EnumerateFiles(RutaActual);
+
+                    if (!string.IsNullOrWhiteSpace(_filtros?.PalabraClave))
+                        files = files.Where(f => Path.GetFileName(f).Contains(_filtros.PalabraClave!, StringComparison.OrdinalIgnoreCase));
+
+                    foreach (var f in files)
+                    {
+                        var fi = new FileInfo(f);
+                        if (_filtros?.Desde is DateTime d1 && fi.LastWriteTime < d1) continue;
+                        if (_filtros?.Hasta is DateTime d2 && fi.LastWriteTime > d2) continue;
+
+                        var item = new ArchivoItem
+                        {
+                            Nombre = fi.Name,
+                            Tipo = fi.Extension,
+                            Tamano = $"{fi.Length /1024.0:0.0} KB",
+                            Fecha = fi.LastWriteTime,
+                            RutaCompleta = fi.FullName
+                        };
+                        Archivos.Add(item);
+                        Items.Add(item);
+                    }
+                    Estado = $"{Items.Count} elementos";
                 }
-                Estado = $"{Archivos.Count} elementos";
+                else
+                {
+                    // fallback: show drives
+                    foreach (var unidad in DriveInfo.GetDrives().Where(d => d.IsReady))
+                    {
+                        var node = new CarpetaNode { Ruta = unidad.RootDirectory.FullName };
+                        Items.Add(node);
+                    }
+                    Estado = $"{Items.Count} elementos";
+                }
             }
             catch (Exception ex) { Estado = ex.Message; }
         }

@@ -1,24 +1,121 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using System.Windows;
 using Esri.ArcGISRuntime;
 using Geomatica.Data.Repositories;
 using Geomatica.Desktop.ViewModels;
+using Npgsql;
+using System.Diagnostics;
 
 namespace Geomatica.Desktop
 {
     public partial class App : Application
     {
+        private IServiceProvider? _serviceProvider;
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
             var apiKey = Environment.GetEnvironmentVariable("ArcGIS_ApiKey");
             Esri.ArcGISRuntime.ArcGISRuntimeEnvironment.ApiKey = apiKey;
 
+            // Load configuration from environment variables and user secrets
+            var config = new ConfigurationBuilder()
+                .AddEnvironmentVariables()
+                .AddUserSecrets<App>()
+                .Build();
+
             // Configure DI
             var services = new ServiceCollection();
 
-            // Repositories: provide connection string from environment or default
-            var cs = Environment.GetEnvironmentVariable("GEOMATICA_CONNECTION") ?? "";
+            // Repositories: prefer a full connection string from config, otherwise build one
+            var cs = config["GEOMATICA_CONNECTION"] ?? string.Empty;
+            if (string.IsNullOrWhiteSpace(cs))
+            {
+                var host = config["GEOMATICA_DB_HOST"] ?? "localhost";
+                var port = int.TryParse(config["GEOMATICA_DB_PORT"], out var p) ? p :5432;
+                var db = config["GEOMATICA_DB_NAME"] ?? "geovisor";
+                var user = config["GEOMATICA_DB_USER"] ?? "postgres";
+                var pass = config["GEOMATICA_DB_PASS"] ?? string.Empty; // read from user secrets ideally
+
+                var builder = new NpgsqlConnectionStringBuilder
+                {
+                    Host = host,
+                    Port = port,
+                    Database = db,
+                    Username = user,
+                    Password = pass,
+                    Pooling = true
+                };
+                cs = builder.ConnectionString;
+            }
+
+            // Test DB connection early to provide clear feedback
+            var dbOk = false;
+            try
+            {
+                using var testCon = new NpgsqlConnection(cs);
+                testCon.Open();
+                testCon.Close();
+                Debug.WriteLine("[App] Conexión a Postgres OK.");
+                dbOk = true;
+            }
+            catch (Exception ex)
+            {
+                var msg = $"No se pudo conectar a la base de datos Postgres.\n\nTarget: Host=localhost:5432, Schema=geovisor (revisa user secrets o variables GEOMATICA_CONNECTION / GEOMATICA_DB_* )\n\nError: {ex.Message}\n\nLa aplicación continuará, pero algunas funcionalidades podrán fallar.";
+                MessageBox.Show(msg, "Error conexión Postgres", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Debug.WriteLine($"[App] Error conexión Postgres: {ex}");
+            }
+
+            // If DB connected, verify required tables exist in schema 'geovisor'
+            if (dbOk)
+            {
+                try
+                {
+                    using var con = new NpgsqlConnection(cs);
+                    con.Open();
+
+                    var requiredTables = new[] { "proyecto", "municipio" };
+                    var missing = new List<string>();
+
+                    foreach (var tbl in requiredTables)
+                    {
+                        using var cmd = new NpgsqlCommand(
+                            "SELECT EXISTS(SELECT1 FROM information_schema.tables WHERE table_schema = 'geovisor' AND table_name = @t);",
+                            con);
+                        cmd.Parameters.AddWithValue("@t", tbl);
+                        var exists = (bool)cmd.ExecuteScalar();
+                        if (!exists) missing.Add(tbl);
+                    }
+
+                    if (missing.Count >0)
+                    {
+                        var msg = $"La base de datos existe pero faltan tablas en el esquema 'geovisor': {string.Join(", ", missing)}.\n\nVerifica que la migración/creación de tablas se haya ejecutado.";
+                        MessageBox.Show(msg, "Tablas faltantes", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        Debug.WriteLine($"[App] Tablas faltantes en geovisor: {string.Join(",", missing)}");
+                    }
+
+                    // New: count projects and show quick verification
+                    try
+                    {
+                        using var cntCmd = new NpgsqlCommand("SELECT COUNT(*) FROM geovisor.proyecto;", con);
+                        var cntObj = cntCmd.ExecuteScalar();
+                        var count = cntObj == null || cntObj == DBNull.Value ?0L : Convert.ToInt64(cntObj);
+                        Debug.WriteLine($"[App] Proyectos en geovisor.proyecto: {count}");
+                        MessageBox.Show($"Proyectos en geovisor.proyecto: {count}", "Proyectos encontrados", MessageBoxButton.OK, MessageBoxImage.Information);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[App] Error contando proyectos: {ex}");
+                    }
+
+                    con.Close();
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[App] Error verificando tablas: {ex}");
+                }
+            }
+
             services.AddSingleton<IProyectoRepository>(sp => new ProyectoRepository(cs));
             services.AddSingleton<IMunicipioRepository>(sp => new MunicipioRepository(cs));
 
@@ -37,22 +134,21 @@ namespace Geomatica.Desktop
 
             services.AddSingleton<MainWindow>();
 
-            var provider = services.BuildServiceProvider();
+            _serviceProvider = services.BuildServiceProvider();
+            Application.Current.Properties["ServiceProvider"] = _serviceProvider;
 
-            var main = provider.GetRequiredService<MainWindow>();
-            var mainVm = provider.GetRequiredService<MainViewModel>();
+            var main = _serviceProvider.GetRequiredService<MainWindow>();
+            var mainVm = _serviceProvider.GetRequiredService<MainViewModel>();
             main.DataContext = mainVm;
 
             // Show the initial map view at startup by executing the generated command
-            // (this will create the MapaViewModel via the factory and set CurrentView)
             try
             {
                 mainVm.ShowMapaCommand.Execute(null);
             }
             catch (System.Exception ex)
             {
-                // Si hay error en la inicialización, loguear o mostrar estado mínimo
-                System.Diagnostics.Debug.WriteLine($"Error inicializando vista de mapa: {ex}");
+                Debug.WriteLine($"Error inicializando vista de mapa: {ex}");
             }
 
             main.Show();

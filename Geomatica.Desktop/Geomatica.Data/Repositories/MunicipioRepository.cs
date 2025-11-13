@@ -10,10 +10,14 @@ namespace Geomatica.Data.Repositories
  Task<IReadOnlyList<MunicipioGeoJsonDto>> TodosGeoJsonAsync(int? limit = null); // para carga base
  Task<EnvelopeDto?> ExtentPorDepartamentoAsync(string dptoCcdgo); // dpto_ccdgo '68'
  Task<EnvelopeDto?> ExtentPorMunicipiosAsync(IReadOnlyList<string> codigos); // bbox combinado
+
+ // Nuevo: listar departamentos
+ Task<IReadOnlyList<DepartamentoDto>> ListarDepartamentosAsync();
  }
 
  public sealed record MunicipioGeoJsonDto(string Codigo, string Nombre, string GeoJson);
  public sealed record EnvelopeDto(double West, double South, double East, double North);
+ public sealed record DepartamentoDto(string Codigo, string Nombre);
 
  public sealed class MunicipioRepository : IMunicipioRepository
  {
@@ -95,6 +99,37 @@ namespace Geomatica.Data.Repositories
  rd.IsDBNull(1) ? "" : rd.GetString(1),
  rd.GetString(2)
 ));
+ }
+ return list;
+ }
+
+ public async Task<IReadOnlyList<DepartamentoDto>> ListarDepartamentosAsync()
+ {
+ const string sql = @"
+ SELECT TRIM(d.dpto_ccdgo) AS codigo, d.dpto_cnmbr AS nombre
+ FROM geovisor.departamento d
+ ORDER BY d.dpto_cnmbr;";
+
+ var builder = new NpgsqlConnectionStringBuilder(_cn);
+ Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}");
+
+ using var con = new NpgsqlConnection(_cn);
+ try
+ {
+ await con.OpenAsync();
+ }
+ catch (Exception ex)
+ {
+ Debug.WriteLine($"[MunicipioRepository] Error abriendo conexión (ListarDepartamentosAsync): {ex}");
+ throw;
+ }
+
+ using var cmd = new NpgsqlCommand(sql, con);
+ var list = new List<DepartamentoDto>();
+ using var rd = await cmd.ExecuteReaderAsync();
+ while (await rd.ReadAsync())
+ {
+ list.Add(new DepartamentoDto(rd.IsDBNull(0)?"":rd.GetString(0), rd.IsDBNull(1)?"":rd.GetString(1)));
  }
  return list;
  }

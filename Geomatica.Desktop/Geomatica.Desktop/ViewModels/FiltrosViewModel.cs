@@ -10,6 +10,9 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty] private DateTime? desde;
         [ObservableProperty] private DateTime? hasta;
         [ObservableProperty] private object? areaInteres;
+        [ObservableProperty] private ProyectoItem? selectedProyecto;
+
+        public ObservableCollection<object> Areas { get; } = new();
 
         public ObservableCollection<object> ResultadosResumen { get; } = new();
         public ObservableCollection<object> ResultadosLista { get; } = new();
@@ -23,6 +26,16 @@ namespace Geomatica.Desktop.ViewModels
         {
             BuscarCommand = new RelayCommand(() => BuscarSolicitado?.Invoke(this, EventArgs.Empty));
             DescargarCommand = new RelayCommand(() => { /* placeholder */ });
+        }
+
+        public record DepartamentoItem(string Codigo, string Nombre)
+        {
+            public override string ToString() => Nombre;
+        }
+
+        public record ProyectoItem(int Id, string Titulo, double Lon, double Lat, string? Ruta)
+        {
+            public override string ToString() => Titulo;
         }
     }
 }

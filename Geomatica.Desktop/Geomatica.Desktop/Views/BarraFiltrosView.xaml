@@ -13,13 +13,13 @@
         </StackPanel>
 
         <TextBlock Text="Área de interés"/>
-        <ComboBox SelectedItem="{Binding AreaInteres}" Margin="0,4,0,10"/>
+        <ComboBox ItemsSource="{Binding Areas}" SelectedItem="{Binding AreaInteres, Mode=TwoWay}" DisplayMemberPath="Nombre" SelectedValuePath="Codigo" Margin="0,4,0,10"/>
 
         <Button Content="Buscar" Command="{Binding BuscarCommand}" Height="34"/>
         <ListBox ItemsSource="{Binding ResultadosResumen}" Height="55"/>
         <Separator Margin="0,12,0,12"/>
         <TextBlock Text="Resultados" FontWeight="SemiBold"/>
-        <ListBox ItemsSource="{Binding ResultadosLista}" Height="195"/>
+        <ListBox ItemsSource="{Binding ResultadosLista}" SelectedItem="{Binding SelectedProyecto, Mode=TwoWay}" DisplayMemberPath="Titulo" Height="195"/>
         <Button Content="Descargar seleccionado" Command="{Binding DescargarCommand}" Height="32" Margin="0,10,0,0"/>
     </StackPanel>
 </UserControl>
