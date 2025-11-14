@@ -25,13 +25,13 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="280"/>
+            <ColumnDefinition Width="auto"/>
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <!-- Barra de filtros compartida -->
-        <views:BarraFiltrosView Grid.Row="1" Grid.Column="0"
-                             DataContext="{Binding Filtros}"/>
+        <!-- Barra de filtros compartida: occupy full left side -->
+        <views:BarraFiltrosView Grid.Row="0" Grid.RowSpan="3" Grid.Column="0"
+                             DataContext="{Binding Filtros}" VerticalAlignment="Stretch"/>
 
         <!-- Explorer-like pane: Up button + List -->
         <Grid Grid.Row="1" Grid.Column="1">
@@ -47,7 +47,7 @@
                 <TextBlock Text="{Binding RutaActual}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis"/>
             </StackPanel>
 
-            <ListView Grid.Row="1" ItemsSource="{Binding Items}" MouseDoubleClick="ListView_MouseDoubleClick" SelectedItem="{Binding Seleccionado, Mode=TwoWay}">
+            <ListView Grid.Row="1" ItemsSource="{Binding Items}" MouseDoubleClick="ListView_MouseDoubleClick" SelectedItem="{Binding SelectedEntry, Mode=TwoWay}">
                 <ListView.ItemTemplate>
                     <DataTemplate>
                         <ContentPresenter Content="{Binding}"/>

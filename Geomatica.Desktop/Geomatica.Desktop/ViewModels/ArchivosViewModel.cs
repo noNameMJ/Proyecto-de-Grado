@@ -39,6 +39,7 @@ namespace Geomatica.Desktop.ViewModels
         public ObservableCollection<object> Items { get; } = new();
 
         [ObservableProperty] private ArchivoItem? seleccionado;
+        [ObservableProperty] private object? selectedEntry;
         [ObservableProperty] private string estado = "";
 
         // NUEVO: ctor con filtros compartidos (opción B)
@@ -48,10 +49,28 @@ namespace Geomatica.Desktop.ViewModels
             _filtros.BuscarSolicitado += (_, __) => RefrescarSegunFiltros();
             ConstruirArbolRaiz();
             RefrescarSegunFiltros();
+
+            // subscribe to property changes to react to SelectedEntry
+            this.PropertyChanged += ArchivosViewModel_PropertyChanged;
         }
 
         // EXISTENTE: compatibilidad
         public ArchivosViewModel() : this(new FiltrosViewModel()) { }
+
+        private void ArchivosViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == "SelectedEntry")
+            {
+                if (selectedEntry is ArchivoItem ai)
+                {
+                    Seleccionado = ai;
+                }
+                else
+                {
+                    Seleccionado = null;
+                }
+            }
+        }
 
         // Rebuild tree when RutaActual changes
         partial void OnRutaActualChanged(string value)
