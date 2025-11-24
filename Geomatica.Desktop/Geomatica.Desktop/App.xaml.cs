@@ -121,7 +121,8 @@ namespace Geomatica.Desktop
 
             // ViewModels
             services.AddSingleton<FiltrosViewModel>();
-            services.AddTransient<MapaViewModel>(sp => new MapaViewModel(
+            // Keep a single MapaViewModel so its Map and layers are reused and not re-created on each view switch
+            services.AddSingleton<MapaViewModel>(sp => new MapaViewModel(
                 sp.GetRequiredService<IProyectoRepository>(),
                 sp.GetRequiredService<IMunicipioRepository>(),
                 sp.GetRequiredService<FiltrosViewModel>()));

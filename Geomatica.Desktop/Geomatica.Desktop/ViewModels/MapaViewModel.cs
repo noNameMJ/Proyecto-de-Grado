@@ -10,6 +10,7 @@ using System;
 using System.Windows;
 using System.Linq;
 using System.Collections.Generic;
+using Esri.ArcGISRuntime.UI.Controls;
 
 namespace Geomatica.Desktop.ViewModels
 {
@@ -22,6 +23,9 @@ namespace Geomatica.Desktop.ViewModels
  public FiltrosViewModel Filtros { get; }
  private FeatureLayer? _layerMunicipios;
  private FeatureLayer? _layerProyectos;
+
+ // Track the MapView that currently displays this Map to release ownership when re-attaching
+ private MapView? _ownerMapView;
 
  // Comando y evento para Home (MVVM)
  public IRelayCommand HomeCommand { get; }
@@ -40,9 +44,100 @@ namespace Geomatica.Desktop.ViewModels
  _ = CargarCapasAsync();
  }
 
- // Constructor existente (compatibilidad): crea filtros locales
- public MapaViewModel(IProyectoRepository proyectos, IMunicipioRepository municipios)
- : this(proyectos, municipios, new FiltrosViewModel()) { }
+ // Methods to attach/detach a MapView safely
+ public void AttachMapView(MapView mv)
+ {
+ // Ensure the MapView.Map assignment happens on the UI thread and completes before returning.
+ try
+ {
+ if (Application.Current == null)
+ {
+ // fallback: do the operation directly
+ DoAttach(mv);
+ return;
+ }
+
+ if (Application.Current.Dispatcher.CheckAccess())
+ {
+ DoAttach(mv);
+ }
+ else
+ {
+ Application.Current.Dispatcher.Invoke(() => DoAttach(mv));
+ }
+ }
+ catch (Exception ex)
+ {
+ System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error en AttachMapView: {ex}");
+ }
+ }
+
+ private void DoAttach(MapView mv)
+ {
+ if (_ownerMapView == mv) return;
+ // detach previous owner
+ if (_ownerMapView != null)
+ {
+ try { _ownerMapView.Map = null; } catch { }
+ }
+ _ownerMapView = mv;
+ if (_ownerMapView != null && _ownerMapView.Map != Map)
+ {
+ _ownerMapView.Map = Map;
+ }
+ }
+
+ public void DetachMapView(MapView mv)
+ {
+ try
+ {
+ if (Application.Current == null)
+ {
+ DoDetach(mv);
+ return;
+ }
+
+ if (Application.Current.Dispatcher.CheckAccess())
+ {
+ DoDetach(mv);
+ }
+ else
+ {
+ Application.Current.Dispatcher.Invoke(() => DoDetach(mv));
+ }
+ }
+ catch (Exception ex)
+ {
+ System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error en DetachMapView: {ex}");
+ }
+ }
+
+ private void DoDetach(MapView mv)
+ {
+ if (_ownerMapView == mv)
+ {
+ try
+ {
+ // Save current viewpoint so zoom/center can be restored later
+ try
+ {
+ var vp = mv.GetCurrentViewpoint(ViewpointType.CenterAndScale);
+ if (vp != null)
+ {
+ LastViewpoint = vp;
+ }
+ }
+ catch { }
+
+ try { _ownerMapView.Map = null; } catch { }
+ _ownerMapView = null;
+ }
+ catch (Exception ex)
+ {
+ System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error en DoDetach: {ex}");
+ }
+ }
+ }
 
  public event PropertyChangedEventHandler? PropertyChanged;
  protected void OnPropertyChanged([CallerMemberName] string name = "") =>
@@ -76,31 +171,25 @@ namespace Geomatica.Desktop.ViewModels
  {
  try
  {
+ // Create layers only once and reuse them to avoid ownership errors
+ if (_layerMunicipios == null)
  _layerMunicipios = await CrearCapaMunicipiosAsync();
+ if (_layerProyectos == null)
  _layerProyectos = await CrearCapaProyectosAsync();
 
- Map!.OperationalLayers.Add(_layerMunicipios);
- Map!.OperationalLayers.Add(_layerProyectos);
+ // Add layers only if they're not already in the map to avoid ownership errors
+ if (Map != null)
+ {
+ if (_layerMunicipios != null && !Map.OperationalLayers.Contains(_layerMunicipios))
+ Map.OperationalLayers.Add(_layerMunicipios);
+ if (_layerProyectos != null && !Map.OperationalLayers.Contains(_layerProyectos))
+ Map.OperationalLayers.Add(_layerProyectos);
+ }
 
+ if (_layerMunicipios != null && _layerMunicipios.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
  await _layerMunicipios.LoadAsync();
+ if (_layerProyectos != null && _layerProyectos.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
  await _layerProyectos.LoadAsync();
-
- // After layers are loaded, try to zoom to the projects extent (fallback to municipios)
- try
- {
- var extent = _layerProyectos.FullExtent ?? _layerMunicipios.FullExtent;
- if (extent != null)
- {
- // Set LastViewpoint so the view can pick it up when attaching
- LastViewpoint = new Viewpoint(extent);
- // Notify Map change so the view handler will reassign the Map and apply LastViewpoint
- OnPropertyChanged(nameof(Map));
- }
- }
- catch (Exception ex)
- {
- System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error al calcular extent/zoom: {ex}");
- }
  }
  catch (Exception ex)
  {
@@ -162,15 +251,12 @@ namespace Geomatica.Desktop.ViewModels
  await table.AddFeatureAsync(feat);
  }
 
+ // Capa con renderer
  var layer = new FeatureLayer(table)
  {
  Renderer = new SimpleRenderer(
  new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.OrangeRed,9))
  };
-
- // Ensure map contains this layer
- Map?.OperationalLayers.Add(layer);
- OnPropertyChanged(nameof(Map));
  return layer;
  }
  private async Task<FeatureLayer> CrearCapaMunicipiosAsync()
@@ -205,9 +291,6 @@ namespace Geomatica.Desktop.ViewModels
  System.Drawing.Color.FromArgb(40,33,150,243),
  new SimpleLineSymbol(SimpleLineSymbolStyle.Solid,
  System.Drawing.Color.FromArgb(180,33,150,243),1.5f)));
-
- Map?.OperationalLayers.Add(layer);
- OnPropertyChanged(nameof(Map));
  return layer;
  }
 

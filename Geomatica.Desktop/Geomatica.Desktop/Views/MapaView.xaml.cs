@@ -14,6 +14,7 @@ namespace Geomatica.Desktop.Views
     public partial class MapaView : UserControl
     {
         private ViewModels.MapaViewModel? _currentVm;
+        private MapView? _attachedMapView;
 
         public MapaView()
         {
@@ -34,6 +35,7 @@ namespace Geomatica.Desktop.Views
                 if (oldVm.Filtros != null)
                     oldVm.Filtros.BuscarSolicitado -= Filtros_BuscarSolicitado;
 
+                // Save current viewpoint if possible
                 if (mv != null && mv.Map == oldVm.Map)
                 {
                     try
@@ -45,8 +47,14 @@ namespace Geomatica.Desktop.Views
                         Debug.WriteLine($"[MapaView] No se pudo obtener viewpoint anterior: {ex}");
                     }
 
-                    // clear to avoid Map being owned by multiple MapViews
-                    mv.Map = null;
+                    // Do not detach here; Unloaded will call DetachMapView to release ownership.
+                }
+
+                // Unsubscribe viewpoint changed from previous attached mapview
+                if (_attachedMapView != null)
+                {
+                    try { _attachedMapView.ViewpointChanged -= AttachedMapView_ViewpointChanged; } catch { }
+                    _attachedMapView = null;
                 }
             }
 
@@ -58,20 +66,35 @@ namespace Geomatica.Desktop.Views
                 if (newVm.Filtros != null)
                     newVm.Filtros.BuscarSolicitado += Filtros_BuscarSolicitado;
 
-                // restore viewpoint if available
-                if (mv != null && newVm.LastViewpoint != null)
+                // Use the ViewModel to attach the MapView safely (it will detach any previous owner)
+                if (mv != null && newVm.Map != null)
                 {
-                    Dispatcher.InvokeAsync(async () =>
+                    try
                     {
-                        try
+                        newVm.AttachMapView(mv);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[MapaView] Error al AttachMapView: {ex}");
+                    }
+
+                    // After attaching, restore viewpoint once the Map/layers are ready
+                    _ = RestoreLastViewpointAsync(newVm, mv);
+
+                    // Subscribe to ViewpointChanged to persist viewpoint continuously
+                    try
+                    {
+                        if (_attachedMapView != mv)
                         {
-                            await mv.SetViewpointAsync(newVm.LastViewpoint);
+                            if (_attachedMapView != null) _attachedMapView.ViewpointChanged -= AttachedMapView_ViewpointChanged;
+                            _attachedMapView = mv;
+                            _attachedMapView.ViewpointChanged += AttachedMapView_ViewpointChanged;
                         }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine($"[MapaView] Error restaurando LastViewpoint: {ex}");
-                        }
-                    });
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[MapaView] Error suscribiendo ViewpointChanged: {ex}");
+                    }
                 }
 
                 // Load departamentos into filters Areas collection (refresh)
@@ -80,6 +103,24 @@ namespace Geomatica.Desktop.Views
                 // Load proyectos into filtros results so user can see them
                 _ = LoadProyectosAsync(newVm);
             }
+        }
+
+        private void AttachedMapView_ViewpointChanged(object? sender, System.EventArgs e)
+        {
+            try
+            {
+                var mv = sender as MapView;
+                if (mv == null) return;
+                if (DataContext is ViewModels.MapaViewModel vm)
+                {
+                    try
+                    {
+                        vm.LastViewpoint = mv.GetCurrentViewpoint(ViewpointType.CenterAndScale);
+                    }
+                    catch { }
+                }
+            }
+            catch { }
         }
 
         private void Filtros_BuscarSolicitado(object? sender, System.EventArgs e)
@@ -106,7 +147,7 @@ namespace Geomatica.Desktop.Views
                 if (vm.Filtros != null)
                     vm.Filtros.BuscarSolicitado -= Filtros_BuscarSolicitado;
 
-                if (mv != null && mv.Map == vm.Map)
+                if (mv != null && vm.Map != null)
                 {
                     try
                     {
@@ -117,12 +158,30 @@ namespace Geomatica.Desktop.Views
                         Debug.WriteLine($"[MapaView] No se pudo obtener viewpoint en Unloaded: {ex}");
                     }
 
-                    mv.Map = null;
+                    // Let the ViewModel detach ownership of this MapView
+                    try
+                    {
+                        vm.DetachMapView(mv);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[MapaView] Error al DetachMapView: {ex}");
+                        // As a fallback, clear the Map reference on the MapView
+                        try { mv.Map = null; } catch { }
+                    }
                 }
 
                 vm.PropertyChanged -= Vm_PropertyChanged;
                 vm.HomeRequested -= Vm_HomeRequested;
             }
+
+            // Unsubscribe viewpoint changed
+            if (_attachedMapView != null)
+            {
+                try { _attachedMapView.ViewpointChanged -= AttachedMapView_ViewpointChanged; } catch { }
+                _attachedMapView = null;
+            }
+
             _currentVm = null;
         }
 
@@ -135,20 +194,30 @@ namespace Geomatica.Desktop.Views
                     var mv = this.FindName("controlMapView") as MapView;
                     if (mv == null) return;
 
-                    // reasignar el Map (puede ser null o nuevo objeto)
-                    mv.Map = vm.Map;
-
-                    if (vm.LastViewpoint != null)
+                    // Ask the ViewModel to attach the MapView (will handle detaching previous owner)
+                    try
                     {
-                        try
+                        vm.AttachMapView(mv);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[MapaView] Error en Vm_PropertyChanged AttachMapView: {ex}");
+                    }
+
+                    // Restore viewpoint after attaching
+                    _ = RestoreLastViewpointAsync(vm, mv);
+
+                    // subscribe viewpoint changed
+                    try
+                    {
+                        if (_attachedMapView != mv)
                         {
-                            await mv.SetViewpointAsync(vm.LastViewpoint);
-                        }
-                        catch (Exception ex)
-                        {
-                            Debug.WriteLine($"[MapaView] Error restaurando LastViewpoint en PropertyChanged: {ex}");
+                            if (_attachedMapView != null) _attachedMapView.ViewpointChanged -= AttachedMapView_ViewpointChanged;
+                            _attachedMapView = mv;
+                            _attachedMapView.ViewpointChanged += AttachedMapView_ViewpointChanged;
                         }
                     }
+                    catch { }
                 });
             }
         }
@@ -168,6 +237,60 @@ namespace Geomatica.Desktop.Views
                 {
                     Debug.WriteLine($"[MapaView] Error al ejecutar HomeRequested: {ex}");
                 }
+            }
+        }
+
+        // Wait for map and layers to be ready, then restore LastViewpoint
+        private async Task RestoreLastViewpointAsync(ViewModels.MapaViewModel vm, MapView mv)
+        {
+            try
+            {
+                if (vm.LastViewpoint == null) return;
+
+                // Wait until Map is assigned and loaded
+                if (mv.Map == null)
+                {
+                    // small delay to allow attach to complete
+                    await Task.Delay(100);
+                }
+
+                if (mv.Map != null && mv.Map.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
+                {
+                    try { await mv.Map.LoadAsync(); } catch { }
+                }
+
+                // Also wait for layers to be loaded (if any)
+                if (mv.Map?.OperationalLayers != null)
+                {
+                    foreach (var lyr in mv.Map.OperationalLayers.OfType<Esri.ArcGISRuntime.Mapping.Layer>())
+                    {
+                        try
+                        {
+                            if (lyr.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
+                                await lyr.LoadAsync();
+                        }
+                        catch { }
+                    }
+                }
+
+                // Apply viewpoint (retry a few times since layers may change rendering)
+                for (int i = 0; i < 5; i++)
+                {
+                    try
+                    {
+                        await mv.SetViewpointAsync(vm.LastViewpoint);
+                        // short delay to let view update
+                        await Task.Delay(150);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[MapaView] Intento {i} fallo aplicando LastViewpoint: {ex}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[MapaView] Error en RestoreLastViewpointAsync: {ex}");
             }
         }
 

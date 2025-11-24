@@ -3,6 +3,12 @@ using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.Extensions.DependencyInjection;
+using Geomatica.Data.Repositories;
+using System;
+using System.Windows;
+using System.Collections.Generic;
 
 namespace Geomatica.Desktop.ViewModels
 {
@@ -31,7 +37,8 @@ namespace Geomatica.Desktop.ViewModels
         private FiltrosViewModel? _filtros;
         public FiltrosViewModel? Filtros => _filtros;
 
-        [ObservableProperty] private string rutaActual = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
+        // Cambiado: no seleccionar ninguna carpeta por defecto
+        [ObservableProperty] private string rutaActual = "";
         public ObservableCollection<CarpetaNode> Carpetas { get; } = new();
         public ObservableCollection<ArchivoItem> Archivos { get; } = new();
 
@@ -46,7 +53,11 @@ namespace Geomatica.Desktop.ViewModels
         public ArchivosViewModel(FiltrosViewModel filtros)
         {
             _filtros = filtros;
-            _filtros.BuscarSolicitado += (_, __) => RefrescarSegunFiltros();
+            // When user presses Buscar in the shared filtros view, refresh files and also load projects into the shared resultados
+            _filtros.BuscarSolicitado += async (_, __) => { RefrescarSegunFiltros(); await LoadProyectosIntoFiltrosAsync(); };
+            // react to project selection in the shared filtros viewmodel
+            _filtros.PropertyChanged += Filtros_PropertyChanged;
+
             ConstruirArbolRaiz();
             RefrescarSegunFiltros();
 
@@ -56,6 +67,30 @@ namespace Geomatica.Desktop.ViewModels
 
         // EXISTENTE: compatibilidad
         public ArchivosViewModel() : this(new FiltrosViewModel()) { }
+
+        private void Filtros_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(FiltrosViewModel.SelectedProyecto))
+            {
+                try
+                {
+                    if (_filtros?.SelectedProyecto is FiltrosViewModel.ProyectoItem p && !string.IsNullOrWhiteSpace(p.Ruta))
+                    {
+                        // Navigate to project's files
+                        RutaActual = p.Ruta!;
+                        RefrescarSegunFiltros();
+                    }
+                    else if (_filtros?.SelectedProyecto == null)
+                    {
+                        // when selection cleared, clear current view
+                        RutaActual = "";
+                        ConstruirArbolRaiz();
+                        RefrescarSegunFiltros();
+                    }
+                }
+                catch { }
+            }
+        }
 
         private void ArchivosViewModel_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
@@ -84,6 +119,12 @@ namespace Geomatica.Desktop.ViewModels
             Carpetas.Clear();
             try
             {
+                // If no rutaActual is set, do not populate drives or folders
+                if (string.IsNullOrWhiteSpace(RutaActual))
+                {
+                    return;
+                }
+
                 if (!string.IsNullOrWhiteSpace(RutaActual) && Directory.Exists(RutaActual))
                 {
                     var nodo = new CarpetaNode { Ruta = RutaActual };
@@ -92,13 +133,7 @@ namespace Geomatica.Desktop.ViewModels
                 }
                 else
                 {
-                    // fallback: show logical drives (minimal)
-                    foreach (var unidad in DriveInfo.GetDrives().Where(d => d.IsReady))
-                    {
-                        var nodo = new CarpetaNode { Ruta = unidad.RootDirectory.FullName };
-                        CargarHijas(nodo, nivel:1);
-                        Carpetas.Add(nodo);
-                    }
+                    // If provided RutaActual does not exist, keep Carpetas empty
                 }
             }
             catch { }
@@ -130,6 +165,13 @@ namespace Geomatica.Desktop.ViewModels
             Items.Clear();
             try
             {
+                // If no rutaActual is set, do not list drives or files
+                if (string.IsNullOrWhiteSpace(RutaActual))
+                {
+                    Estado = ""; // keep UI empty
+                    return;
+                }
+
                 if (!string.IsNullOrWhiteSpace(RutaActual) && Directory.Exists(RutaActual))
                 {
                     // add subfolders first
@@ -167,16 +209,60 @@ namespace Geomatica.Desktop.ViewModels
                 }
                 else
                 {
-                    // fallback: show drives
-                    foreach (var unidad in DriveInfo.GetDrives().Where(d => d.IsReady))
-                    {
-                        var node = new CarpetaNode { Ruta = unidad.RootDirectory.FullName };
-                        Items.Add(node);
-                    }
-                    Estado = $"{Items.Count} elementos";
+                    // RutaActual provided but doesn't exist: keep lists empty
+                    Estado = "";
                 }
             }
             catch (Exception ex) { Estado = ex.Message; }
+        }
+
+        private async Task LoadProyectosIntoFiltrosAsync()
+        {
+            try
+            {
+                if (_filtros == null) return;
+
+                IServiceProvider? provider = null;
+                if (Application.Current.Properties.Contains("ServiceProvider"))
+                    provider = Application.Current.Properties["ServiceProvider"] as IServiceProvider;
+
+                if (provider == null)
+                {
+                    return;
+                }
+
+                var repo = provider.GetService<IProyectoRepository>();
+                if (repo == null) return;
+
+                IEnumerable<ProyectoDto> items;
+
+                if (_filtros.AreaInteres is FiltrosViewModel.DepartamentoItem dept)
+                {
+                    items = await repo.ListarPorDepartamentoAsync(dept.Codigo, _filtros.Desde, _filtros.Hasta, _filtros.PalabraClave);
+                }
+                else
+                {
+                    items = await repo.ListarAsync(_filtros.Desde, _filtros.Hasta, _filtros.PalabraClave, null);
+                }
+
+                await Application.Current.Dispatcher.InvokeAsync(() =>
+                {
+                    _filtros.ResultadosLista.Clear();
+                    _filtros.ResultadosResumen.Clear();
+
+                    foreach (var p in items)
+                    {
+                        _filtros.ResultadosLista.Add(new FiltrosViewModel.ProyectoItem(p.Id, p.Titulo, p.Lon, p.Lat, p.RutaArchivos));
+                    }
+
+                    _filtros.ResultadosResumen.Add($"{items.Count()} proyectos");
+                    foreach (var p in items.Take(5)) _filtros.ResultadosResumen.Add(p.Titulo);
+                });
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ArchivosViewModel] Error cargando proyectos: {ex}");
+            }
         }
 
         [RelayCommand]
