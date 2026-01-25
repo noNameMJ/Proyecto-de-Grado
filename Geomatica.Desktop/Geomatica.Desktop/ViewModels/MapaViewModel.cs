@@ -158,14 +158,14 @@ namespace Geomatica.Desktop.ViewModels
  Map = map;
  }
  // Fallback para crear campos cuando no existen los helpers CreateXxx
- private static Field OID(string name)
- => Field.FromJson($"{{\"name\":\"{name}\",\"type\":\"esriFieldTypeOID\",\"alias\":\"{name}\"}}");
+    private static Field OID(string name)
+        => Field.FromJson($"{{\"name\":\"{name}\",\"type\":\"esriFieldTypeOID\",\"alias\":\"{name}\"}}")!;
 
- private static Field Int(string name, string? alias = null)
- => Field.FromJson($"{{\"name\":\"{name}\",\"type\":\"esriFieldTypeInteger\",\"alias\":\"{alias ?? name}\"}}");
+    private static Field Int(string name, string? alias = null)
+        => Field.FromJson($"{{\"name\":\"{name}\",\"type\":\"esriFieldTypeInteger\",\"alias\":\"{alias ?? name}\"}}")!;
 
- private static Field Str(string name, int length, string? alias = null)
- => Field.FromJson($"{{\"name\":\"{name}\",\"type\":\"esriFieldTypeString\",\"alias\":\"{alias ?? name}\",\"length\":{length}}}");
+    private static Field Str(string name, int length, string? alias = null)
+        => Field.FromJson($"{{\"name\":\"{name}\",\"type\":\"esriFieldTypeString\",\"alias\":\"{alias ?? name}\",\"length\":{length}}}")!;
 
  private async Task CargarCapasAsync()
  {
@@ -272,11 +272,14 @@ namespace Geomatica.Desktop.ViewModels
 
  var muni = await _municipios.TodosGeoJsonAsync();
  int oid =1;
- foreach (var m in muni)
- {
- var geom = (Geometry)Geometry.FromJson(m.GeoJson);
- var attrs = new Dictionary<string, object?>
- {
+
+            foreach (var m in muni)
+            {
+                var geom = Geometry.FromJson(m.GeoJson);
+                if (geom == null) continue;
+                
+                var attrs = new Dictionary<string, object?>
+                {
  ["oid"] = oid++,
  ["mpio_cdpmp"] = m.Codigo,
  ["mpio_cnmbr"] = m.Nombre

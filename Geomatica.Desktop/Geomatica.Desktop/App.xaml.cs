@@ -16,7 +16,7 @@ namespace Geomatica.Desktop
         {
             base.OnStartup(e);
             var apiKey = Environment.GetEnvironmentVariable("ArcGIS_ApiKey");
-            Esri.ArcGISRuntime.ArcGISRuntimeEnvironment.ApiKey = apiKey;
+            Esri.ArcGISRuntime.ArcGISRuntimeEnvironment.ApiKey = apiKey ?? string.Empty;
 
             // Load configuration from environment variables and user secrets
             var config = new ConfigurationBuilder()
@@ -31,11 +31,12 @@ namespace Geomatica.Desktop
             var cs = config["GEOMATICA_CONNECTION"] ?? string.Empty;
             if (string.IsNullOrWhiteSpace(cs))
             {
-                var host = config["GEOMATICA_DB_HOST"] ?? "localhost";
-                var port = int.TryParse(config["GEOMATICA_DB_PORT"], out var p) ? p :5432;
-                var db = config["GEOMATICA_DB_NAME"] ?? "geovisor";
-                var user = config["GEOMATICA_DB_USER"] ?? "postgres";
-                var pass = config["GEOMATICA_DB_PASS"] ?? string.Empty; // read from user secrets ideally
+                var host = config["GEOMATICA_DB_HOST"];
+                var portParsed = int.TryParse(config["GEOMATICA_DB_PORT"], out var p);
+                var port = p;
+                var db = config["GEOMATICA_DB_NAME"];
+                var user = config["GEOMATICA_DB_USER"];
+                var pass = config["GEOMATICA_DB_PASS"];
 
                 var builder = new NpgsqlConnectionStringBuilder
                 {
@@ -56,12 +57,13 @@ namespace Geomatica.Desktop
                 using var testCon = new NpgsqlConnection(cs);
                 testCon.Open();
                 testCon.Close();
-                Debug.WriteLine("[App] Conexión a Postgres OK.");
+                Debug.WriteLine("[App] Conexión a DB OK.");
                 dbOk = true;
             }
             catch (Exception ex)
             {
-                var msg = $"No se pudo conectar a la base de datos Postgres.\n\nTarget: Host=localhost:5432, Schema=geovisor (revisa user secrets o variables GEOMATICA_CONNECTION / GEOMATICA_DB_* )\n\nError: {ex.Message}\n\nLa aplicación continuará, pero algunas funcionalidades podrán fallar.";
+                var builderCheck = new NpgsqlConnectionStringBuilder(cs);
+                var msg = $"No se pudo conectar a la base de datos.\n\nTarget: Host={builderCheck.Host}:{builderCheck.Port}, Database={builderCheck.Database} (revisa user secrets o variables GEOMATICA_CONNECTION / GEOMATICA_DB_* )\n\nError: {ex.Message}\n\nLa aplicación continuará, pero algunas funcionalidades podrán fallar.";
                 MessageBox.Show(msg, "Error conexión Postgres", MessageBoxButton.OK, MessageBoxImage.Warning);
                 Debug.WriteLine($"[App] Error conexión Postgres: {ex}");
             }
@@ -80,10 +82,10 @@ namespace Geomatica.Desktop
                     foreach (var tbl in requiredTables)
                     {
                         using var cmd = new NpgsqlCommand(
-                            "SELECT EXISTS(SELECT1 FROM information_schema.tables WHERE table_schema = 'geovisor' AND table_name = @t);",
+                            "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = 'geovisor' AND table_name = @t);",
                             con);
                         cmd.Parameters.AddWithValue("@t", tbl);
-                        var exists = (bool)cmd.ExecuteScalar();
+                        var exists = (cmd.ExecuteScalar() as bool?) == true;
                         if (!exists) missing.Add(tbl);
                     }
 

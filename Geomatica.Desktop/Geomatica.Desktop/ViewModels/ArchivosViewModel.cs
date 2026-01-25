@@ -96,7 +96,7 @@ namespace Geomatica.Desktop.ViewModels
         {
             if (e.PropertyName == "SelectedEntry")
             {
-                if (selectedEntry is ArchivoItem ai)
+                if (SelectedEntry is ArchivoItem ai)
                 {
                     Seleccionado = ai;
                 }
