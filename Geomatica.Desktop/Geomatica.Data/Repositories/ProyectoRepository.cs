@@ -12,6 +12,7 @@ namespace Geomatica.Data.Repositories
         Task<IReadOnlyList<ProyectoDto>> ListarAsync(DateTime? desde = null, DateTime? hasta = null, string? keyword = null, string? areaJson = null);
         Task<IReadOnlyList<string>> ObtenerCodigosMunicipioAsync(IReadOnlyList<int> idsProyecto);
         Task<IReadOnlyList<ProyectoDto>> ListarPorDepartamentoAsync(string dptoCcdgo, DateTime? desde = null, DateTime? hasta = null, string? keyword = null);
+        Task<IReadOnlyList<ProyectoDto>> ListarPorMunicipioAsync(string mpioCcdgo, DateTime? desde = null, DateTime? hasta = null, string? keyword = null);
     }
 
     public sealed record ProyectoDto(int Id, string Titulo, double Lon, double Lat, string? RutaArchivos);
@@ -173,6 +174,55 @@ namespace Geomatica.Data.Repositories
                         Debug.WriteLine($"[ProyectoRepository] Param: {p.ParameterName} = {p.Value}");
                     }
                 }
+                throw;
+            }
+        }
+
+        public async Task<IReadOnlyList<ProyectoDto>> ListarPorMunicipioAsync(string mpioCcdgo, DateTime? desde = null, DateTime? hasta = null, string? keyword = null)
+        {
+            const string sql = @"
+                SELECT p.id_proyecto, p.titulo,
+                       ST_X(ST_Centroid(p.geom)) AS lon, ST_Y(ST_Centroid(p.geom)) AS lat,
+                       p.ruta_archivos
+                FROM geovisor.proyecto p
+                JOIN geovisor.proyecto_municipio pm ON pm.id_proyecto = p.id_proyecto
+                WHERE TRIM(pm.mpio_cdpmp) = TRIM(@mpio)
+                  AND (@desde IS NULL OR p.fecha >= @desde)
+                  AND (@hasta IS NULL OR p.fecha <= @hasta)
+                  AND (@kw IS NULL OR p.palabra_clave ILIKE '%'||@kw||'%')
+                ORDER BY p.fecha NULLS LAST, p.id_proyecto;";
+
+            var builder = new NpgsqlConnectionStringBuilder(_cn);
+            
+            using var con = new NpgsqlConnection(_cn);
+            await con.OpenAsync();
+
+            using var cmd = new NpgsqlCommand(sql, con);
+            cmd.Parameters.Add(new NpgsqlParameter("@mpio", NpgsqlDbType.Text) { Value = mpioCcdgo ?? string.Empty });
+            cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Timestamp) { Value = (object?)desde ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Timestamp) { Value = (object?)hasta ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@kw", NpgsqlDbType.Text) { Value = (object?)keyword ?? DBNull.Value });
+
+            try
+            {
+                var list = new List<ProyectoDto>();
+                using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync())
+                {
+                    list.Add(new ProyectoDto(
+                        rd.GetInt32(0),
+                        rd.GetString(1),
+                        rd.IsDBNull(2) ? 0 : rd.GetDouble(2),
+                        rd.IsDBNull(3) ? 0 : rd.GetDouble(3),
+                        rd.IsDBNull(4) ? null : rd.GetString(4)
+                    ));
+                }
+                return list;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error ejecutando consulta (ListarPorMunicipioAsync): {ex}");
+                Debug.WriteLine($"[ProyectoRepository] SQL: {cmd.CommandText}");
                 throw;
             }
         }

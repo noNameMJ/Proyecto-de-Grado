@@ -13,9 +13,13 @@ namespace Geomatica.Data.Repositories
 
  // Nuevo: listar departamentos
  Task<IReadOnlyList<DepartamentoDto>> ListarDepartamentosAsync();
+ 
+ // Nuevo: listar municipios por departamento (solo lista simple)
+ Task<IReadOnlyList<MunicipioDto>> ListarMunicipiosPorDepartamentoAsync(string dptoCodigo);
  }
 
  public sealed record MunicipioGeoJsonDto(string Codigo, string Nombre, string GeoJson);
+ public sealed record MunicipioDto(string Codigo, string Nombre);
  public sealed record EnvelopeDto(double West, double South, double East, double North);
  public sealed record DepartamentoDto(string Codigo, string Nombre);
 
@@ -130,6 +134,31 @@ namespace Geomatica.Data.Repositories
  while (await rd.ReadAsync())
  {
  list.Add(new DepartamentoDto(rd.IsDBNull(0)?"":rd.GetString(0), rd.IsDBNull(1)?"":rd.GetString(1)));
+ }
+ return list;
+ }
+
+ public async Task<IReadOnlyList<MunicipioDto>> ListarMunicipiosPorDepartamentoAsync(string dptoCodigo)
+ {
+ const string sql = @"
+ SELECT TRIM(m.mpio_cdpmp) AS codigo, m.mpio_cnmbr AS nombre
+ FROM geovisor.municipio m
+ WHERE TRIM(m.dpto_ccdgo) = TRIM(@dpto)
+ ORDER BY m.mpio_cnmbr;";
+
+ using var con = new NpgsqlConnection(_cn);
+ await con.OpenAsync();
+ using var cmd = new NpgsqlCommand(sql, con);
+ cmd.Parameters.AddWithValue("@dpto", dptoCodigo);
+
+ var list = new List<MunicipioDto>();
+ using var rd = await cmd.ExecuteReaderAsync();
+ while (await rd.ReadAsync())
+ {
+ list.Add(new MunicipioDto(
+ rd.GetString(0),
+ rd.IsDBNull(1) ? "" : rd.GetString(1)
+ ));
  }
  return list;
  }

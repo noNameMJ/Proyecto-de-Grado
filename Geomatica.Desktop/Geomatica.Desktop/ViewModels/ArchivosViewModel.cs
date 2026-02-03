@@ -66,7 +66,7 @@ namespace Geomatica.Desktop.ViewModels
         }
 
         // EXISTENTE: compatibilidad
-        public ArchivosViewModel() : this(new FiltrosViewModel()) { }
+        public ArchivosViewModel() : this(new FiltrosViewModel(null)) { }
 
         private void Filtros_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {

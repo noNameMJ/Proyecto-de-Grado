@@ -97,9 +97,6 @@ namespace Geomatica.Desktop.Views
                     }
                 }
 
-                // Load departamentos into filters Areas collection (refresh)
-                _ = LoadDepartamentosAsync(newVm);
-
                 // Load proyectos into filtros results so user can see them
                 _ = LoadProyectosAsync(newVm);
             }
@@ -294,63 +291,6 @@ namespace Geomatica.Desktop.Views
             }
         }
 
-        private async Task LoadDepartamentosAsync(ViewModels.MapaViewModel vm)
-        {
-            try
-            {
-                // Get service provider from Application.Properties
-                IServiceProvider? provider = null;
-                if (Application.Current.Properties.Contains("ServiceProvider"))
-                    provider = Application.Current.Properties["ServiceProvider"] as IServiceProvider;
-
-                if (provider == null)
-                {
-                    Debug.WriteLine("[MapaView] No se encontró ServiceProvider para cargar departamentos.");
-                    return;
-                }
-
-                var repo = provider.GetService<IMunicipioRepository>();
-                if (repo == null)
-                {
-                    Debug.WriteLine("[MapaView] IMunicipioRepository no está registrado en DI.");
-                    return;
-                }
-
-                var deps = await repo.ListarDepartamentosAsync();
-
-                // If Areas already populated, avoid clearing to preserve selection identity
-                if (vm.Filtros.Areas.Count ==0)
-                {
-                    foreach (var d in deps)
-                    {
-                        vm.Filtros.Areas.Add(new ViewModels.FiltrosViewModel.DepartamentoItem(d.Codigo, d.Nombre));
-                    }
-                }
-                else
-                {
-                    // Ensure if AreaInteres is set by previous selection (from another view) we reuse the matching instance
-                    if (vm.Filtros.AreaInteres is ViewModels.FiltrosViewModel.DepartamentoItem existingSelection)
-                    {
-                        var match = vm.Filtros.Areas.OfType<ViewModels.FiltrosViewModel.DepartamentoItem>().FirstOrDefault(a => a.Codigo == existingSelection.Codigo);
-                        if (match != null)
-                        {
-                            // keep the same reference so ComboBox selection remains
-                            vm.Filtros.AreaInteres = match;
-                        }
-                        else
-                        {
-                            // selection not present in current list; try to add it
-                            vm.Filtros.Areas.Add(existingSelection);
-                        }
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[MapaView] Error cargando departamentos: {ex}");
-            }
-        }
-
         private async Task LoadProyectosAsync(ViewModels.MapaViewModel vm)
         {
             try
@@ -375,14 +315,20 @@ namespace Geomatica.Desktop.Views
 
                 IEnumerable<Geomatica.Data.Repositories.ProyectoDto> items;
 
-                if (vm.Filtros.AreaInteres is ViewModels.FiltrosViewModel.DepartamentoItem dept)
+
+                // Check for Municipio selection first
+                if (vm.Filtros.AreaInteres is ViewModels.FiltrosViewModel.MunicipioItem muni)
                 {
-                    // Use department-based join query to find projects linked via proyecto_municipio
+                    items = await repo.ListarPorMunicipioAsync(muni.Codigo, vm.Filtros.Desde, vm.Filtros.Hasta, vm.Filtros.PalabraClave);
+                }
+                // Then check for key Department selection
+                else if (vm.Filtros.SelectedDepartamento is ViewModels.FiltrosViewModel.DepartamentoItem dept)
+                {
                     items = await repo.ListarPorDepartamentoAsync(dept.Codigo, vm.Filtros.Desde, vm.Filtros.Hasta, vm.Filtros.PalabraClave);
                 }
                 else
                 {
-                    // No department selected: list all projects (no area filter)
+                    // No geo filter: list all projects
                     items = await repo.ListarAsync(vm.Filtros.Desde, vm.Filtros.Hasta, vm.Filtros.PalabraClave, null);
                 }
 

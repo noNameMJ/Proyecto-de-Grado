@@ -15,14 +15,19 @@ namespace Geomatica.Desktop
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
-            var apiKey = Environment.GetEnvironmentVariable("ArcGIS_ApiKey");
-            Esri.ArcGISRuntime.ArcGISRuntimeEnvironment.ApiKey = apiKey ?? string.Empty;
 
             // Load configuration from environment variables and user secrets
             var config = new ConfigurationBuilder()
                 .AddEnvironmentVariables()
                 .AddUserSecrets<App>()
                 .Build();
+
+            // Initialize ArcGIS Runtime with API Key from configuration
+            var apiKey = config["ArcGIS:ApiKey"];
+            if (!string.IsNullOrEmpty(apiKey))
+            {
+                Esri.ArcGISRuntime.ArcGISRuntimeEnvironment.ApiKey = apiKey;
+            }
 
             // Configure DI
             var services = new ServiceCollection();

@@ -12,10 +12,12 @@
             <DatePicker SelectedDate="{Binding Hasta}" Width="150" Margin="8,0,0,0"/>
         </StackPanel>
 
-        <TextBlock Text="Área de interés"/>
+        <TextBlock Text="Departamento"/>
+        <ComboBox ItemsSource="{Binding Departamentos}" SelectedItem="{Binding SelectedDepartamento, Mode=TwoWay}" DisplayMemberPath="Nombre" SelectedValuePath="Codigo" Margin="0,4,0,10"/>
+
+        <TextBlock Text="Municipio"/>
         <ComboBox ItemsSource="{Binding Areas}" SelectedItem="{Binding AreaInteres, Mode=TwoWay}" DisplayMemberPath="Nombre" SelectedValuePath="Codigo" Margin="0,4,0,10"/>
 
-        <Button Content="Buscar" Command="{Binding BuscarCommand}" Height="34"/>
         <ListBox ItemsSource="{Binding ResultadosResumen}" Height="55"/>
         <Separator Margin="0,12,0,12"/>
         <TextBlock Text="Resultados" FontWeight="SemiBold"/>
