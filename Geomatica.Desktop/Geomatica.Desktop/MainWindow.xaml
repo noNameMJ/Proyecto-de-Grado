@@ -9,6 +9,7 @@
         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Background="#2F2F2F" Height="44">
             <Button Content="Mapa" Command="{Binding ShowMapaCommand}" Margin="8" Padding="12,6"/>
             <Button Content="Archivos" Command="{Binding ShowArchivosCommand}" Margin="8" Padding="12,6"/>
+            <Button Content="Nuevo Proyecto" Command="{Binding ShowCrearProyectoCommand}" Margin="8" Padding="12,6" Background="#007ACC" Foreground="White" FontWeight="Bold"/>
             <TextBlock Text="{Binding CurrentViewName}" Foreground="White" VerticalAlignment="Center" Margin="16,0,0,0"/>
         </StackPanel>
 

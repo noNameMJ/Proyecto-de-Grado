@@ -10,5 +10,8 @@
         <DataTemplate DataType="{x:Type vms:ArchivosViewModel}">
             <views:ArchivosView/>
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vms:CrearProyectoViewModel}">
+            <views:CrearProyectoView/>
+        </DataTemplate>
     </Application.Resources>
 </Application>

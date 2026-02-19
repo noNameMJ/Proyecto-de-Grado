@@ -134,11 +134,19 @@ namespace Geomatica.Desktop
                 sp.GetRequiredService<IMunicipioRepository>(),
                 sp.GetRequiredService<FiltrosViewModel>()));
             services.AddTransient<ArchivosViewModel>(sp => new ArchivosViewModel(sp.GetRequiredService<FiltrosViewModel>()));
+            // Factory for CrearProyectoViewModel with a navigation callback
+            services.AddSingleton<Func<Action, CrearProyectoViewModel>>(sp => (navigateBack) => 
+                new CrearProyectoViewModel(
+                    sp.GetRequiredService<IProyectoRepository>(),
+                    sp.GetRequiredService<IMunicipioRepository>(),
+                    navigateBack));
 
             services.AddSingleton<MainViewModel>(sp => new MainViewModel(
                 sp.GetRequiredService<FiltrosViewModel>(),
                 () => sp.GetRequiredService<MapaViewModel>(),
-                () => sp.GetRequiredService<ArchivosViewModel>()));
+                () => sp.GetRequiredService<ArchivosViewModel>(),
+                sp.GetRequiredService<Func<Action, CrearProyectoViewModel>>()
+                ));
 
             services.AddSingleton<MainWindow>();
 
