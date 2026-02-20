@@ -13,7 +13,7 @@ namespace Geomatica.Data.Repositories
         Task<IReadOnlyList<string>> ObtenerCodigosMunicipioAsync(IReadOnlyList<int> idsProyecto);
         Task<IReadOnlyList<ProyectoDto>> ListarPorDepartamentoAsync(string dptoCcdgo, DateTime? desde = null, DateTime? hasta = null, string? keyword = null);
         Task<IReadOnlyList<ProyectoDto>> ListarPorMunicipioAsync(string mpioCcdgo, DateTime? desde = null, DateTime? hasta = null, string? keyword = null);
-        Task InsertarAsync(string titulo, string? descripcion, DateTime fecha, string? palabraClave, string? ruta, double? lon, double? lat, string? municipioCodigo);
+        Task InsertarAsync(string titulo, string? descripcion, DateTime fecha, string? palabraClave, string? ruta, string? geom, string? municipioCodigo);
     }
 
     public sealed record ProyectoDto(int Id, string Titulo, double Lon, double Lat, string? RutaArchivos);
@@ -228,21 +228,18 @@ namespace Geomatica.Data.Repositories
             }
         }
 
-        public async Task InsertarAsync(string titulo, string? descripcion, DateTime fecha, string? palabraClave, string? ruta, double? lon, double? lat, string? municipioCodigo)
+        public async Task InsertarAsync(string titulo, string? descripcion, DateTime fecha, string? palabraClave, string? ruta, string? geom, string? municipioCodigo)
         {
             // 1. Insertar proyecto
-            // Note: Assuming 'descripcion' column exists based on user requirements. If not, this might need adjustment.
             // Using RETURNING id_proyecto to get the generated ID.
             var sqlProp = @"
                 INSERT INTO geovisor.proyecto (titulo, descripcion, fecha, palabra_clave, ruta_archivos, geom)
                 VALUES (@titulo, @desc, @fecha, @kw, @ruta, 
-                        CASE WHEN @lon IS NOT NULL AND @lat IS NOT NULL 
-                             THEN ST_SetSRID(ST_MakePoint(@lon, @lat), 4326) 
+                        CASE WHEN @geom IS NOT NULL 
+                             THEN ST_GeomFromText(@geom, 4686) 
                              ELSE NULL END)
                 RETURNING id_proyecto;";
 
-            // Fallback if descripcion column doesn't exist? 
-            // The user stated the table contains it. If it fails, we might need schema update. For now trusting the user.
 
             var builder = new NpgsqlConnectionStringBuilder(_cn);
             using var con = new NpgsqlConnection(_cn);
@@ -259,9 +256,8 @@ namespace Geomatica.Data.Repositories
                     cmd.Parameters.AddWithValue("@fecha", fecha);
                     cmd.Parameters.AddWithValue("@kw", (object?)palabraClave ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@ruta", (object?)ruta ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@lon", (object?)lon ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@lat", (object?)lat ?? DBNull.Value);
-                    
+                    cmd.Parameters.AddWithValue("@geom", (object?)geom ?? DBNull.Value);
+
                     var newIdObj = await cmd.ExecuteScalarAsync();
                     newId = Convert.ToInt32(newIdObj);
                     Debug.WriteLine($"[ProyectoRepository] Proyecto insertado con ID: {newId}");

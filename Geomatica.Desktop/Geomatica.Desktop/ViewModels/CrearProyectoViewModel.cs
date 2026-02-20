@@ -104,6 +104,12 @@ namespace Geomatica.Desktop.ViewModels
             if (!string.IsNullOrWhiteSpace(LatStr) && double.TryParse(LatStr, out var l)) lat = l;
             if (!string.IsNullOrWhiteSpace(LonStr) && double.TryParse(LonStr, out var o)) lon = o;
 
+            string? geom = null;
+            if (lon.HasValue && lat.HasValue)
+            {
+                geom = $"POINT({lon.Value} {lat.Value})";
+            }
+
             try
             {
                 await _proyectoRepository.InsertarAsync(
@@ -112,8 +118,7 @@ namespace Geomatica.Desktop.ViewModels
                     FechaInicio, 
                     PalabraClave, 
                     Ruta, 
-                    lon, 
-                    lat, 
+                    geom, 
                     SelectedMunicipio.Codigo
                 );
 
