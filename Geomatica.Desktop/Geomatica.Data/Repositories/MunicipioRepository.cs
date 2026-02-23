@@ -8,8 +8,6 @@ namespace Geomatica.Data.Repositories
  {
  Task<IReadOnlyList<MunicipioGeoJsonDto>> PorCodigosGeoJsonAsync(IReadOnlyList<string> codigos); // mpio_cdpmp
  Task<IReadOnlyList<MunicipioGeoJsonDto>> TodosGeoJsonAsync(int? limit = null); // para carga base
- Task<EnvelopeDto?> ExtentPorDepartamentoAsync(string dptoCcdgo); // dpto_ccdgo '68'
- Task<EnvelopeDto?> ExtentPorMunicipiosAsync(IReadOnlyList<string> codigos); // bbox combinado
 
  // Nuevo: listar departamentos
  Task<IReadOnlyList<DepartamentoDto>> ListarDepartamentosAsync();
@@ -18,7 +16,7 @@ namespace Geomatica.Data.Repositories
  Task<IReadOnlyList<MunicipioDto>> ListarMunicipiosPorDepartamentoAsync(string dptoCodigo);
  }
 
- public sealed record MunicipioGeoJsonDto(string Codigo, string Nombre, string GeoJson);
+ public sealed record MunicipioGeoJsonDto(string Codigo, string Nombre, string? GeoJson);
  public sealed record MunicipioDto(string Codigo, string Nombre);
  public sealed record EnvelopeDto(double West, double South, double East, double North);
  public sealed record DepartamentoDto(string Codigo, string Nombre);
@@ -33,7 +31,7 @@ namespace Geomatica.Data.Repositories
  if (codigos == null || codigos.Count ==0) return Array.Empty<MunicipioGeoJsonDto>();
  const string sql = @"
  SELECT TRIM(m.mpio_cdpmp) AS codigo, m.mpio_cnmbr AS nombre,
- ST_AsGeoJSON(m.geom) AS geojson
+ ST_AsGeoJSON(ST_Transform(m.geom, 4326)) AS geojson
  FROM geovisor.municipio m
  WHERE TRIM(m.mpio_cdpmp) = ANY(@cods);";
 
@@ -41,27 +39,18 @@ namespace Geomatica.Data.Repositories
  Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}");
 
  using var con = new NpgsqlConnection(_cn);
- try
- {
  await con.OpenAsync();
- }
- catch (Exception ex)
- {
- Debug.WriteLine($"[MunicipioRepository] Error abriendo conexión: {ex}");
- throw;
- }
 
  using var cmd = new NpgsqlCommand(sql, con);
- cmd.Parameters.Add("@cods", NpgsqlDbType.Array | NpgsqlDbType.Text).Value = codigos.Select(c => c.Trim()).ToArray();
-
+ cmd.Parameters.AddWithValue("@cods", codigos);
  var list = new List<MunicipioGeoJsonDto>();
  using var rd = await cmd.ExecuteReaderAsync();
  while (await rd.ReadAsync())
  {
  list.Add(new MunicipioGeoJsonDto(
  rd.GetString(0),
- rd.IsDBNull(1) ? "" : rd.GetString(1),
- rd.GetString(2)
+ rd.GetString(1),
+ rd.IsDBNull(2) ? null : rd.GetString(2)
 ));
  }
  return list;
@@ -69,39 +58,28 @@ namespace Geomatica.Data.Repositories
 
  public async Task<IReadOnlyList<MunicipioGeoJsonDto>> TodosGeoJsonAsync(int? limit = null)
  {
- var top = limit.HasValue ? "LIMIT @lim" : "";
- var sql = $@"
+ var sql = @"
  SELECT TRIM(m.mpio_cdpmp) AS codigo, m.mpio_cnmbr AS nombre,
- ST_AsGeoJSON(m.geom) AS geojson
- FROM geovisor.municipio m
- ORDER BY m.dpto_ccdgo, m.mpio_cdpmp
- {top};";
+ ST_AsGeoJSON(ST_Transform(m.geom, 4326)) AS geojson
+ FROM geovisor.municipio m";
+ if (limit.HasValue)
+ sql += $" LIMIT {limit.Value};";
 
  var builder = new NpgsqlConnectionStringBuilder(_cn);
  Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}");
 
  using var con = new NpgsqlConnection(_cn);
- try
- {
  await con.OpenAsync();
- }
- catch (Exception ex)
- {
- Debug.WriteLine($"[MunicipioRepository] Error abriendo conexión: {ex}");
- throw;
- }
 
  using var cmd = new NpgsqlCommand(sql, con);
- if (limit.HasValue) cmd.Parameters.AddWithValue("@lim", limit.Value);
-
  var list = new List<MunicipioGeoJsonDto>();
  using var rd = await cmd.ExecuteReaderAsync();
  while (await rd.ReadAsync())
  {
  list.Add(new MunicipioGeoJsonDto(
  rd.GetString(0),
- rd.IsDBNull(1) ? "" : rd.GetString(1),
- rd.GetString(2)
+ rd.GetString(1),
+ rd.IsDBNull(2) ? null : rd.GetString(2)
 ));
  }
  return list;
@@ -118,16 +96,7 @@ namespace Geomatica.Data.Repositories
  Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}");
 
  using var con = new NpgsqlConnection(_cn);
- try
- {
  await con.OpenAsync();
- }
- catch (Exception ex)
- {
- Debug.WriteLine($"[MunicipioRepository] Error abriendo conexión (ListarDepartamentosAsync): {ex}");
- throw;
- }
-
  using var cmd = new NpgsqlCommand(sql, con);
  var list = new List<DepartamentoDto>();
  using var rd = await cmd.ExecuteReaderAsync();
@@ -177,16 +146,7 @@ namespace Geomatica.Data.Repositories
  Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}");
 
  using var con = new NpgsqlConnection(_cn);
- try
- {
  await con.OpenAsync();
- }
- catch (Exception ex)
- {
- Debug.WriteLine($"[MunicipioRepository] Error abriendo conexión (ExtentPorDepartamentoAsync): {ex}");
- throw;
- }
-
  using var cmd = new NpgsqlCommand(sql, con);
  cmd.Parameters.AddWithValue("@dpto", dptoCcdgo);
 
@@ -213,16 +173,7 @@ namespace Geomatica.Data.Repositories
  Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}");
 
  using var con = new NpgsqlConnection(_cn);
- try
- {
  await con.OpenAsync();
- }
- catch (Exception ex)
- {
- Debug.WriteLine($"[MunicipioRepository] Error abriendo conexión (ExtentPorMunicipiosAsync): {ex}");
- throw;
- }
-
  using var cmd = new NpgsqlCommand(sql, con);
  cmd.Parameters.Add("@cods", NpgsqlDbType.Array | NpgsqlDbType.Text).Value = codigos.Select(c => c.Trim()).ToArray();
 
