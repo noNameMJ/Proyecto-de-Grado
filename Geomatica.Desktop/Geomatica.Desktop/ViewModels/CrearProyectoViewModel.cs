@@ -13,6 +13,7 @@ namespace Geomatica.Desktop.ViewModels
 
         // Navigation back
         private readonly Action _navigateBack;
+        private readonly Action? _onProyectoCreado;
 
         [ObservableProperty] private string titulo = string.Empty;
         [ObservableProperty] private string? descripcion;
@@ -32,11 +33,12 @@ namespace Geomatica.Desktop.ViewModels
         public IAsyncRelayCommand GuardarCommand { get; }
         public IRelayCommand CancelarCommand { get; }
 
-        public CrearProyectoViewModel(IProyectoRepository proyectoRepository, IMunicipioRepository municipioRepository, Action navigateBack)
+        public CrearProyectoViewModel(IProyectoRepository proyectoRepository, IMunicipioRepository municipioRepository, Action navigateBack, Action? onProyectoCreado = null)
         {
             _proyectoRepository = proyectoRepository;
             _municipioRepository = municipioRepository;
             _navigateBack = navigateBack;
+            _onProyectoCreado = onProyectoCreado;
 
             GuardarCommand = new AsyncRelayCommand(GuardarAsync);
             CancelarCommand = new RelayCommand(_navigateBack);
@@ -123,6 +125,7 @@ namespace Geomatica.Desktop.ViewModels
                 );
 
                 MessageBox.Show("Proyecto creado exitosamente.", "Éxito", MessageBoxButton.OK, MessageBoxImage.Information);
+                _onProyectoCreado?.Invoke();
                 _navigateBack();
             }
             catch (Exception ex)

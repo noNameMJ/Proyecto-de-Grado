@@ -135,23 +135,45 @@ namespace Geomatica.Desktop
                 sp.GetRequiredService<FiltrosViewModel>()));
             services.AddTransient<ArchivosViewModel>(sp => new ArchivosViewModel(sp.GetRequiredService<FiltrosViewModel>()));
             // Factory for CrearProyectoViewModel with a navigation callback
-            services.AddSingleton<Func<Action, CrearProyectoViewModel>>(sp => (navigateBack) => 
+            services.AddSingleton<Func<Action, Action?, CrearProyectoViewModel>>(sp => (navigateBack, onCreado) => 
                 new CrearProyectoViewModel(
                     sp.GetRequiredService<IProyectoRepository>(),
                     sp.GetRequiredService<IMunicipioRepository>(),
-                    navigateBack));
+                    navigateBack,
+                    onCreado));
 
             services.AddSingleton<MainViewModel>(sp => new MainViewModel(
                 sp.GetRequiredService<FiltrosViewModel>(),
                 () => sp.GetRequiredService<MapaViewModel>(),
                 () => sp.GetRequiredService<ArchivosViewModel>(),
-                sp.GetRequiredService<Func<Action, CrearProyectoViewModel>>()
+                sp.GetRequiredService<Func<Action, Action?, CrearProyectoViewModel>>()
                 ));
 
             services.AddSingleton<MainWindow>();
 
             _serviceProvider = services.BuildServiceProvider();
             Application.Current.Properties["ServiceProvider"] = _serviceProvider;
+
+            // Precarga de cachés: departamentos y municipios se cargan en segundo plano
+            // para que estén disponibles instantáneamente cuando la UI los necesite.
+            var muniRepo = _serviceProvider.GetRequiredService<IMunicipioRepository>();
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var sw = Stopwatch.StartNew();
+                    await Task.WhenAll(
+                        muniRepo.ListarDepartamentosAsync(),
+                        muniRepo.ListarTodosMunicipiosAsync()
+                    );
+                    sw.Stop();
+                    Debug.WriteLine($"[App] Precarga de departamentos y municipios completada en {sw.ElapsedMilliseconds}ms");
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[App] Error en precarga de departamentos/municipios: {ex}");
+                }
+            });
 
             var main = _serviceProvider.GetRequiredService<MainWindow>();
             var mainVm = _serviceProvider.GetRequiredService<MainViewModel>();

@@ -8,6 +8,8 @@ namespace Geomatica.Desktop.ViewModels
     public partial class FiltrosViewModel : ObservableObject
     {
         private readonly IMunicipioRepository? _municipioRepository;
+        private CancellationTokenSource? _debounceCts;
+        private const int DebounceMs = 300;
 
         [ObservableProperty] private string? palabraClave;
         [ObservableProperty] private DateTime? desde;
@@ -25,6 +27,9 @@ namespace Geomatica.Desktop.ViewModels
 
         public IRelayCommand BuscarCommand { get; }
         public IRelayCommand DescargarCommand { get; }
+        public IRelayCommand LimpiarFiltrosCommand { get; }
+        public IRelayCommand LimpiarDesdeCommand { get; }
+        public IRelayCommand LimpiarHastaCommand { get; }
 
         public event EventHandler? BuscarSolicitado;
 
@@ -33,9 +38,46 @@ namespace Geomatica.Desktop.ViewModels
             _municipioRepository = municipioRepository;
             BuscarCommand = new RelayCommand(() => BuscarSolicitado?.Invoke(this, EventArgs.Empty));
             DescargarCommand = new RelayCommand(() => { /* placeholder */ });
-            
+            LimpiarFiltrosCommand = new RelayCommand(LimpiarFiltros);
+            LimpiarDesdeCommand = new RelayCommand(() => Desde = null);
+            LimpiarHastaCommand = new RelayCommand(() => Hasta = null);
+
             if (_municipioRepository != null)
                 _ = CargarDepartamentosAsync();
+        }
+
+        private void LimpiarFiltros()
+        {
+            PalabraClave = null;
+            Desde = null;
+            Hasta = null;
+            SelectedProyecto = null;
+
+            if (SelectedDepartamento == DepartamentoItem.Todos)
+            {
+                // Ya es Todos → OnSelectedDepartamentoChanged no se dispara.
+                // Forzar que municipio vuelva a "— Todos —".
+                AreaInteres = MunicipioItem.Todos;
+                DebounceBuscar();
+            }
+            else
+            {
+                // Cambio real → dispara OnSelectedDepartamentoChanged que recarga municipios
+                SelectedDepartamento = DepartamentoItem.Todos;
+            }
+        }
+
+        private void DebounceBuscar()
+        {
+            _debounceCts?.Cancel();
+            _debounceCts = new CancellationTokenSource();
+            var token = _debounceCts.Token;
+
+            _ = Task.Delay(DebounceMs, token).ContinueWith(t =>
+            {
+                if (!t.IsCanceled)
+                    BuscarSolicitado?.Invoke(this, EventArgs.Empty);
+            }, TaskScheduler.FromCurrentSynchronizationContext());
         }
 
         private async Task CargarDepartamentosAsync()
@@ -44,10 +86,13 @@ namespace Geomatica.Desktop.ViewModels
             try 
             {
                 var deps = await _municipioRepository.ListarDepartamentosAsync();
+                Departamentos.Add(DepartamentoItem.Todos);
                 foreach(var d in deps)
                 {
                     Departamentos.Add(new DepartamentoItem(d.Codigo, d.Nombre));
                 }
+                // Seleccionar "— Todos —" por defecto
+                SelectedDepartamento = DepartamentoItem.Todos;
             }
             catch (Exception ex)
             {
@@ -58,39 +103,59 @@ namespace Geomatica.Desktop.ViewModels
         async partial void OnSelectedDepartamentoChanged(DepartamentoItem? value)
         {
             Areas.Clear();
-            AreaInteres = null;
-            
-            // Trigger search whenever department changes
-            BuscarSolicitado?.Invoke(this, EventArgs.Empty);
 
-            if (value == null || _municipioRepository == null) return;
+            if (_municipioRepository == null)
+            {
+                AreaInteres = null;
+                DebounceBuscar();
+                return;
+            }
 
             try
             {
-                var munis = await _municipioRepository.ListarMunicipiosPorDepartamentoAsync(value.Codigo);
+                IReadOnlyList<MunicipioDto> munis;
+
+                if (value == null || string.IsNullOrEmpty(value.Codigo))
+                {
+                    munis = await _municipioRepository.ListarTodosMunicipiosAsync();
+                }
+                else
+                {
+                    munis = await _municipioRepository.ListarMunicipiosPorDepartamentoAsync(value.Codigo);
+                }
+
+                Areas.Add(MunicipioItem.Todos);
                 foreach (var m in munis)
                 {
                     Areas.Add(new MunicipioItem(m.Codigo, m.Nombre));
                 }
+
+                // Seleccionar "— Todos —" por defecto en municipios
+                AreaInteres = MunicipioItem.Todos;
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Error loading municipios: {ex}");
+                AreaInteres = null;
             }
+
+            DebounceBuscar();
         }
 
-        partial void OnPalabraClaveChanged(string? value) => BuscarSolicitado?.Invoke(this, EventArgs.Empty);
-        partial void OnDesdeChanged(DateTime? value) => BuscarSolicitado?.Invoke(this, EventArgs.Empty);
-        partial void OnHastaChanged(DateTime? value) => BuscarSolicitado?.Invoke(this, EventArgs.Empty);
-        partial void OnAreaInteresChanged(object? value) => BuscarSolicitado?.Invoke(this, EventArgs.Empty);
+        partial void OnPalabraClaveChanged(string? value) => DebounceBuscar();
+        partial void OnDesdeChanged(DateTime? value) => DebounceBuscar();
+        partial void OnHastaChanged(DateTime? value) => DebounceBuscar();
+        partial void OnAreaInteresChanged(object? value) => DebounceBuscar();
 
         public record DepartamentoItem(string Codigo, string Nombre)
         {
+            public static readonly DepartamentoItem Todos = new("", "— Todos —");
             public override string ToString() => Nombre;
         }
 
         public record MunicipioItem(string Codigo, string Nombre)
         {
+            public static readonly MunicipioItem Todos = new("", "— Todos —");
             public override string ToString() => Nombre;
         }
 

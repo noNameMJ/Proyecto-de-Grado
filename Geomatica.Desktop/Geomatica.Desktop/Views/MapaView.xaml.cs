@@ -15,6 +15,7 @@ namespace Geomatica.Desktop.Views
     {
         private ViewModels.MapaViewModel? _currentVm;
         private MapView? _attachedMapView;
+        private CancellationTokenSource? _loadCts;
 
         public MapaView()
         {
@@ -126,7 +127,9 @@ namespace Geomatica.Desktop.Views
             {
                 if (_currentVm != null)
                 {
-                    _ = LoadProyectosAsync(_currentVm);
+                    _loadCts?.Cancel();
+                    _loadCts = new CancellationTokenSource();
+                    _ = LoadProyectosAsync(_currentVm, _loadCts.Token);
                 }
             }
             catch (Exception ex)
@@ -270,19 +273,14 @@ namespace Geomatica.Desktop.Views
                     }
                 }
 
-                // Apply viewpoint (retry a few times since layers may change rendering)
-                for (int i = 0; i < 5; i++)
+                // Apply viewpoint once
+                try
                 {
-                    try
-                    {
-                        await mv.SetViewpointAsync(vm.LastViewpoint);
-                        // short delay to let view update
-                        await Task.Delay(150);
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[MapaView] Intento {i} fallo aplicando LastViewpoint: {ex}");
-                    }
+                    await mv.SetViewpointAsync(vm.LastViewpoint);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[MapaView] Error aplicando LastViewpoint: {ex}");
                 }
             }
             catch (Exception ex)
@@ -291,7 +289,7 @@ namespace Geomatica.Desktop.Views
             }
         }
 
-        private async Task LoadProyectosAsync(ViewModels.MapaViewModel vm)
+        private async Task LoadProyectosAsync(ViewModels.MapaViewModel vm, CancellationToken ct = default)
         {
             try
             {
@@ -313,16 +311,18 @@ namespace Geomatica.Desktop.Views
                     return;
                 }
 
-                IEnumerable<Geomatica.Data.Repositories.ProyectoDto> items;
+                IReadOnlyList<Geomatica.Data.Repositories.ProyectoDto> items;
 
 
-                // Check for Municipio selection first
-                if (vm.Filtros.AreaInteres is ViewModels.FiltrosViewModel.MunicipioItem muni)
+                // Check for Municipio selection first (ignore sentinel "— Todos —")
+                if (vm.Filtros.AreaInteres is ViewModels.FiltrosViewModel.MunicipioItem muni
+                    && !string.IsNullOrEmpty(muni.Codigo))
                 {
                     items = await repo.ListarPorMunicipioAsync(muni.Codigo, vm.Filtros.Desde, vm.Filtros.Hasta, vm.Filtros.PalabraClave);
                 }
-                // Then check for key Department selection
-                else if (vm.Filtros.SelectedDepartamento is ViewModels.FiltrosViewModel.DepartamentoItem dept)
+                // Then check for Department selection (ignore sentinel "— Todos —")
+                else if (vm.Filtros.SelectedDepartamento is ViewModels.FiltrosViewModel.DepartamentoItem dept
+                         && !string.IsNullOrEmpty(dept.Codigo))
                 {
                     items = await repo.ListarPorDepartamentoAsync(dept.Codigo, vm.Filtros.Desde, vm.Filtros.Hasta, vm.Filtros.PalabraClave);
                 }
@@ -332,31 +332,37 @@ namespace Geomatica.Desktop.Views
                     items = await repo.ListarAsync(vm.Filtros.Desde, vm.Filtros.Hasta, vm.Filtros.PalabraClave, null);
                 }
 
+                // Si llegó una búsqueda más reciente, descartar estos resultados
+                if (ct.IsCancellationRequested) return;
+
                 // Update UI-bound collections on UI thread
                 await Dispatcher.InvokeAsync(() =>
                 {
+                    if (ct.IsCancellationRequested) return;
+
                     vm.Filtros.ResultadosLista.Clear();
                     vm.Filtros.ResultadosResumen.Clear();
 
                     foreach (var p in items)
                     {
-                        // Log ruta for debugging
-                        Debug.WriteLine($"[MapaView] Proyecto cargado: id={p.Id}, titulo='{p.Titulo}', ruta='{p.RutaArchivos}'");
                         vm.Filtros.ResultadosLista.Add(new ViewModels.FiltrosViewModel.ProyectoItem(p.Id, p.Titulo, p.Lon, p.Lat, p.RutaArchivos));
                     }
 
-                    // resumen: mostrar conteo y primeros5 titulos
-                    vm.Filtros.ResultadosResumen.Add($"{items.Count()} proyectos");
-                    foreach (var p in items.Take(5))
+                    vm.Filtros.ResultadosResumen.Add($"{items.Count} proyectos");
+                    for (int i = 0; i < Math.Min(5, items.Count); i++)
                     {
-                        vm.Filtros.ResultadosResumen.Add(p.Titulo);
+                        vm.Filtros.ResultadosResumen.Add(items[i].Titulo);
                     }
 
-                    if (!items.Any())
+                    if (items.Count == 0)
                     {
                         Debug.WriteLine("[MapaView] No se encontraron proyectos en la consulta.");
                     }
                 });
+            }
+            catch (OperationCanceledException)
+            {
+                // Query cancelada por un filtro más reciente, es esperado
             }
             catch (Exception ex)
             {

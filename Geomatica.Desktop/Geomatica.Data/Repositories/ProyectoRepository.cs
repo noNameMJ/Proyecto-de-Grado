@@ -11,6 +11,7 @@ namespace Geomatica.Data.Repositories
     {
         Task<IReadOnlyList<ProyectoDto>> ListarAsync(DateTime? desde = null, DateTime? hasta = null, string? keyword = null, string? areaJson = null);
         Task<IReadOnlyList<string>> ObtenerCodigosMunicipioAsync(IReadOnlyList<int> idsProyecto);
+        Task<IReadOnlyList<string>> ObtenerTodosCodigosMunicipioAsync();
         Task<IReadOnlyList<ProyectoDto>> ListarPorDepartamentoAsync(string dptoCcdgo, DateTime? desde = null, DateTime? hasta = null, string? keyword = null);
         Task<IReadOnlyList<ProyectoDto>> ListarPorMunicipioAsync(string mpioCcdgo, DateTime? desde = null, DateTime? hasta = null, string? keyword = null);
         Task InsertarAsync(string titulo, string? descripcion, DateTime fecha, string? palabraClave, string? ruta, string? geom, string? municipioCodigo);
@@ -21,7 +22,13 @@ namespace Geomatica.Data.Repositories
     public sealed class ProyectoRepository : IProyectoRepository
     {
         private readonly string _cn;
-        public ProyectoRepository(string connectionString) => _cn = connectionString;
+        private readonly string _debugInfo;
+        public ProyectoRepository(string connectionString)
+        {
+            _cn = connectionString;
+            var builder = new NpgsqlConnectionStringBuilder(connectionString);
+            _debugInfo = $"Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}";
+        }
 
         public async Task<IReadOnlyList<ProyectoDto>> ListarAsync(DateTime? desde = null, DateTime? hasta = null, string? keyword = null, string? areaJson = null)
         {
@@ -43,15 +50,14 @@ namespace Geomatica.Data.Repositories
                   )
                 ORDER BY p.fecha NULLS LAST, p.id_proyecto;";
 
-            var builder = new NpgsqlConnectionStringBuilder(_cn);
-            Debug.WriteLine($"[ProyectoRepository] Conectando a Postgres Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}");
+            Debug.WriteLine($"[ProyectoRepository] Conectando a Postgres {_debugInfo}");
 
             using var con = new NpgsqlConnection(_cn);
             try
             {
                 await con.OpenAsync();
 
-                // Log SRID of the proyecto.geom column for debugging
+                // Log SRID
                 try
                 {
                     using var sridCmd = new NpgsqlCommand("SELECT DISTINCT ST_SRID(geom) FROM geovisor.proyecto LIMIT1;", con);
@@ -66,7 +72,7 @@ namespace Geomatica.Data.Repositories
             catch (Exception ex)
             {
                 Debug.WriteLine($"[ProyectoRepository] Error abriendo conexión: {ex}");
-                Debug.WriteLine($"[ProyectoRepository] Connection target: Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}");
+                Debug.WriteLine($"[ProyectoRepository] Connection target: {_debugInfo}");
                 throw;
             }
 
@@ -119,14 +125,13 @@ namespace Geomatica.Data.Repositories
                        p.ruta_archivos
                 FROM geovisor.proyecto p
                 JOIN geovisor.vw_proyecto_departamento vpd ON vpd.id_proyecto = p.id_proyecto
-                WHERE TRIM(vpd.dpto_ccdgo) = TRIM(@dpto)
+                WHERE vpd.dpto_ccdgo = @dpto
                   AND (@desde IS NULL OR p.fecha >= @desde)
                   AND (@hasta IS NULL OR p.fecha <= @hasta)
                   AND (@kw IS NULL OR p.palabra_clave ILIKE '%'||@kw||'%')
                 ORDER BY p.fecha NULLS LAST, p.id_proyecto;";
 
-            var builder = new NpgsqlConnectionStringBuilder(_cn);
-            Debug.WriteLine($"[ProyectoRepository] Conectando a Postgres Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username} (ListarPorDepartamento)");
+            Debug.WriteLine($"[ProyectoRepository] Conectando a Postgres {_debugInfo} (ListarPorDepartamento)");
 
             using var con = new NpgsqlConnection(_cn);
             try
@@ -187,14 +192,12 @@ namespace Geomatica.Data.Repositories
                        p.ruta_archivos
                 FROM geovisor.proyecto p
                 JOIN geovisor.proyecto_municipio pm ON pm.id_proyecto = p.id_proyecto
-                WHERE TRIM(pm.mpio_cdpmp) = TRIM(@mpio)
+                WHERE pm.mpio_cdpmp = @mpio
                   AND (@desde IS NULL OR p.fecha >= @desde)
                   AND (@hasta IS NULL OR p.fecha <= @hasta)
                   AND (@kw IS NULL OR p.palabra_clave ILIKE '%'||@kw||'%')
                 ORDER BY p.fecha NULLS LAST, p.id_proyecto;";
 
-            var builder = new NpgsqlConnectionStringBuilder(_cn);
-            
             using var con = new NpgsqlConnection(_cn);
             await con.OpenAsync();
 
@@ -241,7 +244,6 @@ namespace Geomatica.Data.Repositories
                 RETURNING id_proyecto;";
 
 
-            var builder = new NpgsqlConnectionStringBuilder(_cn);
             using var con = new NpgsqlConnection(_cn);
             await con.OpenAsync();
             using var tran = await con.BeginTransactionAsync();
@@ -290,12 +292,11 @@ namespace Geomatica.Data.Repositories
             if (idsProyecto == null || idsProyecto.Count ==0) return Array.Empty<string>();
 
             const string sql = @"
-                SELECT DISTINCT TRIM(pm.mpio_cdpmp) AS mpio
+                SELECT DISTINCT pm.mpio_cdpmp AS mpio
                 FROM geovisor.proyecto_municipio pm
                 WHERE pm.id_proyecto = ANY(@ids);";
 
-            var builder = new NpgsqlConnectionStringBuilder(_cn);
-            Debug.WriteLine($"[ProyectoRepository] Conectando a Postgres Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}");
+            Debug.WriteLine($"[ProyectoRepository] Conectando a Postgres {_debugInfo}");
 
             using var con = new NpgsqlConnection(_cn);
             try
@@ -324,6 +325,22 @@ namespace Geomatica.Data.Repositories
                 Debug.WriteLine($"[ProyectoRepository] SQL: {cmd.CommandText}");
                 throw;
             }
+        }
+
+        public async Task<IReadOnlyList<string>> ObtenerTodosCodigosMunicipioAsync()
+        {
+            const string sql = @"
+                SELECT DISTINCT pm.mpio_cdpmp
+                FROM geovisor.proyecto_municipio pm;";
+
+            using var con = new NpgsqlConnection(_cn);
+            await con.OpenAsync();
+
+            using var cmd = new NpgsqlCommand(sql, con);
+            var list = new List<string>();
+            using var rd = await cmd.ExecuteReaderAsync();
+            while (await rd.ReadAsync()) list.Add(rd.GetString(0));
+            return list;
         }
     }
 }

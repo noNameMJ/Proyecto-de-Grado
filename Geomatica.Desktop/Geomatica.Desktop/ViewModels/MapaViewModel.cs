@@ -24,6 +24,8 @@ namespace Geomatica.Desktop.ViewModels
  public FiltrosViewModel Filtros { get; }
  private Layer? _layerMunicipios;
  private Layer? _layerProyectos;
+ private IReadOnlyList<MunicipioGeoJsonDto>? _cachedMunicipios;
+ private Dictionary<string, Geometry>? _cachedGeometries;
 
  // Track the MapView that currently displays this Map to release ownership when re-attaching
  private MapView? _ownerMapView;
@@ -237,20 +239,22 @@ namespace Geomatica.Desktop.ViewModels
 
  // Poblar con datos
  var items = await _proyectos.ListarAsync();
+ var features = new List<Feature>();
  int oid =1;
  foreach (var p in items)
  {
- var attrs = new Dictionary<string, object?>
- {
- ["oid"] = oid++,
- ["id_proyecto"] = p.Id,
- ["titulo"] = p.Titulo,
- ["ruta_archivos"] = p.RutaArchivos
- };
- var geom = new MapPoint(p.Lon, p.Lat, SpatialReferences.Wgs84);
- var feat = table.CreateFeature(attrs, geom);
- await table.AddFeatureAsync(feat);
+  var attrs = new Dictionary<string, object?>
+  {
+  ["oid"] = oid++,
+  ["id_proyecto"] = p.Id,
+  ["titulo"] = p.Titulo,
+  ["ruta_archivos"] = p.RutaArchivos
+  };
+  var geom = new MapPoint(p.Lon, p.Lat, SpatialReferences.Wgs84);
+  features.Add(table.CreateFeature(attrs, geom));
  }
+ if (features.Count > 0)
+  await table.AddFeaturesAsync(features);
 
  // Renderer en la tabla
  table.Renderer = new SimpleRenderer(
@@ -270,31 +274,41 @@ namespace Geomatica.Desktop.ViewModels
  var table = new FeatureCollectionTable(fields, GeometryType.Polygon, SpatialReferences.Wgs84);
 
  var muni = await _municipios.TodosGeoJsonAsync();
- int oid = 1;
+
+ // Parsear en hilo de fondo
+ var parsed = await Task.Run(() =>
+ {
+ var result = new List<(string Codigo, string Nombre, Geometry Geom)>();
  foreach (var m in muni)
  {
- Geometry? geom = null;
- try
- {
   if (string.IsNullOrEmpty(m.GeoJson)) continue;
-  geom = ParseGeoJson(m.GeoJson);
- }
- catch (Exception ex)
- {
+  try
+  {
+  var geom = ParseGeoJson(m.GeoJson);
+  if (geom != null) result.Add((m.Codigo, m.Nombre, geom));
+  }
+  catch (Exception ex)
+  {
   System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error parsing GeoJson for {m.Codigo}: {ex}");
-  continue;
+  }
  }
- if (geom == null) continue;
+ return result;
+ });
 
+ var features = new List<Feature>();
+ int oid = 1;
+ foreach (var (codigo, nombre, geom) in parsed)
+ {
  var attrs = new Dictionary<string, object?>
  {
   ["oid"] = oid++,
-  ["mpio_cdpmp"] = m.Codigo,
-  ["mpio_cnmbr"] = m.Nombre
+  ["mpio_cdpmp"] = codigo,
+  ["mpio_cnmbr"] = nombre
  };
- var feat = table.CreateFeature(attrs, geom);
- await table.AddFeatureAsync(feat);
+ features.Add(table.CreateFeature(attrs, geom));
  }
+ if (features.Count > 0)
+ await table.AddFeaturesAsync(features);
 
  table.Renderer = new SimpleRenderer(
  new SimpleFillSymbol(SimpleFillSymbolStyle.Solid,
@@ -311,6 +325,23 @@ namespace Geomatica.Desktop.ViewModels
  {
  // TODO: usar Filtros?.PalabraClave / Desde / Hasta / AreaInteres
  // para construir consultas o DefinitionExpression en capas.
+ }
+
+ /// <summary>
+ /// Invalida el caché de municipios y la capa de proyectos para reflejar datos nuevos.
+ /// Llamar después de crear/eliminar un proyecto.
+ /// </summary>
+ public async Task InvalidarCacheYRecargarAsync()
+ {
+ _cachedMunicipios = null;
+ _cachedGeometries = null;
+
+ // Recrear capa de proyectos
+ if (Map != null && _layerProyectos != null && Map.OperationalLayers.Contains(_layerProyectos))
+  Map.OperationalLayers.Remove(_layerProyectos);
+ _layerProyectos = null;
+
+ await CargarCapasAsync();
  }
 
  private async void OnFiltrosPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -334,8 +365,40 @@ namespace Geomatica.Desktop.ViewModels
  _layerMunicipios = null;
  }
 
- // Obtener todos los municipios
- var allMuni = await _municipios.TodosGeoJsonAsync();
+ // Cargar solo municipios que tienen al menos un proyecto (cachear)
+ if (_cachedMunicipios == null)
+ {
+  var codigosConProyecto = await _proyectos.ObtenerTodosCodigosMunicipioAsync();
+  if (codigosConProyecto.Count > 0)
+  _cachedMunicipios = await _municipios.PorCodigosGeoJsonAsync(codigosConProyecto);
+  else
+  _cachedMunicipios = Array.Empty<MunicipioGeoJsonDto>();
+ }
+ var allMuni = _cachedMunicipios;
+
+ // Pre-parsear geometrías en hilo de fondo (una sola vez)
+ if (_cachedGeometries == null)
+ {
+  var munis = allMuni;
+  _cachedGeometries = await Task.Run(() =>
+  {
+  var dict = new Dictionary<string, Geometry>(munis.Count);
+  foreach (var m in munis)
+  {
+   if (string.IsNullOrEmpty(m.GeoJson)) continue;
+   try
+   {
+   var geom = ParseGeoJson(m.GeoJson);
+   if (geom != null) dict[m.Codigo] = geom;
+   }
+   catch (Exception ex)
+   {
+   System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error parsing GeoJson for {m.Codigo}: {ex}");
+   }
+  }
+  return dict;
+  });
+ }
 
  IEnumerable<MunicipioGeoJsonDto> filteredMuni;
  if (Filtros.SelectedProyecto != null)
@@ -347,16 +410,16 @@ namespace Geomatica.Desktop.ViewModels
  else
  {
  filteredMuni = allMuni;
- System.Diagnostics.Debug.WriteLine("[MapaViewModel] Mostrando todos los municipios");
+ System.Diagnostics.Debug.WriteLine("[MapaViewModel] Mostrando municipios con proyectos");
  }
 
- // Crear nueva capa con municipios filtrados
+ // Crear nueva capa usando geometrías ya parseadas del caché
  _layerMunicipios = await CrearCapaMunicipiosFiltradaAsync(filteredMuni);
 
  // Agregar a mapa
  if (_layerMunicipios != null)
  {
- Map.OperationalLayers.Insert(0, _layerMunicipios); // Insertar en la posición 0 para que esté debajo de proyectos
+ Map.OperationalLayers.Insert(0, _layerMunicipios);
  await _layerMunicipios.LoadAsync();
  }
  }
@@ -377,21 +440,10 @@ namespace Geomatica.Desktop.ViewModels
   var table = new FeatureCollectionTable(fields, GeometryType.Polygon, SpatialReferences.Wgs84);
 
   int oid = 1;
-  int featureCount = 0;
+  var features = new List<Feature>();
   foreach (var m in municipios)
   {
-   Geometry? geom = null;
-   try
-   {
-    if (string.IsNullOrEmpty(m.GeoJson)) continue;
-    geom = ParseGeoJson(m.GeoJson);
-   }
-   catch (Exception ex)
-   {
-    System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error parsing GeoJson for {m.Codigo}: {ex}");
-    continue;
-   }
-   if (geom == null) continue;
+   if (!_cachedGeometries!.TryGetValue(m.Codigo, out var geom)) continue;
 
    var attrs = new Dictionary<string, object?>
    {
@@ -399,12 +451,11 @@ namespace Geomatica.Desktop.ViewModels
     ["mpio_cdpmp"] = m.Codigo,
     ["mpio_cnmbr"] = m.Nombre
    };
-   var feat = table.CreateFeature(attrs, geom);
-   await table.AddFeatureAsync(feat);
-   featureCount++;
+   features.Add(table.CreateFeature(attrs, geom));
   }
 
-  if (featureCount == 0) return null;
+  if (features.Count == 0) return null;
+  await table.AddFeaturesAsync(features);
 
   table.Renderer = new SimpleRenderer(
    new SimpleFillSymbol(SimpleFillSymbolStyle.Solid,
@@ -444,9 +495,9 @@ namespace Geomatica.Desktop.ViewModels
     var points = new List<MapPoint>();
     foreach (var point in ring.EnumerateArray())
     {
-     var coords = point.EnumerateArray().ToArray();
-     double lon = coords[0].GetDouble();
-     double lat = coords[1].GetDouble();
+     var enumerator = point.EnumerateArray().GetEnumerator();
+     enumerator.MoveNext(); double lon = enumerator.Current.GetDouble();
+     enumerator.MoveNext(); double lat = enumerator.Current.GetDouble();
      points.Add(new MapPoint(lon, lat, SpatialReferences.Wgs84));
     }
     builder.AddPart(points);
