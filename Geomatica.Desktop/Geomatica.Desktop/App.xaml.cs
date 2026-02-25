@@ -142,11 +142,21 @@ namespace Geomatica.Desktop
                     navigateBack,
                     onCreado));
 
+            // Factory for EditarProyectoViewModel
+            services.AddSingleton<Func<ProyectoDetalleDto, Action, Action?, EditarProyectoViewModel>>(sp => (proyecto, navigateBack, onEditado) =>
+                new EditarProyectoViewModel(
+                    sp.GetRequiredService<IProyectoRepository>(),
+                    sp.GetRequiredService<IMunicipioRepository>(),
+                    proyecto,
+                    navigateBack,
+                    onEditado));
+
             services.AddSingleton<MainViewModel>(sp => new MainViewModel(
                 sp.GetRequiredService<FiltrosViewModel>(),
                 () => sp.GetRequiredService<MapaViewModel>(),
                 () => sp.GetRequiredService<ArchivosViewModel>(),
-                sp.GetRequiredService<Func<Action, Action?, CrearProyectoViewModel>>()
+                sp.GetRequiredService<Func<Action, Action?, CrearProyectoViewModel>>(),
+                sp.GetRequiredService<Func<ProyectoDetalleDto, Action, Action?, EditarProyectoViewModel>>()
                 ));
 
             services.AddSingleton<MainWindow>();

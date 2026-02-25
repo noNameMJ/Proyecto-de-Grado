@@ -1,0 +1,69 @@
+<UserControl x:Class="Geomatica.Desktop.Views.FichaProyectoView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Background="#F0F0F0">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel MaxWidth="700" Margin="32,24" HorizontalAlignment="Center">
+
+                <!-- Botón volver -->
+                <DockPanel Margin="0,0,0,16">
+                    <Button Content="← Volver al mapa" Command="{Binding VolverCommand}"
+                            HorizontalAlignment="Left" Padding="12,6"
+                            Background="Transparent" BorderThickness="0" FontSize="13" Cursor="Hand"/>
+                    <Button Content="✏️ Editar" Command="{Binding EditarCommand}"
+                            HorizontalAlignment="Right" Padding="12,6"
+                            Background="#007ACC" Foreground="White" FontWeight="Bold" FontSize="13" Cursor="Hand"/>
+                </DockPanel>
+
+                <!-- Tarjeta principal -->
+                <Border Background="White" CornerRadius="8" Padding="24" 
+                        BorderBrush="#DDD" BorderThickness="1">
+                    <StackPanel>
+                        <TextBlock Text="{Binding Titulo}" FontSize="22" FontWeight="Bold" 
+                                   TextWrapping="Wrap" Margin="0,0,0,16"/>
+
+                        <Separator Margin="0,0,0,16"/>
+
+                        <!-- Descripción -->
+                        <TextBlock Text="Descripción" FontWeight="SemiBold" FontSize="13" 
+                                   Foreground="#666" Margin="0,0,0,4"/>
+                        <TextBlock Text="{Binding Descripcion, TargetNullValue='Sin descripción'}" 
+                                   TextWrapping="Wrap" FontSize="14" Margin="0,0,0,16"/>
+
+                        <!-- Fecha -->
+                        <TextBlock Text="Fecha" FontWeight="SemiBold" FontSize="13" 
+                                   Foreground="#666" Margin="0,0,0,4"/>
+                        <TextBlock Text="{Binding FechaTexto}" FontSize="14" Margin="0,0,0,16"/>
+
+                        <!-- Palabra clave -->
+                        <TextBlock Text="Palabra clave" FontWeight="SemiBold" FontSize="13" 
+                                   Foreground="#666" Margin="0,0,0,4"/>
+                        <TextBlock Text="{Binding PalabraClave, TargetNullValue='—'}" 
+                                   FontSize="14" Margin="0,0,0,16"/>
+
+                        <!-- Municipio -->
+                        <TextBlock Text="Municipio" FontWeight="SemiBold" FontSize="13" 
+                                   Foreground="#666" Margin="0,0,0,4"/>
+                        <TextBlock Text="{Binding MunicipioNombre, TargetNullValue='No asignado'}" 
+                                   FontSize="14" Margin="0,0,0,16"/>
+
+                        <!-- Coordenadas -->
+                        <TextBlock Text="Coordenadas" FontWeight="SemiBold" FontSize="13" 
+                                   Foreground="#666" Margin="0,0,0,4"/>
+                        <TextBlock Text="{Binding Coordenadas}" FontSize="14" Margin="0,0,0,16"/>
+
+                        <Separator Margin="0,0,0,16"/>
+
+                        <!-- Ruta de archivos -->
+                        <TextBlock Text="Ruta de archivos" FontWeight="SemiBold" FontSize="13" 
+                                   Foreground="#666" Margin="0,0,0,4"/>
+                        <TextBlock Text="{Binding RutaArchivos, TargetNullValue='Sin ruta asignada'}" 
+                                   FontSize="13" Foreground="#444" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <Button Content="📁 Abrir carpeta" Command="{Binding AbrirCarpetaCommand}"
+                                HorizontalAlignment="Left" Padding="12,6" FontSize="12"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

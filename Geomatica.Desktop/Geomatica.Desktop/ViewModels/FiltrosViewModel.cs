@@ -32,6 +32,7 @@ namespace Geomatica.Desktop.ViewModels
         public IRelayCommand LimpiarHastaCommand { get; }
 
         public event EventHandler? BuscarSolicitado;
+        public event EventHandler<ProyectoItem>? ProyectoSeleccionadoEnMapa;
 
         public FiltrosViewModel(IMunicipioRepository? municipioRepository)
         {
@@ -146,6 +147,12 @@ namespace Geomatica.Desktop.ViewModels
         partial void OnDesdeChanged(DateTime? value) => DebounceBuscar();
         partial void OnHastaChanged(DateTime? value) => DebounceBuscar();
         partial void OnAreaInteresChanged(object? value) => DebounceBuscar();
+
+        partial void OnSelectedProyectoChanged(ProyectoItem? value)
+        {
+            if (value != null && !(value.Lon == 0 && value.Lat == 0))
+                ProyectoSeleccionadoEnMapa?.Invoke(this, value);
+        }
 
         public record DepartamentoItem(string Codigo, string Nombre)
         {

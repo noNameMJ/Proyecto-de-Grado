@@ -1,0 +1,56 @@
+<UserControl x:Class="Geomatica.Desktop.Views.EditarProyectoView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Background="White">
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Margin="30" MaxWidth="600" HorizontalAlignment="Left">
+                <TextBlock Text="Editar Proyecto" FontSize="24" FontWeight="Bold" Margin="0,0,0,20"/>
+
+                <TextBlock Text="Titulo:" FontWeight="SemiBold"/>
+                <TextBox Text="{Binding Titulo}" Margin="0,4,0,12" Padding="4"/>
+
+                <TextBlock Text="Descripcion (Opcional):" FontWeight="SemiBold"/>
+                <TextBox Text="{Binding Descripcion}" Height="60" AcceptsReturn="True" TextWrapping="Wrap" Margin="0,4,0,12" Padding="4"/>
+
+                <TextBlock Text="Fecha de Inicio:" FontWeight="SemiBold"/>
+                <DatePicker SelectedDate="{Binding FechaInicio}" HorizontalAlignment="Left" Width="200" Margin="0,4,0,12"/>
+
+                <TextBlock Text="Palabra Clave:" FontWeight="SemiBold"/>
+                <TextBox Text="{Binding PalabraClave}" Margin="0,4,0,12" Padding="4"/>
+
+                <TextBlock Text="Ubicacion:" FontWeight="Bold" Margin="0,10,0,4"/>
+                <StackPanel Orientation="Horizontal">
+                    <StackPanel Margin="0,0,20,0">
+                        <TextBlock Text="Departamento:"/>
+                        <ComboBox ItemsSource="{Binding Departamentos}" SelectedItem="{Binding SelectedDepartamento}" DisplayMemberPath="Nombre" Width="200" Margin="0,4,0,12"/>
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="Municipio:"/>
+                        <ComboBox ItemsSource="{Binding Municipios}" SelectedItem="{Binding SelectedMunicipio}" DisplayMemberPath="Nombre" Width="200" Margin="0,4,0,12"/>
+                    </StackPanel>
+                </StackPanel>
+
+                <TextBlock Text="Coordenadas (Opcional - WGS84):" Margin="0,0,0,4"/>
+                <StackPanel Orientation="Horizontal">
+                    <StackPanel Margin="0,0,20,0">
+                        <TextBlock Text="Latitud:"/>
+                        <TextBox Text="{Binding LatStr}" Width="150" Margin="0,4,0,12" Padding="4"/>
+                    </StackPanel>
+                    <StackPanel>
+                        <TextBlock Text="Longitud:"/>
+                        <TextBox Text="{Binding LonStr}" Width="150" Margin="0,4,0,12" Padding="4"/>
+                    </StackPanel>
+                </StackPanel>
+                <TextBlock Text="Nota: Si se dejan vacios, se conserva la geometria actual." FontSize="11" Foreground="Gray" Margin="0,-8,0,12"/>
+
+                <TextBlock Text="Ruta Archivos (Carpeta):" FontWeight="SemiBold"/>
+                <TextBox Text="{Binding Ruta}" Margin="0,4,0,12" Padding="4"/>
+
+                <StackPanel Orientation="Horizontal" Margin="0,30,0,0">
+                    <Button Content="Guardar Cambios" Command="{Binding GuardarCommand}" Padding="20,10" Background="#007ACC" Foreground="White" FontWeight="Bold"/>
+                    <Button Content="Cancelar" Command="{Binding CancelarCommand}" Padding="20,10" Margin="20,0,0,0"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

@@ -17,6 +17,26 @@
         <Grid Grid.Column="1">
             <esri:MapView x:Name="controlMapView" Map="{Binding Map}" />
 
+            <!-- Leyenda -->
+            <Border Background="#E0FFFFFF" CornerRadius="4" Padding="8,6"
+                    HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="12">
+                <StackPanel>
+                    <TextBlock Text="Leyenda" FontWeight="SemiBold" FontSize="12" Margin="0,0,0,4"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,2">
+                        <Ellipse Width="10" Height="10" Fill="OrangeRed"
+                                 Stroke="White" StrokeThickness="1.5"
+                                 VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock Text="Proyecto geomático" FontSize="11" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,2">
+                        <Rectangle Width="14" Height="10"
+                                   Fill="#282196F3" Stroke="#B42196F3" StrokeThickness="1"
+                                   VerticalAlignment="Center" Margin="0,0,6,0"/>
+                        <TextBlock Text="Municipio con proyecto" FontSize="11" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+
             <!-- Botón Home (esquina inferior derecha) ligado al comando en el VM -->
             <Button x:Name="HomeButton"
                     Width="44" Height="44"

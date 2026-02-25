@@ -13,5 +13,11 @@
         <DataTemplate DataType="{x:Type vms:CrearProyectoViewModel}">
             <views:CrearProyectoView/>
         </DataTemplate>
+        <DataTemplate DataType="{x:Type vms:FichaProyectoViewModel}">
+            <views:FichaProyectoView/>
+        </DataTemplate>
+        <DataTemplate DataType="{x:Type vms:EditarProyectoViewModel}">
+            <views:EditarProyectoView/>
+        </DataTemplate>
     </Application.Resources>
 </Application>

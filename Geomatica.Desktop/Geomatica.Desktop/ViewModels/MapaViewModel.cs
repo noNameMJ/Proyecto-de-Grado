@@ -26,6 +26,7 @@ namespace Geomatica.Desktop.ViewModels
  private Layer? _layerProyectos;
  private IReadOnlyList<MunicipioGeoJsonDto>? _cachedMunicipios;
  private Dictionary<string, Geometry>? _cachedGeometries;
+ private IReadOnlyList<string>? _ultimosCodigosMunicipio;
 
  // Track the MapView that currently displays this Map to release ownership when re-attaching
  private MapView? _ownerMapView;
@@ -33,6 +34,7 @@ namespace Geomatica.Desktop.ViewModels
  // Comando y evento para Home (MVVM)
  public IRelayCommand HomeCommand { get; }
  public event EventHandler? HomeRequested;
+ public event EventHandler<ProyectoDetalleDto>? FichaProyectoSolicitada;
 
  // Nuevo constructor: recibe los filtros (opción B)
  public MapaViewModel(IProyectoRepository proyectos, IMunicipioRepository municipios, FiltrosViewModel filtros)
@@ -43,11 +45,21 @@ namespace Geomatica.Desktop.ViewModels
 
  HomeCommand = new RelayCommand(() => HomeRequested?.Invoke(this, EventArgs.Empty));
 
- // Suscribirse a cambios en filtros para actualizar capas
- Filtros.PropertyChanged += OnFiltrosPropertyChanged;
-
  SetupMap();
- _ = CargarCapasAsync();
+ }
+
+ public async Task AbrirFichaProyectoAsync(int idProyecto)
+ {
+  try
+  {
+   var detalle = await _proyectos.ObtenerPorIdAsync(idProyecto);
+   if (detalle != null)
+    FichaProyectoSolicitada?.Invoke(this, detalle);
+  }
+  catch (Exception ex)
+  {
+   System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error cargando detalle de proyecto {idProyecto}: {ex}");
+  }
  }
 
  // Methods to attach/detach a MapView safely
@@ -177,26 +189,14 @@ namespace Geomatica.Desktop.ViewModels
  {
  try
  {
- // Create layers only once and reuse them to avoid ownership errors
- if (_layerProyectos == null)
- _layerProyectos = await CrearCapaProyectosAsync();
-
- // Add layers only if they're not already in the map to avoid ownership errors
- if (Map != null)
- {
- if (_layerProyectos != null && !Map.OperationalLayers.Contains(_layerProyectos))
- Map.OperationalLayers.Add(_layerProyectos);
- }
-
- if (_layerProyectos != null)
- await _layerProyectos.LoadAsync();
-
- // Aplicar filtro a municipios (crea la capa filtrada)
- await AplicarFiltroMunicipiosAsync();
+  // La carga inicial simplemente obtiene todos los proyectos
+  // y delega a ActualizarCapasConFiltroAsync (misma ruta que los filtros)
+  var items = await _proyectos.ListarAsync();
+  await ActualizarCapasConFiltroAsync(items);
  }
  catch (Exception ex)
  {
- System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error en CargarCapasAsync: {ex}");
+  System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error en CargarCapasAsync: {ex}");
  }
  }
 
@@ -258,7 +258,10 @@ namespace Geomatica.Desktop.ViewModels
 
  // Renderer en la tabla
  table.Renderer = new SimpleRenderer(
- new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.OrangeRed, 9));
+ new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.OrangeRed, 9)
+ {
+  Outline = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.White, 1.5)
+ });
 
  var collection = new FeatureCollection(new[] { table });
  return new FeatureCollectionLayer(collection);
@@ -331,102 +334,179 @@ namespace Geomatica.Desktop.ViewModels
  /// Invalida el caché de municipios y la capa de proyectos para reflejar datos nuevos.
  /// Llamar después de crear/eliminar un proyecto.
  /// </summary>
- public async Task InvalidarCacheYRecargarAsync()
+ public void InvalidarCache()
  {
  _cachedMunicipios = null;
  _cachedGeometries = null;
 
- // Recrear capa de proyectos
- if (Map != null && _layerProyectos != null && Map.OperationalLayers.Contains(_layerProyectos))
+ if (Map != null)
+ {
+  if (_layerProyectos != null && Map.OperationalLayers.Contains(_layerProyectos))
   Map.OperationalLayers.Remove(_layerProyectos);
+  if (_layerMunicipios != null && Map.OperationalLayers.Contains(_layerMunicipios))
+  Map.OperationalLayers.Remove(_layerMunicipios);
+ }
  _layerProyectos = null;
-
- await CargarCapasAsync();
+ _layerMunicipios = null;
  }
 
- private async void OnFiltrosPropertyChanged(object? sender, PropertyChangedEventArgs e)
- {
- if (e.PropertyName == nameof(FiltrosViewModel.SelectedProyecto))
- {
- await AplicarFiltroMunicipiosAsync();
- }
- }
-
- private async Task AplicarFiltroMunicipiosAsync()
+ /// <summary>
+ /// Actualiza las capas del mapa con los proyectos filtrados.
+ /// Llamar desde MapaView después de obtener los resultados filtrados.
+ /// </summary>
+ public async Task ActualizarCapasConFiltroAsync(IReadOnlyList<ProyectoDto> proyectosFiltrados)
  {
  if (Map == null) return;
 
  try
  {
- // Remover capa actual si existe
- if (_layerMunicipios != null && Map.OperationalLayers.Contains(_layerMunicipios))
- {
- Map.OperationalLayers.Remove(_layerMunicipios);
- _layerMunicipios = null;
- }
+  // 1. Recrear capa de proyectos con los datos filtrados
+  if (_layerProyectos != null && Map.OperationalLayers.Contains(_layerProyectos))
+  Map.OperationalLayers.Remove(_layerProyectos);
 
- // Cargar solo municipios que tienen al menos un proyecto (cachear)
- if (_cachedMunicipios == null)
- {
-  var codigosConProyecto = await _proyectos.ObtenerTodosCodigosMunicipioAsync();
-  if (codigosConProyecto.Count > 0)
-  _cachedMunicipios = await _municipios.PorCodigosGeoJsonAsync(codigosConProyecto);
-  else
-  _cachedMunicipios = Array.Empty<MunicipioGeoJsonDto>();
- }
- var allMuni = _cachedMunicipios;
+  _layerProyectos = await CrearCapaProyectosDesdeListaAsync(proyectosFiltrados);
+  if (_layerProyectos != null)
+  {
+  Map.OperationalLayers.Add(_layerProyectos);
+  await _layerProyectos.LoadAsync();
 
- // Pre-parsear geometrías en hilo de fondo (una sola vez)
- if (_cachedGeometries == null)
- {
-  var munis = allMuni;
+  // Diagnóstico: verificar estado de carga
+  System.Diagnostics.Trace.WriteLine($"[DIAG-LAYER] _layerProyectos LoadStatus={_layerProyectos.LoadStatus} IsIdentifyEnabled={_layerProyectos.IsIdentifyEnabled} Type={_layerProyectos.GetType().Name}");
+  if (_layerProyectos is FeatureCollectionLayer fcl)
+  {
+   System.Diagnostics.Trace.WriteLine($"[DIAG-LAYER]   SubLayers count={fcl.Layers.Count}");
+   foreach (var sub in fcl.Layers)
+   {
+    System.Diagnostics.Trace.WriteLine($"[DIAG-LAYER]   SubLayer '{sub.Name}' LoadStatus={sub.LoadStatus} IsIdentifyEnabled={sub.IsIdentifyEnabled} Features={sub.FeatureTable?.NumberOfFeatures}");
+   }
+  }
+  }
+
+  // 2. Obtener municipios de los proyectos filtrados
+  var ids = proyectosFiltrados.Select(p => p.Id).ToList();
+  var codigosMuni = ids.Count > 0
+  ? await _proyectos.ObtenerCodigosMunicipioAsync(ids)
+  : (IReadOnlyList<string>)Array.Empty<string>();
+  _ultimosCodigosMunicipio = codigosMuni;
+
+  // 3. Asegurar que el caché de geometrías esté poblado
+  if (_cachedMunicipios == null)
+  {
+  var todosCodigosConProyecto = await _proyectos.ObtenerTodosCodigosMunicipioAsync();
+  _cachedMunicipios = todosCodigosConProyecto.Count > 0
+   ? await _municipios.PorCodigosGeoJsonAsync(todosCodigosConProyecto)
+   : (IReadOnlyList<MunicipioGeoJsonDto>)Array.Empty<MunicipioGeoJsonDto>();
+  }
+
+  if (_cachedGeometries == null)
+  {
+  var munis = _cachedMunicipios;
   _cachedGeometries = await Task.Run(() =>
   {
-  var dict = new Dictionary<string, Geometry>(munis.Count);
-  foreach (var m in munis)
-  {
+   var dict = new Dictionary<string, Geometry>(munis.Count);
+   foreach (var m in munis)
+   {
    if (string.IsNullOrEmpty(m.GeoJson)) continue;
    try
    {
-   var geom = ParseGeoJson(m.GeoJson);
-   if (geom != null) dict[m.Codigo] = geom;
+    var geom = ParseGeoJson(m.GeoJson);
+    if (geom != null) dict[m.Codigo] = geom;
    }
-   catch (Exception ex)
-   {
-   System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error parsing GeoJson for {m.Codigo}: {ex}");
+   catch { }
    }
-  }
-  return dict;
+   return dict;
   });
- }
+  }
 
- IEnumerable<MunicipioGeoJsonDto> filteredMuni;
- if (Filtros.SelectedProyecto != null)
- {
- var codigos = await _proyectos.ObtenerCodigosMunicipioAsync(new[] { Filtros.SelectedProyecto.Id });
- filteredMuni = allMuni.Where(m => codigos.Contains(m.Codigo));
- System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Filtrando municipios para proyecto {Filtros.SelectedProyecto.Id}: {string.Join(",", codigos)}");
- }
- else
- {
- filteredMuni = allMuni;
- System.Diagnostics.Debug.WriteLine("[MapaViewModel] Mostrando municipios con proyectos");
- }
+  // 4. Recrear capa de municipios solo con los del filtro
+  if (_layerMunicipios != null && Map.OperationalLayers.Contains(_layerMunicipios))
+  Map.OperationalLayers.Remove(_layerMunicipios);
+  _layerMunicipios = null;
 
- // Crear nueva capa usando geometrías ya parseadas del caché
- _layerMunicipios = await CrearCapaMunicipiosFiltradaAsync(filteredMuni);
-
- // Agregar a mapa
- if (_layerMunicipios != null)
- {
- Map.OperationalLayers.Insert(0, _layerMunicipios);
- await _layerMunicipios.LoadAsync();
- }
+  var filteredMuni = _cachedMunicipios.Where(m => codigosMuni.Contains(m.Codigo));
+  _layerMunicipios = await CrearCapaMunicipiosFiltradaAsync(filteredMuni);
+  if (_layerMunicipios != null)
+  {
+  Map.OperationalLayers.Insert(0, _layerMunicipios);
+  await _layerMunicipios.LoadAsync();
+  }
  }
  catch (Exception ex)
  {
- System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error aplicando filtro municipios: {ex}");
+  System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error actualizando capas con filtro: {ex}");
  }
+ }
+
+ /// <summary>
+ /// Devuelve el extent (Envelope) de los municipios que contienen proyectos del último filtro aplicado.
+ /// </summary>
+ public Envelope? ObtenerExtentMunicipiosFiltrados()
+ {
+  if (_cachedGeometries == null || _ultimosCodigosMunicipio == null || _ultimosCodigosMunicipio.Count == 0)
+   return null;
+
+  double xmin = double.MaxValue, ymin = double.MaxValue;
+  double xmax = double.MinValue, ymax = double.MinValue;
+  bool any = false;
+  foreach (var codigo in _ultimosCodigosMunicipio)
+  {
+   if (_cachedGeometries.TryGetValue(codigo, out var geom))
+   {
+    var ext = geom.Extent;
+    xmin = Math.Min(xmin, ext.XMin);
+    ymin = Math.Min(ymin, ext.YMin);
+    xmax = Math.Max(xmax, ext.XMax);
+    ymax = Math.Max(ymax, ext.YMax);
+    any = true;
+   }
+  }
+  return any ? new Envelope(xmin, ymin, xmax, ymax, SpatialReferences.Wgs84) : null;
+ }
+
+ private async void OnFiltrosPropertyChanged(object? sender, PropertyChangedEventArgs e)
+ {
+ // Reservado para reacciones a propiedades específicas si se necesitan en el futuro
+ }
+
+ private async Task<Layer?> CrearCapaProyectosDesdeListaAsync(IReadOnlyList<ProyectoDto> items)
+ {
+ var fields = new List<Field>
+ {
+  OID("oid"),
+  Int("id_proyecto"),
+  Str("titulo", 200),
+  Str("ruta_archivos", 1024)
+ };
+ var table = new FeatureCollectionTable(fields, GeometryType.Point, SpatialReferences.Wgs84);
+
+ var features = new List<Feature>();
+ int oid = 1;
+ foreach (var p in items)
+ {
+  if (p.Lon == 0 && p.Lat == 0) continue;
+  var attrs = new Dictionary<string, object?>
+  {
+  ["oid"] = oid++,
+  ["id_proyecto"] = p.Id,
+  ["titulo"] = p.Titulo,
+  ["ruta_archivos"] = p.RutaArchivos
+  };
+  var geom = new MapPoint(p.Lon, p.Lat, SpatialReferences.Wgs84);
+  features.Add(table.CreateFeature(attrs, geom));
+ }
+
+ if (features.Count == 0) return null;
+ await table.AddFeaturesAsync(features);
+
+ var marker = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.OrangeRed, 9)
+ {
+  Outline = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.White, 1.5)
+ };
+ table.Renderer = new SimpleRenderer(marker);
+
+ var collection = new FeatureCollection(new[] { table });
+ var layer = new FeatureCollectionLayer(collection);
+ return layer;
  }
 
  private async Task<Layer?> CrearCapaMunicipiosFiltradaAsync(IEnumerable<MunicipioGeoJsonDto> municipios)
