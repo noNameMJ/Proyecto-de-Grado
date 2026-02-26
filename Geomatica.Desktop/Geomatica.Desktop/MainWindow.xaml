@@ -2,17 +2,56 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:Geomatica.Desktop.ViewModels"
-        Title="GEOMÁTICA - Visor de Proyectos" Height="748" Width="1180">
-    <!-- DataContext is provided by DI in App.OnStartup -->
+        Title="GEOMÁTICA UIS — Visor de Proyectos" Height="748" Width="1180"
+        FontFamily="{StaticResource AppFont}"
+        Background="{StaticResource SurfaceBrush}">
 
     <DockPanel>
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Background="#2F2F2F" Height="44">
-            <Button Content="Mapa" Command="{Binding ShowMapaCommand}" Margin="8" Padding="12,6"/>
-            <Button Content="Archivos" Command="{Binding ShowArchivosCommand}" Margin="8" Padding="12,6"/>
-            <Button Content="Nuevo Proyecto" Command="{Binding ShowCrearProyectoCommand}" Margin="8" Padding="12,6" Background="#007ACC" Foreground="White" FontWeight="Bold"/>
-            <TextBlock Text="{Binding CurrentViewName}" Foreground="White" VerticalAlignment="Center" Margin="16,0,0,0"/>
-        </StackPanel>
+        <!-- Header: franja dorada UIS + barra ArcGIS oscura -->
+        <Grid DockPanel.Dock="Top">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="3"/>   <!-- Gold accent stripe -->
+                <RowDefinition Height="46"/>  <!-- Dark chrome bar -->
+            </Grid.RowDefinitions>
 
+            <!-- Franja dorada UIS -->
+            <Rectangle Grid.Row="0" Fill="{StaticResource UisGoldBrush}"/>
+
+            <!-- Barra oscura estilo ArcGIS Pro -->
+            <Border Grid.Row="1" Background="{StaticResource ChromeDarkBrush}">
+                <DockPanel Margin="6,0">
+                    <!-- Logo / Título -->
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="6,0,16,0">
+                        <Ellipse Width="28" Height="28" Fill="{StaticResource UisGreenBrush}" Margin="0,0,8,0"/>
+                        <TextBlock Text="GEOMÁTICA" Foreground="{StaticResource UisGoldBrush}" 
+                                   FontSize="14" FontWeight="Bold" VerticalAlignment="Center"
+                                   FontFamily="{StaticResource AppFont}"/>
+                        <TextBlock Text="UIS" Foreground="White" FontSize="14" FontWeight="Light"
+                                   VerticalAlignment="Center" Margin="6,0,0,0"
+                                   FontFamily="{StaticResource AppFont}"/>
+                    </StackPanel>
+
+                    <!-- Indicador de vista actual -->
+                    <TextBlock DockPanel.Dock="Right" Text="{Binding CurrentViewName}" 
+                               Foreground="#888" VerticalAlignment="Center" 
+                               FontSize="12" Margin="0,0,12,0"
+                               FontFamily="{StaticResource AppFont}"/>
+
+                    <!-- Navegación -->
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Button Content="🗺  Mapa" Command="{Binding ShowMapaCommand}" 
+                                Style="{StaticResource NavButton}" Margin="2,0"/>
+                        <Button Content="📁  Archivos" Command="{Binding ShowArchivosCommand}" 
+                                Style="{StaticResource NavButton}" Margin="2,0"/>
+                        <Rectangle Width="1" Height="24" Fill="#444" Margin="8,0"/>
+                        <Button Content="＋  Nuevo Proyecto" Command="{Binding ShowCrearProyectoCommand}" 
+                                Style="{StaticResource NavButtonAccent}" Margin="2,0"/>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+        </Grid>
+
+        <!-- Content -->
         <ContentControl Content="{Binding CurrentView}"/>
     </DockPanel>
 </Window>

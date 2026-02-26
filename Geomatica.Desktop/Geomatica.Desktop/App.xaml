@@ -4,20 +4,26 @@
              xmlns:views="clr-namespace:Geomatica.Desktop.Views"
              xmlns:vms="clr-namespace:Geomatica.Desktop.ViewModels">
     <Application.Resources>
-        <DataTemplate DataType="{x:Type vms:MapaViewModel}">
-            <views:MapaView/>
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vms:ArchivosViewModel}">
-            <views:ArchivosView/>
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vms:CrearProyectoViewModel}">
-            <views:CrearProyectoView/>
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vms:FichaProyectoViewModel}">
-            <views:FichaProyectoView/>
-        </DataTemplate>
-        <DataTemplate DataType="{x:Type vms:EditarProyectoViewModel}">
-            <views:EditarProyectoView/>
-        </DataTemplate>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/ArcGisUisTheme.xaml"/>
+            </ResourceDictionary.MergedDictionaries>
+
+            <DataTemplate DataType="{x:Type vms:MapaViewModel}">
+                <views:MapaView/>
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vms:ArchivosViewModel}">
+                <views:ArchivosView/>
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vms:CrearProyectoViewModel}">
+                <views:CrearProyectoView/>
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vms:FichaProyectoViewModel}">
+                <views:FichaProyectoView/>
+            </DataTemplate>
+            <DataTemplate DataType="{x:Type vms:EditarProyectoViewModel}">
+                <views:EditarProyectoView/>
+            </DataTemplate>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

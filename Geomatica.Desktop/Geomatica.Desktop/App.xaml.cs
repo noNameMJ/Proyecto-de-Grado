@@ -52,7 +52,9 @@ namespace Geomatica.Desktop
                     Pooling = true,
                     Timeout = 10,
                     CommandTimeout = 30,
-                    KeepAlive = 30
+                    KeepAlive = 30,
+                    ConnectionIdleLifetime = 60,
+                    ConnectionPruningInterval = 15
                 };
                 cs = builder.ConnectionString;
             }
@@ -61,7 +63,9 @@ namespace Geomatica.Desktop
                 // Asegurar resiliencia en connection strings proporcionadas externamente
                 var parsed = new NpgsqlConnectionStringBuilder(cs);
                 if (parsed.KeepAlive == 0) parsed.KeepAlive = 30;
-                if (parsed.Timeout == 15) parsed.Timeout = 10; // solo si tiene el default
+                if (parsed.Timeout == 15) parsed.Timeout = 10;
+                if (parsed.ConnectionIdleLifetime == 300) parsed.ConnectionIdleLifetime = 60;
+                if (parsed.ConnectionPruningInterval == 10) parsed.ConnectionPruningInterval = 15;
                 cs = parsed.ConnectionString;
             }
 
