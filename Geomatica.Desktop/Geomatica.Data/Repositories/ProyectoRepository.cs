@@ -1,8 +1,5 @@
-﻿using Geomatica.Domain.Entities;
-using Geomatica.Domain.Interfaces.Repositories;
-using Npgsql;
+﻿using Npgsql;
 using NpgsqlTypes;
-using System.Text;
 using System.Diagnostics;
 
 namespace Geomatica.Data.Repositories
@@ -60,23 +57,10 @@ namespace Geomatica.Data.Repositories
             try
             {
                 await con.OpenAsync();
-
-                // Log SRID
-                try
-                {
-                    using var sridCmd = new NpgsqlCommand("SELECT DISTINCT ST_SRID(geom) FROM geovisor.proyecto LIMIT1;", con);
-                    var sridObj = await sridCmd.ExecuteScalarAsync();
-                    Debug.WriteLine($"[ProyectoRepository] proyecto.geom SRID sample: {sridObj}");
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[ProyectoRepository] No se pudo obtener SRID de proyecto.geom: {ex}");
-                }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[ProyectoRepository] Error abriendo conexión: {ex}");
-                Debug.WriteLine($"[ProyectoRepository] Connection target: {_debugInfo}");
                 throw;
             }
 

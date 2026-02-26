@@ -2,13 +2,9 @@
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
 using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Geomatica.Data.Repositories;
-using System;
 using System.Windows;
-using System.Collections.Generic;
 
 namespace Geomatica.Desktop.ViewModels
 {

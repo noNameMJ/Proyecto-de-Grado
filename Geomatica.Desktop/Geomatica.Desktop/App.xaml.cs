@@ -37,8 +37,7 @@ namespace Geomatica.Desktop
             if (string.IsNullOrWhiteSpace(cs))
             {
                 var host = config["GEOMATICA_DB_HOST"];
-                var portParsed = int.TryParse(config["GEOMATICA_DB_PORT"], out var p);
-                var port = p;
+                int.TryParse(config["GEOMATICA_DB_PORT"], out var port);
                 var db = config["GEOMATICA_DB_NAME"];
                 var user = config["GEOMATICA_DB_USER"];
                 var pass = config["GEOMATICA_DB_PASS"];
@@ -50,9 +49,20 @@ namespace Geomatica.Desktop
                     Database = db,
                     Username = user,
                     Password = pass,
-                    Pooling = true
+                    Pooling = true,
+                    Timeout = 10,
+                    CommandTimeout = 30,
+                    KeepAlive = 30
                 };
                 cs = builder.ConnectionString;
+            }
+            else
+            {
+                // Asegurar resiliencia en connection strings proporcionadas externamente
+                var parsed = new NpgsqlConnectionStringBuilder(cs);
+                if (parsed.KeepAlive == 0) parsed.KeepAlive = 30;
+                if (parsed.Timeout == 15) parsed.Timeout = 10; // solo si tiene el default
+                cs = parsed.ConnectionString;
             }
 
             // Test DB connection early to provide clear feedback
@@ -108,7 +118,6 @@ namespace Geomatica.Desktop
                         var cntObj = cntCmd.ExecuteScalar();
                         var count = cntObj == null || cntObj == DBNull.Value ?0L : Convert.ToInt64(cntObj);
                         Debug.WriteLine($"[App] Proyectos en geovisor.proyecto: {count}");
-                        MessageBox.Show($"Proyectos en geovisor.proyecto: {count}", "Proyectos encontrados", MessageBoxButton.OK, MessageBoxImage.Information);
                     }
                     catch (Exception ex)
                     {

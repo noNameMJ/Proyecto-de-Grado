@@ -1,6 +1,5 @@
 ﻿using Esri.ArcGISRuntime.Data;
 using Esri.ArcGISRuntime.Mapping;
-using Esri.ArcGISRuntime.UI;
 using Esri.ArcGISRuntime.UI.Controls;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -8,8 +7,6 @@ using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Extensions.DependencyInjection;
 using Geomatica.Data.Repositories;
-using System.Threading.Tasks;
-using System.Linq;
 
 namespace Geomatica.Desktop.Views
 {
@@ -18,8 +15,7 @@ namespace Geomatica.Desktop.Views
         private ViewModels.MapaViewModel? _currentVm;
         private MapView? _attachedMapView;
         private CancellationTokenSource? _loadCts;
-        private CancellationTokenSource? _hoverCts;
-        private string? _lastHoverTitle;
+        private CancellationTokenSource? _restoreVpCts;
 
         public MapaView()
         {
@@ -27,8 +23,6 @@ namespace Geomatica.Desktop.Views
 
             DataContextChanged += MapaView_DataContextChanged;
             Unloaded += MapaView_Unloaded;
-            controlMapView.MouseMove += ControlMapView_MouseMove;
-            controlMapView.MouseLeave += ControlMapView_MouseLeave;
             controlMapView.GeoViewTapped += ControlMapView_GeoViewTapped;
         }
 
@@ -93,7 +87,9 @@ namespace Geomatica.Desktop.Views
                     }
 
                     // After attaching, restore viewpoint once the Map/layers are ready
-                    _ = RestoreLastViewpointAsync(newVm, mv);
+                    _restoreVpCts?.Cancel();
+                    _restoreVpCts = new CancellationTokenSource();
+                    _ = RestoreLastViewpointAsync(newVm, mv, _restoreVpCts.Token);
 
                     // Subscribe to ViewpointChanged to persist viewpoint continuously
                     try
@@ -111,8 +107,16 @@ namespace Geomatica.Desktop.Views
                     }
                 }
 
-                // Load proyectos into filtros results so user can see them
-                _ = LoadProyectosAsync(newVm);
+                // Load proyectos: solo si es la primera carga o si el caché fue invalidado.
+                // Al volver al mapa (LastViewpoint != null) con capas ya cargadas, no hay necesidad
+                // de re-consultar la BD ni recrear las capas.
+                bool necesitaCargar = newVm.LastViewpoint == null || newVm.LayerProyectos == null;
+                if (necesitaCargar)
+                {
+                    _loadCts?.Cancel();
+                    _loadCts = new CancellationTokenSource();
+                    _ = LoadProyectosAsync(newVm, _loadCts.Token, adjustViewpoint: newVm.LastViewpoint == null);
+                }
             }
         }
 
@@ -140,9 +144,10 @@ namespace Geomatica.Desktop.Views
             {
                 if (_currentVm != null)
                 {
+                    _restoreVpCts?.Cancel();
                     _loadCts?.Cancel();
                     _loadCts = new CancellationTokenSource();
-                    _ = LoadProyectosAsync(_currentVm, _loadCts.Token);
+                    _ = LoadProyectosAsync(_currentVm, _loadCts.Token, adjustViewpoint: true);
                 }
             }
             catch (Exception ex)
@@ -153,6 +158,9 @@ namespace Geomatica.Desktop.Views
 
         private void MapaView_Unloaded(object? sender, RoutedEventArgs e)
         {
+            _restoreVpCts?.Cancel();
+            _loadCts?.Cancel();
+
             var mv = this.FindName("controlMapView") as MapView;
 
             if (DataContext is ViewModels.MapaViewModel vm)
@@ -198,10 +206,6 @@ namespace Geomatica.Desktop.Views
                 _attachedMapView = null;
             }
 
-            // Limpiar estado de hover tooltip
-            _hoverCts?.Cancel();
-            _lastHoverTitle = null;
-
             _currentVm = null;
         }
 
@@ -225,7 +229,9 @@ namespace Geomatica.Desktop.Views
                     }
 
                     // Restore viewpoint after attaching
-                    _ = RestoreLastViewpointAsync(vm, mv);
+                    _restoreVpCts?.Cancel();
+                    _restoreVpCts = new CancellationTokenSource();
+                    _ = RestoreLastViewpointAsync(vm, mv, _restoreVpCts.Token);
 
                     // subscribe viewpoint changed
                     try
@@ -244,6 +250,8 @@ namespace Geomatica.Desktop.Views
 
         private async void Vm_HomeRequested(object? sender, System.EventArgs e)
         {
+            _restoreVpCts?.Cancel();
+            _loadCts?.Cancel();
             var mv = this.FindName("controlMapView") as MapView;
             if (sender is ViewModels.MapaViewModel vm && mv != null && vm.Map != null)
             {
@@ -261,47 +269,30 @@ namespace Geomatica.Desktop.Views
         }
 
         // Wait for map and layers to be ready, then restore LastViewpoint
-        private async Task RestoreLastViewpointAsync(ViewModels.MapaViewModel vm, MapView mv)
+        private async Task RestoreLastViewpointAsync(ViewModels.MapaViewModel vm, MapView mv, CancellationToken ct)
         {
             try
             {
                 if (vm.LastViewpoint == null) return;
 
-                // Wait until Map is assigned and loaded
+                // Esperar a que el Map esté asignado
                 if (mv.Map == null)
                 {
-                    // small delay to allow attach to complete
                     await Task.Delay(100);
+                    if (ct.IsCancellationRequested) return;
                 }
 
-                if (mv.Map != null && mv.Map.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
+                if (mv.Map == null) return;
+
+                if (mv.Map.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
                 {
                     try { await mv.Map.LoadAsync(); } catch { }
                 }
 
-                // Also wait for layers to be loaded (if any)
-                if (mv.Map?.OperationalLayers != null)
-                {
-                    foreach (var lyr in mv.Map.OperationalLayers.OfType<Esri.ArcGISRuntime.Mapping.Layer>())
-                    {
-                        try
-                        {
-                            if (lyr.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
-                                await lyr.LoadAsync();
-                        }
-                        catch { }
-                    }
-                }
+                if (ct.IsCancellationRequested) return;
 
-                // Apply viewpoint once
-                try
-                {
-                    await mv.SetViewpointAsync(vm.LastViewpoint);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[MapaView] Error aplicando LastViewpoint: {ex}");
-                }
+                // Aplicar viewpoint directamente (las capas ya están cargadas en el Map del singleton)
+                await mv.SetViewpointAsync(vm.LastViewpoint);
             }
             catch (Exception ex)
             {
@@ -311,6 +302,8 @@ namespace Geomatica.Desktop.Views
 
         private async void Filtros_ProyectoSeleccionadoEnMapa(object? sender, ViewModels.FiltrosViewModel.ProyectoItem proyecto)
         {
+            _restoreVpCts?.Cancel();
+            _loadCts?.Cancel();
             try
             {
                 var mv = this.FindName("controlMapView") as MapView;
@@ -328,138 +321,21 @@ namespace Geomatica.Desktop.Views
             }
         }
 
-        private async Task ZoomAResultadosAsync(IReadOnlyList<Geomatica.Data.Repositories.ProyectoDto> items, CancellationToken ct)
-        {
-            try
-            {
-                var mv = this.FindName("controlMapView") as MapView;
-                if (mv == null) return;
-
-                // Filtrar puntos con coordenadas válidas
-                var puntos = items
-                    .Where(p => !(p.Lon == 0 && p.Lat == 0))
-                    .Select(p => new Esri.ArcGISRuntime.Geometry.MapPoint(p.Lon, p.Lat, Esri.ArcGISRuntime.Geometry.SpatialReferences.Wgs84))
-                    .ToList();
-
-                if (puntos.Count == 0) return;
-                if (ct.IsCancellationRequested) return;
-
-                if (puntos.Count == 1)
-                {
-                    // Un solo punto: centrar con escala a nivel de zona/barrio
-                    await mv.SetViewpointCenterAsync(puntos[0], 25_000);
-                }
-                else
-                {
-                    // Múltiples puntos: calcular envelope y zoom con padding
-                    var builder = new Esri.ArcGISRuntime.Geometry.EnvelopeBuilder(Esri.ArcGISRuntime.Geometry.SpatialReferences.Wgs84);
-                    foreach (var p in puntos)
-                        builder.UnionOf(p);
-
-                    await mv.SetViewpointGeometryAsync(builder.ToGeometry(), 40);
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[MapaView] Error en ZoomAResultadosAsync: {ex}");
-            }
-        }
-
-        private async void ControlMapView_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
-        {
-            var mv = sender as MapView;
-            if (mv == null) return;
-
-            _hoverCts?.Cancel();
-            _hoverCts = new CancellationTokenSource();
-            var ct = _hoverCts.Token;
-
-            try
-            {
-                await Task.Delay(150, ct);
-                if (ct.IsCancellationRequested) return;
-
-                var screenPoint = e.GetPosition(mv);
-                var results = await mv.IdentifyLayersAsync(screenPoint, 12, false, 1);
-                if (ct.IsCancellationRequested) return;
-
-                // Log solo una vez cuando hay resultados (para no spammear)
-                if (results.Count > 0)
-                {
-                    System.Diagnostics.Trace.WriteLine($"[DIAG-HOVER] identify returned {results.Count} result(s) at {screenPoint}");
-                    foreach (var r in results)
-                        System.Diagnostics.Trace.WriteLine($"[DIAG-HOVER]   Layer='{r.LayerContent.Name}' GeoElements={r.GeoElements.Count} SubResults={r.SublayerResults.Count}");
-                }
-
-                string? titulo = null;
-                foreach (var result in results)
-                {
-                    titulo = BuscarTituloEnResultado(result);
-                    if (titulo != null) break;
-                }
-
-                if (ct.IsCancellationRequested) return;
-
-                if (titulo != null)
-                {
-                    if (titulo != _lastHoverTitle)
-                    {
-                        _lastHoverTitle = titulo;
-                        var mapLocation = mv.ScreenToLocation(screenPoint);
-                        if (mapLocation != null)
-                            mv.ShowCalloutAt(mapLocation, new CalloutDefinition(titulo));
-                    }
-                }
-                else if (_lastHoverTitle != null)
-                {
-                    _lastHoverTitle = null;
-                    mv.DismissCallout();
-                }
-            }
-            catch (OperationCanceledException) { }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[MapaView] Error en hover tooltip: {ex}");
-            }
-        }
-
-        private void ControlMapView_MouseLeave(object sender, System.Windows.Input.MouseEventArgs e)
-        {
-            _hoverCts?.Cancel();
-            _lastHoverTitle = null;
-            (sender as MapView)?.DismissCallout();
-        }
-
-        private static string? BuscarTituloEnResultado(IdentifyLayerResult result)
+        private static long? BuscarOidEnResultado(IdentifyLayerResult result)
         {
             foreach (var element in result.GeoElements)
             {
-                if (element.Attributes.TryGetValue("titulo", out var val) && val != null)
-                    return val.ToString();
-            }
-            foreach (var subResult in result.SublayerResults)
-            {
-                var titulo = BuscarTituloEnResultado(subResult);
-                if (titulo != null) return titulo;
-            }
-            return null;
-        }
-
-        private static int? BuscarIdProyectoEnResultado(IdentifyLayerResult result)
-        {
-            foreach (var element in result.GeoElements)
-            {
-                if (element.Attributes.TryGetValue("id_proyecto", out var val) && val != null)
+                if (element.Attributes.TryGetValue("oid", out var val) && val != null)
                 {
+                    if (val is long l) return l;
                     if (val is int i) return i;
-                    if (val is long l) return (int)l;
-                    if (int.TryParse(val.ToString(), out var parsed)) return parsed;
+                    if (long.TryParse(val.ToString(), out var parsed)) return parsed;
                 }
             }
             foreach (var subResult in result.SublayerResults)
             {
-                var id = BuscarIdProyectoEnResultado(subResult);
-                if (id != null) return id;
+                var oid = BuscarOidEnResultado(subResult);
+                if (oid != null) return oid;
             }
             return null;
         }
@@ -471,78 +347,33 @@ namespace Geomatica.Desktop.Views
                 var mv = sender as MapView;
                 if (mv == null || _currentVm == null) return;
 
-                // ── Diagnóstico: estado de capas ──
-                System.Diagnostics.Trace.WriteLine($"[DIAG-TAP] ══════════════════════════════════════");
-                System.Diagnostics.Trace.WriteLine($"[DIAG-TAP] Position: {e.Position}, Location: {e.Location}");
-                if (mv.Map != null)
-                {
-                    System.Diagnostics.Trace.WriteLine($"[DIAG-TAP] OperationalLayers count: {mv.Map.OperationalLayers.Count}");
-                    foreach (var lyr in mv.Map.OperationalLayers)
-                    {
-                        System.Diagnostics.Trace.WriteLine($"[DIAG-TAP]   Layer: '{lyr.Name}' Type={lyr.GetType().Name} LoadStatus={lyr.LoadStatus} IsIdentifyEnabled={lyr.IsIdentifyEnabled} IsVisible={lyr.IsVisible}");
-                        if (lyr is Esri.ArcGISRuntime.Mapping.FeatureCollectionLayer fcl)
-                        {
-                            foreach (var sub in fcl.Layers)
-                            {
-                                System.Diagnostics.Trace.WriteLine($"[DIAG-TAP]     SubLayer: '{sub.Name}' Type={sub.GetType().Name} LoadStatus={sub.LoadStatus} IsIdentifyEnabled={sub.IsIdentifyEnabled} IsVisible={sub.IsVisible} FeatureCount(table)={sub.FeatureTable?.NumberOfFeatures}");
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    System.Diagnostics.Trace.WriteLine($"[DIAG-TAP] mv.Map is NULL!");
-                }
-
-                // ── Identify ──
-                var results = await mv.IdentifyLayersAsync(e.Position, 15, false);
-                System.Diagnostics.Trace.WriteLine($"[DIAG-TAP] IdentifyLayersAsync returned {results.Count} result(s)");
-
                 int? idProyecto = null;
-                foreach (var result in results)
+                var layerProyectos = _currentVm.LayerProyectos;
+                if (layerProyectos != null)
                 {
-                    DiagDumpIdentifyResult(result, indent: 1);
-                    idProyecto ??= BuscarIdProyectoEnResultado(result);
+                    var result = await mv.IdentifyLayerAsync(layerProyectos, e.Position, 5, false);
+                    Trace.WriteLine($"[GeoViewTapped] IdentifyLayerAsync GeoElements={result.GeoElements.Count} SubResults={result.SublayerResults.Count}");
+
+                    var oid = BuscarOidEnResultado(result);
+                    if (oid != null)
+                        idProyecto = _currentVm.BuscarIdProyectoPorOid(oid.Value);
                 }
 
-                System.Diagnostics.Trace.WriteLine($"[DIAG-TAP] idProyecto encontrado: {idProyecto?.ToString() ?? "NULL"}");
-                System.Diagnostics.Trace.WriteLine($"[DIAG-TAP] ══════════════════════════════════════");
+                Trace.WriteLine($"[GeoViewTapped] idProyecto={idProyecto?.ToString() ?? "null"}");
 
                 if (idProyecto != null)
                 {
-                    _hoverCts?.Cancel();
-                    _lastHoverTitle = null;
                     mv.DismissCallout();
-
                     await _currentVm.AbrirFichaProyectoAsync(idProyecto.Value);
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Trace.WriteLine($"[DIAG-TAP] EXCEPTION: {ex}");
+                Trace.WriteLine($"[GeoViewTapped] EXCEPTION: {ex}");
             }
         }
 
-        private static void DiagDumpIdentifyResult(IdentifyLayerResult result, int indent)
-        {
-            var pad = new string(' ', indent * 2);
-            System.Diagnostics.Trace.WriteLine($"[DIAG-TAP] {pad}LayerContent: '{result.LayerContent.Name}' Type={result.LayerContent.GetType().Name}");
-            System.Diagnostics.Trace.WriteLine($"[DIAG-TAP] {pad}GeoElements: {result.GeoElements.Count}, SublayerResults: {result.SublayerResults.Count}, Error: {result.Error?.Message ?? "none"}");
-            foreach (var el in result.GeoElements)
-            {
-                System.Diagnostics.Trace.WriteLine($"[DIAG-TAP] {pad}  GeoElement Type={el.GetType().Name} Geometry={el.Geometry?.GeometryType}");
-                foreach (var kvp in el.Attributes)
-                {
-                    System.Diagnostics.Trace.WriteLine($"[DIAG-TAP] {pad}    Attr '{kvp.Key}' = {kvp.Value} (type={kvp.Value?.GetType().Name ?? "null"})");
-                }
-            }
-            foreach (var sub in result.SublayerResults)
-            {
-                DiagDumpIdentifyResult(sub, indent + 1);
-            }
-        }
-
-        private async Task LoadProyectosAsync(ViewModels.MapaViewModel vm, CancellationToken ct = default)
+        private async Task LoadProyectosAsync(ViewModels.MapaViewModel vm, CancellationToken ct = default, bool adjustViewpoint = true)
         {
             try
             {
@@ -593,31 +424,37 @@ namespace Geomatica.Desktop.Views
 
                 if (ct.IsCancellationRequested) return;
 
-                // Zoom al extent de los municipios con proyectos si hay filtro geográfico activo
-                bool tieneFiltroDepartamento = vm.Filtros.SelectedDepartamento != null
-                    && !string.IsNullOrEmpty(vm.Filtros.SelectedDepartamento.Codigo);
-                bool tieneFilterMunicipio = vm.Filtros.AreaInteres is ViewModels.FiltrosViewModel.MunicipioItem muniSel
-                    && !string.IsNullOrEmpty(muniSel.Codigo);
-
-                if (items.Count > 0 && (tieneFiltroDepartamento || tieneFilterMunicipio))
+                if (adjustViewpoint)
                 {
-                    var extent = vm.ObtenerExtentMunicipiosFiltrados();
-                    if (extent != null)
+                    // Cancelar restauración de viewpoint pendiente antes de establecer uno nuevo
+                    _restoreVpCts?.Cancel();
+
+                    // Zoom al extent de los municipios con proyectos si hay filtro geográfico activo
+                    bool tieneFiltroDepartamento = vm.Filtros.SelectedDepartamento != null
+                        && !string.IsNullOrEmpty(vm.Filtros.SelectedDepartamento.Codigo);
+                    bool tieneFilterMunicipio = vm.Filtros.AreaInteres is ViewModels.FiltrosViewModel.MunicipioItem muniSel
+                        && !string.IsNullOrEmpty(muniSel.Codigo);
+
+                    if (items.Count > 0 && (tieneFiltroDepartamento || tieneFilterMunicipio))
                     {
-                        var mvZoom = this.FindName("controlMapView") as MapView;
-                        if (mvZoom != null && !ct.IsCancellationRequested)
+                        var extent = vm.ObtenerExtentMunicipiosFiltrados();
+                        if (extent != null)
                         {
-                            await mvZoom.SetViewpointGeometryAsync(extent, 40);
+                            var mvZoom = this.FindName("controlMapView") as MapView;
+                            if (mvZoom != null && !ct.IsCancellationRequested)
+                            {
+                                await mvZoom.SetViewpointGeometryAsync(extent, 40);
+                            }
                         }
                     }
-                }
-                else if (!tieneFiltroDepartamento && !tieneFilterMunicipio)
-                {
-                    // Sin filtro geográfico (Todos o Limpiar): volver a vista inicial
-                    var mvHome = this.FindName("controlMapView") as MapView;
-                    if (mvHome != null && vm.Map?.InitialViewpoint != null && !ct.IsCancellationRequested)
+                    else if (!tieneFiltroDepartamento && !tieneFilterMunicipio)
                     {
-                        await mvHome.SetViewpointAsync(vm.Map.InitialViewpoint);
+                        // Sin filtro geográfico (Todos o Limpiar): volver a vista inicial
+                        var mvHome = this.FindName("controlMapView") as MapView;
+                        if (mvHome != null && vm.Map?.InitialViewpoint != null && !ct.IsCancellationRequested)
+                        {
+                            await mvHome.SetViewpointAsync(vm.Map.InitialViewpoint);
+                        }
                     }
                 }
 

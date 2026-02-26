@@ -5,12 +5,9 @@ using Esri.ArcGISRuntime.Symbology;
 using Geomatica.Data.Repositories;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
-using CommunityToolkit.Mvvm.Input;
-using System;
-using System.Windows;
-using System.Linq;
-using System.Collections.Generic;
 using System.Text.Json;
+using System.Windows;
+using CommunityToolkit.Mvvm.Input;
 using Esri.ArcGISRuntime.UI.Controls;
 
 namespace Geomatica.Desktop.ViewModels
@@ -24,9 +21,11 @@ namespace Geomatica.Desktop.ViewModels
  public FiltrosViewModel Filtros { get; }
  private Layer? _layerMunicipios;
  private Layer? _layerProyectos;
+ public Layer? LayerProyectos => _layerProyectos;
  private IReadOnlyList<MunicipioGeoJsonDto>? _cachedMunicipios;
  private Dictionary<string, Geometry>? _cachedGeometries;
  private IReadOnlyList<string>? _ultimosCodigosMunicipio;
+ private Dictionary<long, int> _oidToProjectId = new();
 
  // Track the MapView that currently displays this Map to release ownership when re-attaching
  private MapView? _ownerMapView;
@@ -185,150 +184,11 @@ namespace Geomatica.Desktop.ViewModels
     private static Field Str(string name, int length, string? alias = null)
         => Field.FromJson($"{{\"name\":\"{name}\",\"type\":\"esriFieldTypeString\",\"alias\":\"{alias ?? name}\",\"length\":{length}}}")!;
 
- private async Task CargarCapasAsync()
- {
- try
- {
-  // La carga inicial simplemente obtiene todos los proyectos
-  // y delega a ActualizarCapasConFiltroAsync (misma ruta que los filtros)
-  var items = await _proyectos.ListarAsync();
-  await ActualizarCapasConFiltroAsync(items);
- }
- catch (Exception ex)
- {
-  System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error en CargarCapasAsync: {ex}");
- }
- }
-
- public async Task CargarResultadosAsync()
- {
- try
- {
- var items = await _proyectos.ListarAsync();
- // Ensure UI thread update
- await Application.Current.Dispatcher.InvokeAsync(() =>
- {
- Filtros.ResultadosLista.Clear();
- Filtros.ResultadosResumen.Clear();
- foreach (var p in items)
- {
- Filtros.ResultadosLista.Add(new FiltrosViewModel.ProyectoItem(p.Id, p.Titulo, p.Lon, p.Lat, p.RutaArchivos));
- }
- Filtros.ResultadosResumen.Add($"{items.Count} proyectos");
- foreach (var p in items.Take(5)) Filtros.ResultadosResumen.Add(p.Titulo);
- });
- }
- catch (Exception ex)
- {
- System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error cargando resultados: {ex}");
- }
- }
-
- private async Task<Layer> CrearCapaProyectosAsync()
- {
- // Campos
- var fields = new List<Field>
- {
- OID("oid"),
- Int("id_proyecto"),
- Str("titulo",200),
- Str("ruta_archivos",1024)
- };
- var table = new FeatureCollectionTable(fields, GeometryType.Point, SpatialReferences.Wgs84);
-
-
- // Poblar con datos
- var items = await _proyectos.ListarAsync();
- var features = new List<Feature>();
- int oid =1;
- foreach (var p in items)
- {
-  var attrs = new Dictionary<string, object?>
-  {
-  ["oid"] = oid++,
-  ["id_proyecto"] = p.Id,
-  ["titulo"] = p.Titulo,
-  ["ruta_archivos"] = p.RutaArchivos
-  };
-  var geom = new MapPoint(p.Lon, p.Lat, SpatialReferences.Wgs84);
-  features.Add(table.CreateFeature(attrs, geom));
- }
- if (features.Count > 0)
-  await table.AddFeaturesAsync(features);
-
- // Renderer en la tabla
- table.Renderer = new SimpleRenderer(
- new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.OrangeRed, 9)
- {
-  Outline = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.White, 1.5)
- });
-
- var collection = new FeatureCollection(new[] { table });
- return new FeatureCollectionLayer(collection);
- }
- private async Task<Layer> CrearCapaMunicipiosAsync()
- {
- var fields = new List<Field>
- {
- OID("oid"),
- Str("mpio_cdpmp",5),
- Str("mpio_cnmbr",200)
- };
- var table = new FeatureCollectionTable(fields, GeometryType.Polygon, SpatialReferences.Wgs84);
-
- var muni = await _municipios.TodosGeoJsonAsync();
-
- // Parsear en hilo de fondo
- var parsed = await Task.Run(() =>
- {
- var result = new List<(string Codigo, string Nombre, Geometry Geom)>();
- foreach (var m in muni)
- {
-  if (string.IsNullOrEmpty(m.GeoJson)) continue;
-  try
-  {
-  var geom = ParseGeoJson(m.GeoJson);
-  if (geom != null) result.Add((m.Codigo, m.Nombre, geom));
-  }
-  catch (Exception ex)
-  {
-  System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error parsing GeoJson for {m.Codigo}: {ex}");
-  }
- }
- return result;
- });
-
- var features = new List<Feature>();
- int oid = 1;
- foreach (var (codigo, nombre, geom) in parsed)
- {
- var attrs = new Dictionary<string, object?>
- {
-  ["oid"] = oid++,
-  ["mpio_cdpmp"] = codigo,
-  ["mpio_cnmbr"] = nombre
- };
- features.Add(table.CreateFeature(attrs, geom));
- }
- if (features.Count > 0)
- await table.AddFeaturesAsync(features);
-
- table.Renderer = new SimpleRenderer(
- new SimpleFillSymbol(SimpleFillSymbolStyle.Solid,
-  System.Drawing.Color.FromArgb(40, 33, 150, 243),
-  new SimpleLineSymbol(SimpleLineSymbolStyle.Solid,
-   System.Drawing.Color.FromArgb(180, 33, 150, 243), 1.5f)));
-
- var collection = new FeatureCollection(new[] { table });
- return new FeatureCollectionLayer(collection);
- }
-
- // Hook opcional para aplicar filtros sobre el mapa
- private void AplicarFiltrosEnMapa()
- {
- // TODO: usar Filtros?.PalabraClave / Desde / Hasta / AreaInteres
- // para construir consultas o DefinitionExpression en capas.
- }
+ /// <summary>
+ /// Busca el id de proyecto correspondiente al OID de un feature en la capa de proyectos.
+ /// </summary>
+ public int? BuscarIdProyectoPorOid(long oid)
+  => _oidToProjectId.TryGetValue(oid, out var id) ? id : null;
 
  /// <summary>
  /// Invalida el caché de municipios y la capa de proyectos para reflejar datos nuevos.
@@ -338,6 +198,7 @@ namespace Geomatica.Desktop.ViewModels
  {
  _cachedMunicipios = null;
  _cachedGeometries = null;
+ _oidToProjectId.Clear();
 
  if (Map != null)
  {
@@ -369,17 +230,6 @@ namespace Geomatica.Desktop.ViewModels
   {
   Map.OperationalLayers.Add(_layerProyectos);
   await _layerProyectos.LoadAsync();
-
-  // Diagnóstico: verificar estado de carga
-  System.Diagnostics.Trace.WriteLine($"[DIAG-LAYER] _layerProyectos LoadStatus={_layerProyectos.LoadStatus} IsIdentifyEnabled={_layerProyectos.IsIdentifyEnabled} Type={_layerProyectos.GetType().Name}");
-  if (_layerProyectos is FeatureCollectionLayer fcl)
-  {
-   System.Diagnostics.Trace.WriteLine($"[DIAG-LAYER]   SubLayers count={fcl.Layers.Count}");
-   foreach (var sub in fcl.Layers)
-   {
-    System.Diagnostics.Trace.WriteLine($"[DIAG-LAYER]   SubLayer '{sub.Name}' LoadStatus={sub.LoadStatus} IsIdentifyEnabled={sub.IsIdentifyEnabled} Features={sub.FeatureTable?.NumberOfFeatures}");
-   }
-  }
   }
 
   // 2. Obtener municipios de los proyectos filtrados
@@ -463,11 +313,6 @@ namespace Geomatica.Desktop.ViewModels
   return any ? new Envelope(xmin, ymin, xmax, ymax, SpatialReferences.Wgs84) : null;
  }
 
- private async void OnFiltrosPropertyChanged(object? sender, PropertyChangedEventArgs e)
- {
- // Reservado para reacciones a propiedades específicas si se necesitan en el futuro
- }
-
  private async Task<Layer?> CrearCapaProyectosDesdeListaAsync(IReadOnlyList<ProyectoDto> items)
  {
  var fields = new List<Field>
@@ -479,14 +324,17 @@ namespace Geomatica.Desktop.ViewModels
  };
  var table = new FeatureCollectionTable(fields, GeometryType.Point, SpatialReferences.Wgs84);
 
+ _oidToProjectId.Clear();
  var features = new List<Feature>();
  int oid = 1;
  foreach (var p in items)
  {
   if (p.Lon == 0 && p.Lat == 0) continue;
+  var currentOid = oid++;
+  _oidToProjectId[currentOid] = p.Id;
   var attrs = new Dictionary<string, object?>
   {
-  ["oid"] = oid++,
+  ["oid"] = currentOid,
   ["id_proyecto"] = p.Id,
   ["titulo"] = p.Titulo,
   ["ruta_archivos"] = p.RutaArchivos
