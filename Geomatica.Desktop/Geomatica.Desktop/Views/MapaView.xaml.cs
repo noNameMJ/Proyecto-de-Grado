@@ -352,14 +352,11 @@ namespace Geomatica.Desktop.Views
                 if (layerProyectos != null)
                 {
                     var result = await mv.IdentifyLayerAsync(layerProyectos, e.Position, 5, false);
-                    Trace.WriteLine($"[GeoViewTapped] IdentifyLayerAsync GeoElements={result.GeoElements.Count} SubResults={result.SublayerResults.Count}");
 
                     var oid = BuscarOidEnResultado(result);
                     if (oid != null)
                         idProyecto = _currentVm.BuscarIdProyectoPorOid(oid.Value);
                 }
-
-                Trace.WriteLine($"[GeoViewTapped] idProyecto={idProyecto?.ToString() ?? "null"}");
 
                 if (idProyecto != null)
                 {
@@ -369,7 +366,7 @@ namespace Geomatica.Desktop.Views
             }
             catch (Exception ex)
             {
-                Trace.WriteLine($"[GeoViewTapped] EXCEPTION: {ex}");
+                Debug.WriteLine($"[MapaView] Error en GeoViewTapped: {ex}");
             }
         }
 
