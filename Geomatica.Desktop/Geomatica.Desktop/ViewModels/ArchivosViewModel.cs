@@ -232,7 +232,13 @@ namespace Geomatica.Desktop.ViewModels
 
                 IEnumerable<ProyectoDto> items;
 
-                if (_filtros.AreaInteres is FiltrosViewModel.DepartamentoItem dept)
+                if (_filtros.AreaInteres is FiltrosViewModel.MunicipioItem muni
+                    && !string.IsNullOrEmpty(muni.Codigo))
+                {
+                    items = await repo.ListarPorMunicipioAsync(muni.Codigo, _filtros.Desde, _filtros.Hasta, _filtros.PalabraClave);
+                }
+                else if (_filtros.SelectedDepartamento is FiltrosViewModel.DepartamentoItem dept
+                         && !string.IsNullOrEmpty(dept.Codigo))
                 {
                     items = await repo.ListarPorDepartamentoAsync(dept.Codigo, _filtros.Desde, _filtros.Hasta, _filtros.PalabraClave);
                 }

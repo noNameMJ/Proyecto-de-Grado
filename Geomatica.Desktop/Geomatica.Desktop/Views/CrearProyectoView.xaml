@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:esri="http://schemas.esri.com/arcgis/runtime/2013"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="800">
     <Grid Background="{StaticResource SurfaceBrush}">
@@ -64,8 +65,14 @@
                                          Style="{StaticResource ModernTextBox}" Margin="0,0,0,14"/>
                             </StackPanel>
                         </StackPanel>
+                        <TextBlock Text="O haga clic en el mapa para ubicar el punto:" 
+                                   Style="{StaticResource HintText}" Margin="0,-8,0,6"/>
+                        <Border CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}" 
+                                BorderThickness="1" ClipToBounds="True" Height="250" Margin="0,0,0,14">
+                            <esri:MapView x:Name="pickerMapView"/>
+                        </Border>
                         <TextBlock Text="Si se dejan vacíos, no se asignará geometría puntual." 
-                                   Style="{StaticResource HintText}" Margin="0,-8,0,14"/>
+                                   Style="{StaticResource HintText}" Margin="0,0,0,14"/>
 
                         <Separator Style="{StaticResource ModernSeparator}"/>
 

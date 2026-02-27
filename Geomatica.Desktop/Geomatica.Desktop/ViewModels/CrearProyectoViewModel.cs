@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Geomatica.Data.Repositories;
 using System.Collections.ObjectModel;
+using System.Globalization;
 using System.Windows;
 
 namespace Geomatica.Desktop.ViewModels
@@ -61,30 +62,22 @@ namespace Geomatica.Desktop.ViewModels
             }
         }
 
-        partial void OnSelectedDepartamentoChanged(DepartamentoItem? value)
+        async partial void OnSelectedDepartamentoChanged(DepartamentoItem? value)
         {
             Municipios.Clear();
             SelectedMunicipio = null;
             if (value == null) return;
-            
-            _ = Task.Run(async () => 
+
+            try
             {
-                try
-                {
-                    // Accessing UI collection from background thread might fail if not dispatched
-                    var muns = await _municipioRepository.ListarMunicipiosPorDepartamentoAsync(value.Codigo);
-                    
-                    Application.Current.Dispatcher.Invoke(() => 
-                    {
-                        foreach (var m in muns)
-                            Municipios.Add(new MunicipioItem(m.Codigo, m.Nombre));
-                    });
-                }
-                catch (Exception ex)
-                {
-                    Application.Current.Dispatcher.Invoke(() => MessageBox.Show($"Error cargando municipios: {ex.Message}"));
-                }
-            });
+                var muns = await _municipioRepository.ListarMunicipiosPorDepartamentoAsync(value.Codigo);
+                foreach (var m in muns)
+                    Municipios.Add(new MunicipioItem(m.Codigo, m.Nombre));
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error cargando municipios: {ex.Message}");
+            }
         }
 
         private async Task GuardarAsync()
@@ -103,13 +96,16 @@ namespace Geomatica.Desktop.ViewModels
             double? lat = null;
             double? lon = null;
 
-            if (!string.IsNullOrWhiteSpace(LatStr) && double.TryParse(LatStr, out var l)) lat = l;
-            if (!string.IsNullOrWhiteSpace(LonStr) && double.TryParse(LonStr, out var o)) lon = o;
+            var latNorm = LatStr?.Replace(',', '.');
+            var lonNorm = LonStr?.Replace(',', '.');
+
+            if (!string.IsNullOrWhiteSpace(latNorm) && double.TryParse(latNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var l)) lat = l;
+            if (!string.IsNullOrWhiteSpace(lonNorm) && double.TryParse(lonNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var o)) lon = o;
 
             string? geom = null;
             if (lon.HasValue && lat.HasValue)
             {
-                geom = $"POINT({lon.Value} {lat.Value})";
+                geom = string.Format(CultureInfo.InvariantCulture, "POINT({0} {1})", lon.Value, lat.Value);
             }
 
             try
@@ -132,6 +128,15 @@ namespace Geomatica.Desktop.ViewModels
             {
                 MessageBox.Show($"Error guardando proyecto: {ex.Message}\n\nVerifique que la columna 'descripcion' exista en la DB si falla.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
+        }
+
+        /// <summary>
+        /// Establece las coordenadas desde un tap en el mapa.
+        /// </summary>
+        public void SetCoordenadas(double lat, double lon)
+        {
+            LatStr = lat.ToString("F6", CultureInfo.InvariantCulture);
+            LonStr = lon.ToString("F6", CultureInfo.InvariantCulture);
         }
 
         public record DepartamentoItem(string Codigo, string Nombre)

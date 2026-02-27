@@ -74,9 +74,9 @@ namespace Geomatica.Desktop.ViewModels
             _debounceCts = new CancellationTokenSource();
             var token = _debounceCts.Token;
 
-            _ = Task.Delay(DebounceMs, token).ContinueWith(t =>
+            _ = Task.Delay(DebounceMs).ContinueWith(t =>
             {
-                if (!t.IsCanceled)
+                if (!token.IsCancellationRequested)
                     BuscarSolicitado?.Invoke(this, EventArgs.Empty);
             }, TaskScheduler.FromCurrentSynchronizationContext());
         }
