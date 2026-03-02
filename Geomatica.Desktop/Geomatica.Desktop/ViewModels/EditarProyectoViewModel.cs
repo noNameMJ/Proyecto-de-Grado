@@ -27,6 +27,8 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty] private DepartamentoItem? selectedDepartamento;
         [ObservableProperty] private MunicipioItem? selectedMunicipio;
 
+        public event Action<string?>? MunicipioGeoJsonChanged;
+
         public ObservableCollection<DepartamentoItem> Departamentos { get; } = new();
         public ObservableCollection<MunicipioItem> Municipios { get; } = new();
 
@@ -116,6 +118,20 @@ namespace Geomatica.Desktop.ViewModels
             finally
             {
                 _municipiosLoaded.TrySetResult();
+            }
+        }
+
+        async partial void OnSelectedMunicipioChanged(MunicipioItem? value)
+        {
+            if (value == null) { MunicipioGeoJsonChanged?.Invoke(null); return; }
+            try
+            {
+                var results = await _municipioRepository.PorCodigosGeoJsonAsync(new[] { value.Codigo });
+                MunicipioGeoJsonChanged?.Invoke(results.FirstOrDefault()?.GeoJson);
+            }
+            catch
+            {
+                MunicipioGeoJsonChanged?.Invoke(null);
             }
         }
 

@@ -26,6 +26,7 @@ namespace Geomatica.Desktop.ViewModels
  private Dictionary<string, Geometry>? _cachedGeometries;
  private IReadOnlyList<string>? _ultimosCodigosMunicipio;
  private Dictionary<long, int> _oidToProjectId = new();
+ private int _updateGeneration;
 
  // Track the MapView that currently displays this Map to release ownership when re-attaching
  private MapView? _ownerMapView;
@@ -196,19 +197,13 @@ namespace Geomatica.Desktop.ViewModels
  /// </summary>
  public void InvalidarCache()
  {
- _cachedMunicipios = null;
- _cachedGeometries = null;
- _oidToProjectId.Clear();
-
- if (Map != null)
- {
-  if (_layerProyectos != null && Map.OperationalLayers.Contains(_layerProyectos))
-  Map.OperationalLayers.Remove(_layerProyectos);
-  if (_layerMunicipios != null && Map.OperationalLayers.Contains(_layerMunicipios))
-  Map.OperationalLayers.Remove(_layerMunicipios);
- }
- _layerProyectos = null;
- _layerMunicipios = null;
+  _cachedMunicipios = null;
+  _cachedGeometries = null;
+  _oidToProjectId.Clear();
+  _layerProyectos = null;
+  _layerMunicipios = null;
+  _updateGeneration++;
+  Map?.OperationalLayers.Clear();
  }
 
  /// <summary>
@@ -217,74 +212,86 @@ namespace Geomatica.Desktop.ViewModels
  /// </summary>
  public async Task ActualizarCapasConFiltroAsync(IReadOnlyList<ProyectoDto> proyectosFiltrados)
  {
- if (Map == null) return;
+  if (Map == null) return;
 
- try
- {
-  // 1. Recrear capa de proyectos con los datos filtrados
-  if (_layerProyectos != null && Map.OperationalLayers.Contains(_layerProyectos))
-  Map.OperationalLayers.Remove(_layerProyectos);
+  var gen = ++_updateGeneration;
 
-  _layerProyectos = await CrearCapaProyectosDesdeListaAsync(proyectosFiltrados);
-  if (_layerProyectos != null)
+  try
   {
-  Map.OperationalLayers.Add(_layerProyectos);
-  await _layerProyectos.LoadAsync();
-  }
+   // Limpiar todas las capas operacionales para evitar capas huérfanas
+   Map.OperationalLayers.Clear();
+   _layerProyectos = null;
+   _layerMunicipios = null;
 
-  // 2. Obtener municipios de los proyectos filtrados
-  var ids = proyectosFiltrados.Select(p => p.Id).ToList();
-  var codigosMuni = ids.Count > 0
-  ? await _proyectos.ObtenerCodigosMunicipioAsync(ids)
-  : (IReadOnlyList<string>)Array.Empty<string>();
-  _ultimosCodigosMunicipio = codigosMuni;
+   // 1. Crear capa de proyectos
+   var layerProy = await CrearCapaProyectosDesdeListaAsync(proyectosFiltrados);
+   if (gen != _updateGeneration) return;
 
-  // 3. Asegurar que el caché de geometrías esté poblado
-  if (_cachedMunicipios == null)
-  {
-  var todosCodigosConProyecto = await _proyectos.ObtenerTodosCodigosMunicipioAsync();
-  _cachedMunicipios = todosCodigosConProyecto.Count > 0
-   ? await _municipios.PorCodigosGeoJsonAsync(todosCodigosConProyecto)
-   : (IReadOnlyList<MunicipioGeoJsonDto>)Array.Empty<MunicipioGeoJsonDto>();
-  }
+   // 2. Obtener municipios de los proyectos filtrados
+   var ids = proyectosFiltrados.Select(p => p.Id).ToList();
+   var codigosMuni = ids.Count > 0
+    ? await _proyectos.ObtenerCodigosMunicipioAsync(ids)
+    : (IReadOnlyList<string>)Array.Empty<string>();
+   if (gen != _updateGeneration) return;
+   _ultimosCodigosMunicipio = codigosMuni;
 
-  if (_cachedGeometries == null)
-  {
-  var munis = _cachedMunicipios;
-  _cachedGeometries = await Task.Run(() =>
-  {
-   var dict = new Dictionary<string, Geometry>(munis.Count);
-   foreach (var m in munis)
+   // 3. Asegurar que el caché de geometrías esté poblado
+   if (_cachedMunicipios == null)
    {
-   if (string.IsNullOrEmpty(m.GeoJson)) continue;
-   try
+    var todosCodigosConProyecto = await _proyectos.ObtenerTodosCodigosMunicipioAsync();
+    _cachedMunicipios = todosCodigosConProyecto.Count > 0
+     ? await _municipios.PorCodigosGeoJsonAsync(todosCodigosConProyecto)
+     : (IReadOnlyList<MunicipioGeoJsonDto>)Array.Empty<MunicipioGeoJsonDto>();
+   }
+   if (gen != _updateGeneration) return;
+
+   if (_cachedGeometries == null)
    {
-    var geom = ParseGeoJson(m.GeoJson);
-    if (geom != null) dict[m.Codigo] = geom;
+    var munis = _cachedMunicipios;
+    _cachedGeometries = await Task.Run(() =>
+    {
+     var dict = new Dictionary<string, Geometry>(munis.Count);
+     foreach (var m in munis)
+     {
+      if (string.IsNullOrEmpty(m.GeoJson)) continue;
+      try
+      {
+       var geom = ParseGeoJson(m.GeoJson);
+       if (geom != null) dict[m.Codigo] = geom;
+      }
+      catch { }
+     }
+     return dict;
+    });
    }
-   catch { }
+   if (gen != _updateGeneration) return;
+
+   // 4. Crear capa de municipios solo con los del filtro
+   var filteredMuni = _cachedMunicipios.Where(m => codigosMuni.Contains(m.Codigo));
+   var layerMuni = await CrearCapaMunicipiosFiltradaAsync(filteredMuni);
+   if (gen != _updateGeneration) return;
+
+   // 5. Agregar capas al mapa (municipios abajo, proyectos arriba)
+   Map.OperationalLayers.Clear();
+   if (layerMuni != null)
+   {
+    Map.OperationalLayers.Add(layerMuni);
+    await layerMuni.LoadAsync();
    }
-   return dict;
-  });
+   if (gen != _updateGeneration) return;
+   if (layerProy != null)
+   {
+    Map.OperationalLayers.Add(layerProy);
+    await layerProy.LoadAsync();
+   }
+
+   _layerMunicipios = layerMuni;
+   _layerProyectos = layerProy;
   }
-
-  // 4. Recrear capa de municipios solo con los del filtro
-  if (_layerMunicipios != null && Map.OperationalLayers.Contains(_layerMunicipios))
-  Map.OperationalLayers.Remove(_layerMunicipios);
-  _layerMunicipios = null;
-
-  var filteredMuni = _cachedMunicipios.Where(m => codigosMuni.Contains(m.Codigo));
-  _layerMunicipios = await CrearCapaMunicipiosFiltradaAsync(filteredMuni);
-  if (_layerMunicipios != null)
+  catch (Exception ex)
   {
-  Map.OperationalLayers.Insert(0, _layerMunicipios);
-  await _layerMunicipios.LoadAsync();
+   System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error actualizando capas con filtro: {ex}");
   }
- }
- catch (Exception ex)
- {
-  System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error actualizando capas con filtro: {ex}");
- }
  }
 
  /// <summary>
@@ -399,7 +406,7 @@ namespace Geomatica.Desktop.ViewModels
  /// Parses a GeoJSON geometry string (Polygon/MultiPolygon) into an ArcGIS Geometry.
  /// Geometry.FromJson() expects Esri JSON, not GeoJSON, so we parse coordinates manually.
  /// </summary>
- private static Geometry? ParseGeoJson(string geoJson)
+ internal static Geometry? ParseGeoJson(string geoJson)
  {
   using var doc = JsonDocument.Parse(geoJson);
   var root = doc.RootElement;

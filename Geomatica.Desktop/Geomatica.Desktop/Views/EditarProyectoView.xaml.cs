@@ -2,6 +2,7 @@ using Esri.ArcGISRuntime.Geometry;
 using Esri.ArcGISRuntime.Mapping;
 using Esri.ArcGISRuntime.Symbology;
 using Esri.ArcGISRuntime.UI;
+using Geomatica.Desktop.ViewModels;
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
@@ -11,6 +12,8 @@ namespace Geomatica.Desktop.Views
     public partial class EditarProyectoView : UserControl
     {
         private readonly GraphicsOverlay _pinOverlay = new();
+        private readonly GraphicsOverlay _municipioOverlay = new();
+        private EditarProyectoViewModel? _currentVm;
 
         public EditarProyectoView()
         {
@@ -20,34 +23,69 @@ namespace Geomatica.Desktop.Views
             var center = new MapPoint(-73.1198, 7.1254, SpatialReferences.Wgs84);
             map.InitialViewpoint = new Viewpoint(center, 2_000_000);
             pickerMapView.Map = map;
+            pickerMapView.GraphicsOverlays.Add(_municipioOverlay);
             pickerMapView.GraphicsOverlays.Add(_pinOverlay);
             pickerMapView.GeoViewTapped += PickerMapView_GeoViewTapped;
 
-            DataContextChanged += EditarProyectoView_DataContextChanged;
+            DataContextChanged += OnDataContextChanged;
             Unloaded += (_, _) =>
             {
+                DetachVm();
                 pickerMapView.GeoViewTapped -= PickerMapView_GeoViewTapped;
                 pickerMapView.Map = null;
             };
         }
 
-        private void EditarProyectoView_DataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
+        private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
-            if (e.NewValue is ViewModels.EditarProyectoViewModel vm
-                && !string.IsNullOrWhiteSpace(vm.LatStr)
-                && !string.IsNullOrWhiteSpace(vm.LonStr))
+            DetachVm();
+            if (e.NewValue is EditarProyectoViewModel vm)
             {
-                var latNorm = vm.LatStr.Replace(',', '.');
-                var lonNorm = vm.LonStr.Replace(',', '.');
+                _currentVm = vm;
+                vm.MunicipioGeoJsonChanged += OnMunicipioGeoJsonChanged;
 
-                if (double.TryParse(latNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var lat)
-                    && double.TryParse(lonNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var lon))
+                // Mostrar pin inicial si ya hay coordenadas
+                if (!string.IsNullOrWhiteSpace(vm.LatStr) && !string.IsNullOrWhiteSpace(vm.LonStr))
                 {
-                    var point = new MapPoint(lon, lat, SpatialReferences.Wgs84);
-                    ActualizarPin(point);
-                    pickerMapView.SetViewpointCenterAsync(point, 500_000);
+                    var latNorm = vm.LatStr.Replace(',', '.');
+                    var lonNorm = vm.LonStr.Replace(',', '.');
+                    if (double.TryParse(latNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var lat)
+                        && double.TryParse(lonNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var lon))
+                    {
+                        ActualizarPin(new MapPoint(lon, lat, SpatialReferences.Wgs84));
+                    }
                 }
             }
+        }
+
+        private void DetachVm()
+        {
+            if (_currentVm != null)
+            {
+                _currentVm.MunicipioGeoJsonChanged -= OnMunicipioGeoJsonChanged;
+                _currentVm = null;
+            }
+        }
+
+        private void OnMunicipioGeoJsonChanged(string? geoJson)
+        {
+            Dispatcher.InvokeAsync(async () =>
+            {
+                _municipioOverlay.Graphics.Clear();
+                if (string.IsNullOrEmpty(geoJson)) return;
+
+                var geom = MapaViewModel.ParseGeoJson(geoJson);
+                if (geom == null) return;
+
+                var fill = new SimpleFillSymbol(SimpleFillSymbolStyle.Solid,
+                    System.Drawing.Color.FromArgb(40, 0, 102, 51),
+                    new SimpleLineSymbol(SimpleLineSymbolStyle.Solid,
+                        System.Drawing.Color.FromArgb(180, 0, 102, 51), 1.5f));
+
+                _municipioOverlay.Graphics.Add(new Graphic(geom, fill));
+
+                await pickerMapView.SetViewpointGeometryAsync(geom.Extent, 40);
+            });
         }
 
         private void PickerMapView_GeoViewTapped(object? sender, Esri.ArcGISRuntime.UI.Controls.GeoViewInputEventArgs e)
@@ -57,7 +95,7 @@ namespace Geomatica.Desktop.Views
             var wgs84 = (MapPoint)e.Location.Project(SpatialReferences.Wgs84);
             if (wgs84 == null) return;
 
-            if (DataContext is ViewModels.EditarProyectoViewModel vm)
+            if (DataContext is EditarProyectoViewModel vm)
                 vm.SetCoordenadas(wgs84.Y, wgs84.X);
 
             ActualizarPin(wgs84);
