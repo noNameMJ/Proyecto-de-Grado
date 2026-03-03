@@ -45,6 +45,21 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty] private object? selectedEntry;
         [ObservableProperty] private string estado = "";
 
+        [ObservableProperty] private FichaProyectoViewModel? proyectoDetalle;
+
+        public bool HasProyectoDetalle => ProyectoDetalle != null;
+
+        partial void OnProyectoDetalleChanged(FichaProyectoViewModel? value)
+        {
+            OnPropertyChanged(nameof(HasProyectoDetalle));
+            if (value != null && !string.IsNullOrWhiteSpace(value.RutaArchivos))
+            {
+                RutaActual = value.RutaArchivos;
+            }
+        }
+
+        public event EventHandler<ProyectoDetalleDto>? EditarSolicitado;
+
         // NUEVO: ctor con filtros compartidos (opción B)
         public ArchivosViewModel(FiltrosViewModel filtros)
         {

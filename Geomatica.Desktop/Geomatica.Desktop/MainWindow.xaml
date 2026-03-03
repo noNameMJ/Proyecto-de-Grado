@@ -41,8 +41,6 @@
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <Button Content="🗺  Mapa" Command="{Binding ShowMapaCommand}" 
                                 Style="{StaticResource NavButton}" Margin="2,0"/>
-                        <Button Content="📁  Archivos" Command="{Binding ShowArchivosCommand}" 
-                                Style="{StaticResource NavButton}" Margin="2,0"/>
                         <Rectangle Width="1" Height="24" Fill="#444" Margin="8,0"/>
                         <Button Content="＋  Nuevo Proyecto" Command="{Binding ShowCrearProyectoCommand}" 
                                 Style="{StaticResource NavButtonAccent}" Margin="2,0"/>

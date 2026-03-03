@@ -10,8 +10,8 @@ namespace Geomatica.Desktop.ViewModels
         public string CurrentViewName => CurrentView switch
         {
             MapaViewModel => "Vista: Mapa",
+            ArchivosViewModel a when a.HasProyectoDetalle => "Vista: Ficha de Proyecto",
             ArchivosViewModel => "Vista: Archivos",
-            FichaProyectoViewModel => "Vista: Ficha de Proyecto",
             EditarProyectoViewModel => "Vista: Editar Proyecto",
             _ => "Vista: Creación"
         };
@@ -58,6 +58,7 @@ namespace Geomatica.Desktop.ViewModels
         private void ShowArchivos()
         {
             _filesVM ??= _filesFactory();
+            _filesVM.ProyectoDetalle = null;
             CurrentView = _filesVM;
             OnPropertyChanged(nameof(CurrentViewName));
         }
@@ -75,10 +76,27 @@ namespace Geomatica.Desktop.ViewModels
 
         private void OnFichaProyectoSolicitada(object? sender, ProyectoDetalleDto detalle)
         {
-            var fichaVm = new FichaProyectoViewModel(detalle, ShowMapa);
+            _filesVM ??= _filesFactory();
+            _filesVM.PropertyChanged -= FilesVM_PropertyChanged;
+            _filesVM.PropertyChanged += FilesVM_PropertyChanged;
+
+            var fichaVm = new FichaProyectoViewModel(detalle, () =>
+            {
+                // "Cerrar detalle" vuelve al mapa
+                _filesVM.ProyectoDetalle = null;
+                ShowMapa();
+            });
             fichaVm.EditarSolicitado += OnEditarSolicitado;
-            CurrentView = fichaVm;
+
+            _filesVM.ProyectoDetalle = fichaVm;
+            CurrentView = _filesVM;
             OnPropertyChanged(nameof(CurrentViewName));
+        }
+
+        private void FilesVM_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(ArchivosViewModel.HasProyectoDetalle))
+                OnPropertyChanged(nameof(CurrentViewName));
         }
 
         private void OnEditarSolicitado(object? sender, ProyectoDetalleDto detalle)

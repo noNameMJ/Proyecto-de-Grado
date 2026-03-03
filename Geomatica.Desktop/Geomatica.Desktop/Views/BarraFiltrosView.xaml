@@ -65,12 +65,6 @@
                          SelectedItem="{Binding SelectedProyecto, Mode=TwoWay}" 
                          DisplayMemberPath="Titulo" Height="195" 
                          Style="{StaticResource ModernListBox}"/>
-
-                <!-- Descargar -->
-                <Button Content="⬇  Descargar seleccionado" 
-                        Command="{Binding DescargarCommand}" 
-                        Style="{StaticResource PrimaryButton}" 
-                        HorizontalAlignment="Stretch" Margin="0,12,0,0"/>
             </StackPanel>
         </ScrollViewer>
     </Border>

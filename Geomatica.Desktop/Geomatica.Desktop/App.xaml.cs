@@ -33,41 +33,15 @@ namespace Geomatica.Desktop
             var services = new ServiceCollection();
 
             // Repositories: prefer a full connection string from config, otherwise build one
-            var cs = config["GEOMATICA_CONNECTION"] ?? string.Empty;
-            if (string.IsNullOrWhiteSpace(cs))
-            {
-                var host = config["GEOMATICA_DB_HOST"];
-                int.TryParse(config["GEOMATICA_DB_PORT"], out var port);
-                var db = config["GEOMATICA_DB_NAME"];
-                var user = config["GEOMATICA_DB_USER"];
-                var pass = config["GEOMATICA_DB_PASS"];
+            var cs = config["GEOMATICA_CONNECTION"];
 
-                var builder = new NpgsqlConnectionStringBuilder
-                {
-                    Host = host,
-                    Port = port,
-                    Database = db,
-                    Username = user,
-                    Password = pass,
-                    Pooling = true,
-                    Timeout = 10,
-                    CommandTimeout = 30,
-                    KeepAlive = 30,
-                    ConnectionIdleLifetime = 60,
-                    ConnectionPruningInterval = 15
-                };
-                cs = builder.ConnectionString;
-            }
-            else
-            {
-                // Asegurar resiliencia en connection strings proporcionadas externamente
-                var parsed = new NpgsqlConnectionStringBuilder(cs);
-                if (parsed.KeepAlive == 0) parsed.KeepAlive = 30;
-                if (parsed.Timeout == 15) parsed.Timeout = 10;
-                if (parsed.ConnectionIdleLifetime == 300) parsed.ConnectionIdleLifetime = 60;
-                if (parsed.ConnectionPruningInterval == 10) parsed.ConnectionPruningInterval = 15;
-                cs = parsed.ConnectionString;
-            }
+            // Asegurar resiliencia en connection strings proporcionadas externamente
+            var parsed = new NpgsqlConnectionStringBuilder(cs);
+            if (parsed.KeepAlive == 0) parsed.KeepAlive = 30;
+            if (parsed.Timeout == 15) parsed.Timeout = 10;
+            if (parsed.ConnectionIdleLifetime == 300) parsed.ConnectionIdleLifetime = 60;
+            if (parsed.ConnectionPruningInterval == 10) parsed.ConnectionPruningInterval = 15;
+            cs = parsed.ConnectionString;
 
             // Test DB connection early to provide clear feedback
             var dbOk = false;
