@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Geomatica.Data.Repositories;
+using Geomatica.Desktop.Services;
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.Windows;
@@ -11,6 +12,7 @@ namespace Geomatica.Desktop.ViewModels
     {
         private readonly IProyectoRepository _proyectoRepository;
         private readonly IMunicipioRepository _municipioRepository;
+        private readonly ProyectoArchivosService _proyectoArchivosService;
 
         // Navigation back
         private readonly Action _navigateBack;
@@ -21,7 +23,7 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty] private DateTime fechaInicio = DateTime.Today;
         [ObservableProperty] private string? palabraClave;
         [ObservableProperty] private string? ruta;
-        
+
         [ObservableProperty] private string? latStr;
         [ObservableProperty] private string? lonStr;
 
@@ -36,10 +38,11 @@ namespace Geomatica.Desktop.ViewModels
         public IAsyncRelayCommand GuardarCommand { get; }
         public IRelayCommand CancelarCommand { get; }
 
-        public CrearProyectoViewModel(IProyectoRepository proyectoRepository, IMunicipioRepository municipioRepository, Action navigateBack, Action? onProyectoCreado = null)
+        public CrearProyectoViewModel(IProyectoRepository proyectoRepository, IMunicipioRepository municipioRepository, ProyectoArchivosService proyectoArchivosService, Action navigateBack, Action? onProyectoCreado = null)
         {
             _proyectoRepository = proyectoRepository;
             _municipioRepository = municipioRepository;
+            _proyectoArchivosService = proyectoArchivosService;
             _navigateBack = navigateBack;
             _onProyectoCreado = onProyectoCreado;
 
@@ -126,9 +129,22 @@ namespace Geomatica.Desktop.ViewModels
 
             try
             {
+                if (!string.IsNullOrWhiteSpace(Ruta))
+                {
+                    _proyectoArchivosService.CrearEstructuraProyecto(Ruta);
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.Message, "Error creando estructura de carpetas", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            try
+            {
                 await _proyectoRepository.InsertarAsync(
                     Titulo, 
-                    Descripcion, 
+                    Descripcion,
                     FechaInicio, 
                     PalabraClave, 
                     Ruta, 

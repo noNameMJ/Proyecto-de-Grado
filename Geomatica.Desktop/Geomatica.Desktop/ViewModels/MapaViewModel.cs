@@ -419,21 +419,23 @@ namespace Geomatica.Desktop.ViewModels
 
   // MultiPolygon: [polygon, polygon, ...] where polygon = [ring, ring, ...]
   // Polygon: [ring, ring, ...] where ring = [[lon, lat], ...]
-  IEnumerable<JsonElement> polygons = type == "MultiPolygon"
+  var polygons = type == "MultiPolygon"
    ? coordinates.EnumerateArray()
-   : new[] { coordinates };
+   : new[] { coordinates }.AsEnumerable();
 
   foreach (var polygon in polygons)
   {
    foreach (var ring in polygon.EnumerateArray())
    {
-    var points = new List<MapPoint>();
+    var points = new MapPoint[ring.GetArrayLength()];
+    int pointIndex = 0;
+
     foreach (var point in ring.EnumerateArray())
     {
      var enumerator = point.EnumerateArray().GetEnumerator();
      enumerator.MoveNext(); double lon = enumerator.Current.GetDouble();
      enumerator.MoveNext(); double lat = enumerator.Current.GetDouble();
-     points.Add(new MapPoint(lon, lat, SpatialReferences.Wgs84));
+     points[pointIndex++] = new MapPoint(lon, lat, SpatialReferences.Wgs84);
     }
     builder.AddPart(points);
    }

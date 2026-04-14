@@ -112,6 +112,7 @@ namespace Geomatica.Desktop
 
             services.AddSingleton<IProyectoRepository>(sp => new ProyectoRepository(cs));
             services.AddSingleton<IMunicipioRepository>(sp => new MunicipioRepository(cs));
+            services.AddSingleton<Geomatica.Desktop.Services.ProyectoArchivosService>();
 
             // ViewModels
             services.AddSingleton<FiltrosViewModel>();
@@ -126,6 +127,7 @@ namespace Geomatica.Desktop
                 new CrearProyectoViewModel(
                     sp.GetRequiredService<IProyectoRepository>(),
                     sp.GetRequiredService<IMunicipioRepository>(),
+                    sp.GetRequiredService<Geomatica.Desktop.Services.ProyectoArchivosService>(),
                     navigateBack,
                     onCreado));
 
