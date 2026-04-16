@@ -121,7 +121,9 @@ namespace Geomatica.Desktop
                 sp.GetRequiredService<IProyectoRepository>(),
                 sp.GetRequiredService<IMunicipioRepository>(),
                 sp.GetRequiredService<FiltrosViewModel>()));
-            services.AddTransient<ArchivosViewModel>(sp => new ArchivosViewModel(sp.GetRequiredService<FiltrosViewModel>()));
+            services.AddTransient<ArchivosViewModel>(sp => new ArchivosViewModel(
+                sp.GetRequiredService<FiltrosViewModel>(),
+                sp.GetRequiredService<Geomatica.Desktop.Services.ProyectoArchivosService>()));
             // Factory for CrearProyectoViewModel with a navigation callback
             services.AddSingleton<Func<Action, Action?, CrearProyectoViewModel>>(sp => (navigateBack, onCreado) => 
                 new CrearProyectoViewModel(

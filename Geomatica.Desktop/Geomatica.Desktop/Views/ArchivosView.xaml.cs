@@ -39,59 +39,15 @@ namespace Geomatica.Desktop.Views
 
         private void AttachToFiltros(ViewModels.ArchivosViewModel? vm)
         {
-            if (vm == null) return;
-            if (vm.Filtros != null)
-            {
-                // subscribe to property change to detect SelectedProyecto
-                vm.Filtros.PropertyChanged += Filtros_PropertyChanged;
-                // if already selected, handle it
-                var sel = vm.Filtros.SelectedProyecto;
-                if (sel != null)
-                {
-                    OnProyectoSeleccionado(vm, sel);
-                }
-            }
+            // Omitted to avoid redundant handling since ViewModel manages it
         }
 
         private void DetachFromFiltros(ViewModels.ArchivosViewModel? vm)
         {
-            if (vm == null) return;
-            if (vm.Filtros != null)
-            {
-                vm.Filtros.PropertyChanged -= Filtros_PropertyChanged;
-            }
-        }
-
-        private void Filtros_PropertyChanged(object? sender, PropertyChangedEventArgs e)
-        {
-            if (e.PropertyName == nameof(ViewModels.FiltrosViewModel.SelectedProyecto))
-            {
-                if (sender is ViewModels.FiltrosViewModel filtros)
-                {
-                    var vm = DataContext as ViewModels.ArchivosViewModel;
-                    if (vm != null)
-                    {
-                        var proj = filtros.SelectedProyecto;
-                        OnProyectoSeleccionado(vm, proj);
-                    }
-                }
-            }
         }
 
         private void OnProyectoSeleccionado(ViewModels.ArchivosViewModel vm, ViewModels.FiltrosViewModel.ProyectoItem? proj)
         {
-            if (proj == null) return;
-            // If project provides a ruta/server path, set as RutaActual so files list updates
-            if (!string.IsNullOrWhiteSpace(proj.Ruta))
-            {
-                // update RutaActual on UI thread
-                Dispatcher.InvokeAsync(() =>
-                {
-                    vm.RutaActual = proj.Ruta;
-                    // use generated command to refresh
-                    vm.RefrescarCommand.Execute(null);
-                });
-            }
         }
 
         private void ListView_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
@@ -99,16 +55,29 @@ namespace Geomatica.Desktop.Views
             if (DataContext is ViewModels.ArchivosViewModel vm && ((FrameworkElement)e.OriginalSource).DataContext != null)
             {
                 var item = ((FrameworkElement)e.OriginalSource).DataContext;
-                if (item is ViewModels.CarpetaNode carpeta)
+                if (item is Models.CarpetaVirtual carpeta)
                 {
                     // navigate into folder
-                    vm.RutaActual = carpeta.Ruta;
-                    vm.RefrescarCommand.Execute(null);
+                    vm.Seleccionado = carpeta;
+                    vm.AbrirCommand.Execute(null);
                 }
-                else if (item is ViewModels.ArchivoItem archivo)
+                else if (item is Models.ArchivoVirtual archivo)
                 {
                     // open file
+                    vm.Seleccionado = archivo;
                     vm.AbrirCommand.Execute(null);
+                }
+            }
+        }
+
+        private void ListView_Drop(object sender, DragEventArgs e)
+        {
+            if (e.Data.GetDataPresent(DataFormats.FileDrop))
+            {
+                var files = (string[])e.Data.GetData(DataFormats.FileDrop);
+                if (DataContext is ViewModels.ArchivosViewModel vm && files != null && files.Length > 0)
+                {
+                    vm.ProcesarArchivosDroppeados(files);
                 }
             }
         }

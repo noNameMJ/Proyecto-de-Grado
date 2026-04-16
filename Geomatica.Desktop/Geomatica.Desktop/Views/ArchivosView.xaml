@@ -2,16 +2,17 @@
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:Geomatica.Desktop.Views"
-             xmlns:vm="clr-namespace:Geomatica.Desktop.ViewModels">
+             xmlns:vm="clr-namespace:Geomatica.Desktop.ViewModels"
+             xmlns:models="clr-namespace:Geomatica.Desktop.Models">
     <UserControl.Resources>
-        <DataTemplate DataType="{x:Type vm:CarpetaNode}">
+        <DataTemplate DataType="{x:Type models:CarpetaVirtual}">
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="📁" Margin="0,0,8,0" FontSize="14"/>
                 <TextBlock Text="{Binding Nombre}" VerticalAlignment="Center" 
                            FontFamily="{StaticResource AppFont}" FontSize="13"/>
             </StackPanel>
         </DataTemplate>
-        <DataTemplate DataType="{x:Type vm:ArchivoItem}">
+        <DataTemplate DataType="{x:Type models:ArchivoVirtual}">
             <StackPanel Orientation="Horizontal">
                 <TextBlock Text="📄" Margin="0,0,8,0" FontSize="14"/>
                 <TextBlock Text="{Binding Nombre}" VerticalAlignment="Center"
@@ -155,12 +156,8 @@
                   MouseDoubleClick="ListView_MouseDoubleClick" 
                   SelectedItem="{Binding SelectedEntry, Mode=TwoWay}"
                   BorderThickness="0" Background="White"
-                  FontFamily="{StaticResource AppFont}">
-            <ListView.ItemTemplate>
-                <DataTemplate>
-                    <ContentPresenter Content="{Binding}"/>
-                </DataTemplate>
-            </ListView.ItemTemplate>
+                  FontFamily="{StaticResource AppFont}"
+                  AllowDrop="True" Drop="ListView_Drop">
             <ListView.ItemContainerStyle>
                 <Style TargetType="ListViewItem">
                     <Setter Property="Padding" Value="8,6"/>
@@ -175,9 +172,13 @@
                 BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0"
                 Padding="12,8">
             <StackPanel Orientation="Horizontal">
-                <Button Content="Abrir" Command="{Binding AbrirCommand}" 
+                <Button Content="➕ Subir Archivo" Command="{Binding SubirCommand}" 
                         Style="{StaticResource PrimaryButton}" Padding="14,6"/>
-                <Button Content="Eliminar" Command="{Binding EliminarCommand}" 
+                <Button Content="⬇️ Descargar" Command="{Binding DescargarCommand}" 
+                        Style="{StaticResource OutlineButton}" Margin="8,0,0,0" Padding="14,6"/>
+                <Button Content="👁️ Ver / Abrir" Command="{Binding AbrirCommand}" 
+                        Style="{StaticResource OutlineButton}" Margin="8,0,0,0" Padding="14,6"/>
+                <Button Content="🗑️ Eliminar" Command="{Binding EliminarCommand}" 
                         Style="{StaticResource OutlineButton}" Margin="8,0,0,0" Padding="14,6"/>
                 <TextBlock Text="{Binding Estado}" Margin="16,0,0,0" VerticalAlignment="Center" 
                            FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
