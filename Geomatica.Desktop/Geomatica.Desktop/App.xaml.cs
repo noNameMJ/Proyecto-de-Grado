@@ -120,7 +120,8 @@ namespace Geomatica.Desktop
             services.AddSingleton<MapaViewModel>(sp => new MapaViewModel(
                 sp.GetRequiredService<IProyectoRepository>(),
                 sp.GetRequiredService<IMunicipioRepository>(),
-                sp.GetRequiredService<FiltrosViewModel>()));
+                sp.GetRequiredService<FiltrosViewModel>(),
+                sp.GetRequiredService<ArchivosViewModel>()));
             services.AddTransient<ArchivosViewModel>(sp => new ArchivosViewModel(
                 sp.GetRequiredService<FiltrosViewModel>(),
                 sp.GetRequiredService<Geomatica.Desktop.Services.ProyectoArchivosService>()));

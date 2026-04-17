@@ -29,111 +29,12 @@
             <RowDefinition Height="*"/>
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="Auto"/>
-            <ColumnDefinition Width="*"/>
-        </Grid.ColumnDefinitions>
+        <!-- Retirado el Grid.ColumnDefinitions porque el panel izquierdo se ha movido al MapaView -->
 
-        <!-- ══════ PANEL LATERAL: Filtros o Detalle de Proyecto ══════ -->
-        <Grid Grid.Row="0" Grid.RowSpan="3" Grid.Column="0">
-
-            <!-- Barra de filtros (visible cuando NO hay proyecto seleccionado) -->
-            <views:BarraFiltrosView DataContext="{Binding Filtros}" VerticalAlignment="Stretch">
-                <views:BarraFiltrosView.Style>
-                    <Style TargetType="UserControl">
-                        <Setter Property="Visibility" Value="Visible"/>
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding DataContext.HasProyectoDetalle, RelativeSource={RelativeSource AncestorType=views:ArchivosView}}" Value="True">
-                                <Setter Property="Visibility" Value="Collapsed"/>
-                            </DataTrigger>
-                        </Style.Triggers>
-                    </Style>
-                </views:BarraFiltrosView.Style>
-            </views:BarraFiltrosView>
-
-            <!-- Detalle del proyecto (visible cuando SÍ hay proyecto seleccionado) -->
-            <Border Width="320" Background="{StaticResource PanelBrush}" 
-                    BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,0,1,0"
-                    Visibility="{Binding HasProyectoDetalle, Converter={StaticResource BoolToVis}}"
-                    DataContext="{Binding ProyectoDetalle}">
-                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                    <StackPanel Margin="16,14,16,16">
-
-                        <!-- Botones: Cerrar y Editar -->
-                        <DockPanel Margin="0,0,0,10">
-                            <Button Content="← Cerrar detalle" Command="{Binding VolverCommand}"
-                                    Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
-                                    FontSize="12"/>
-                            <Button Content="✏️ Editar" Command="{Binding EditarCommand}"
-                                    Style="{StaticResource SecondaryButton}" HorizontalAlignment="Right"
-                                    Padding="12,6" FontSize="12"/>
-                        </DockPanel>
-
-                        <!-- Franja verde UIS -->
-                        <Rectangle Height="4" Fill="{StaticResource UisGreenBrush}" 
-                                   Margin="0,0,0,14" RadiusX="2" RadiusY="2"/>
-
-                        <!-- Título -->
-                        <TextBlock Text="{Binding Titulo}" FontWeight="Bold" FontSize="16" 
-                                   TextWrapping="Wrap" Margin="0,0,0,14"
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}"/>
-
-                        <Separator Style="{StaticResource ModernSeparator}" Margin="0,0,0,12"/>
-
-                        <!-- Descripción -->
-                        <TextBlock Text="Descripción" Style="{StaticResource FieldLabel}"/>
-                        <TextBlock Text="{Binding Descripcion, TargetNullValue='Sin descripción'}" 
-                                   TextWrapping="Wrap" FontSize="13" Margin="0,0,0,12"
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}"/>
-
-                        <!-- Fecha -->
-                        <TextBlock Text="Fecha" Style="{StaticResource FieldLabel}"/>
-                        <TextBlock Text="{Binding FechaTexto}" FontSize="13" Margin="0,0,0,12"
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}"/>
-
-                        <!-- Palabra clave -->
-                        <TextBlock Text="Palabra clave" Style="{StaticResource FieldLabel}"/>
-                        <TextBlock Text="{Binding PalabraClave, TargetNullValue='—'}" 
-                                   FontSize="13" Margin="0,0,0,12"
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}"/>
-
-                        <!-- Municipio -->
-                        <TextBlock Text="Municipio" Style="{StaticResource FieldLabel}"/>
-                        <TextBlock Text="{Binding MunicipioNombre, TargetNullValue='No asignado'}" 
-                                   FontSize="13" Margin="0,0,0,12"
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}"/>
-
-                        <!-- Coordenadas -->
-                        <TextBlock Text="Coordenadas" Style="{StaticResource FieldLabel}"/>
-                        <TextBlock Text="{Binding Coordenadas}" FontSize="13" Margin="0,0,0,12"
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}"/>
-
-                        <Separator Style="{StaticResource ModernSeparator}" Margin="0,0,0,12"/>
-
-                        <!-- Ruta de archivos -->
-                        <TextBlock Text="Ruta de archivos" Style="{StaticResource FieldLabel}"/>
-                        <TextBlock Text="{Binding RutaArchivos, TargetNullValue='Sin ruta asignada'}" 
-                                   FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" 
-                                   TextWrapping="Wrap" Margin="0,0,0,10"
-                                   FontFamily="{StaticResource AppFont}"/>
-                        <Button Content="📁 Abrir carpeta" Command="{Binding AbrirCarpetaCommand}"
-                                Style="{StaticResource OutlineButton}" HorizontalAlignment="Left"
-                                Padding="12,6" FontSize="12"/>
-                    </StackPanel>
-                </ScrollViewer>
-            </Border>
-        </Grid>
-
-        <!-- ══════ CONTENIDO DERECHO: Explorador de archivos ══════ -->
+        <!-- ══════ CONTENIDO: Explorador de archivos ══════ -->
 
         <!-- Barra de ruta (breadcrumb) -->
-        <Border Grid.Row="0" Grid.Column="1" Background="{StaticResource PanelBrush}"
+        <Border Grid.Row="0" Background="{StaticResource PanelBrush}"
                 BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,0,0,1"
                 Padding="12,8">
             <StackPanel Orientation="Horizontal">
@@ -151,7 +52,7 @@
         </Border>
 
         <!-- File list -->
-        <ListView Grid.Row="1" Grid.Column="1" 
+        <ListView Grid.Row="1" 
                   ItemsSource="{Binding Items}" 
                   MouseDoubleClick="ListView_MouseDoubleClick" 
                   SelectedItem="{Binding SelectedEntry, Mode=TwoWay}"
@@ -168,7 +69,7 @@
         </ListView>
 
         <!-- Barra inferior -->
-        <Border Grid.Row="2" Grid.Column="1" Background="{StaticResource PanelBrush}"
+        <Border Grid.Row="2" Background="{StaticResource PanelBrush}"
                 BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0"
                 Padding="12,8">
             <StackPanel Orientation="Horizontal">
@@ -176,7 +77,9 @@
                         Style="{StaticResource PrimaryButton}" Padding="14,6"/>
                 <Button Content="⬇️ Descargar" Command="{Binding DescargarCommand}" 
                         Style="{StaticResource OutlineButton}" Margin="8,0,0,0" Padding="14,6"/>
-                <Button Content="👁️ Ver / Abrir" Command="{Binding AbrirCommand}" 
+                <Button Content="🗺️ Ver en Mapa" Command="{Binding AbrirEnMapaCommand}" 
+                        Style="{StaticResource OutlineButton}" Margin="8,0,0,0" Padding="14,6"/>
+                <Button Content="👁️ Abrir Ext." Command="{Binding AbrirCommand}" 
                         Style="{StaticResource OutlineButton}" Margin="8,0,0,0" Padding="14,6"/>
                 <Button Content="🗑️ Eliminar" Command="{Binding EliminarCommand}" 
                         Style="{StaticResource OutlineButton}" Margin="8,0,0,0" Padding="14,6"/>

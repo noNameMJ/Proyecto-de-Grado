@@ -4,55 +4,192 @@
              xmlns:esri="http://schemas.esri.com/arcgis/runtime/2013"
              xmlns:vm="clr-namespace:Geomatica.Desktop.ViewModels"
              xmlns:views="clr-namespace:Geomatica.Desktop.Views">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <Style x:Key="IntToVis" TargetType="Border">
+            <Setter Property="Visibility" Value="Visible" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding CapasAdicionales.Count}" Value="0">
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="Auto"/>
             <ColumnDefinition Width="*"/>
+            <ColumnDefinition Width="Auto"/>
         </Grid.ColumnDefinitions>
 
-        <!-- Panel lateral filtros -->
-        <views:BarraFiltrosView Grid.Column="0" DataContext="{Binding Filtros}"/>
+        <!-- Panel lateral izquierdo: Filtros -->
+        <views:BarraFiltrosView Grid.Column="0" DataContext="{Binding Filtros}" />
 
-        <!-- Zona de mapa -->
+        <!-- Zona de mapa y archivos -->
         <Grid Grid.Column="1">
-            <esri:MapView x:Name="controlMapView" Map="{Binding Map}" />
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
 
-            <!-- Leyenda — estilo ArcGIS Pro -->
-            <Border Background="#E8FFFFFF" CornerRadius="6" Padding="12,10"
-                    HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="16"
-                    BorderBrush="#20000000" BorderThickness="1"
-                    Effect="{StaticResource CardShadow}">
-                <StackPanel>
-                    <TextBlock Text="Leyenda" FontWeight="SemiBold" FontSize="12" 
-                               Foreground="{StaticResource TextPrimaryBrush}"
-                               FontFamily="{StaticResource AppFont}" Margin="0,0,0,6"/>
-                    <StackPanel Orientation="Horizontal" Margin="0,3">
-                        <Ellipse Width="10" Height="10" Fill="{StaticResource UisGreenBrush}"
-                                 Stroke="White" StrokeThickness="1.5"
-                                 VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock Text="Proyecto geomático" FontSize="11" 
-                                   VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}"/>
-                    </StackPanel>
-                    <StackPanel Orientation="Horizontal" Margin="0,3">
-                        <Rectangle Width="14" Height="10"
-                                   Fill="#28006633" Stroke="#B4006633" StrokeThickness="1"
-                                   RadiusX="2" RadiusY="2"
-                                   VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock Text="Municipio con proyecto" FontSize="11" 
-                                   VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}"/>
-                    </StackPanel>
-                </StackPanel>
-            </Border>
+            <!-- Mapa -->
+            <Grid Grid.Row="0">
+                <esri:MapView x:Name="controlMapView" Map="{Binding Map}" />
 
-            <!-- Botón Home — estilo ArcGIS tool button -->
-            <Button x:Name="HomeButton"
-                    Content="🏠" ToolTip="Restaurar vista inicial"
-                    Style="{StaticResource MapToolButton}"
-                    HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                    Margin="16"
-                    Command="{Binding HomeCommand}"/>
+                <!-- Leyenda — estilo ArcGIS Pro -->
+                <Border Background="#E8FFFFFF" CornerRadius="6" Padding="12,10"
+                        HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="16"
+                        BorderBrush="#20000000" BorderThickness="1"
+                        Effect="{StaticResource CardShadow}">
+                    <StackPanel>
+                        <TextBlock Text="Leyenda" FontWeight="SemiBold" FontSize="12" 
+                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                   FontFamily="{StaticResource AppFont}" Margin="0,0,0,6"/>
+                        <StackPanel Orientation="Horizontal" Margin="0,3">
+                            <Ellipse Width="10" Height="10" Fill="{StaticResource UisGreenBrush}"
+                                     Stroke="White" StrokeThickness="1.5"
+                                     VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Text="Proyecto geomático" FontSize="11" 
+                                       VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"
+                                       FontFamily="{StaticResource AppFont}"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" Margin="0,3">
+                            <Rectangle Width="14" Height="10"
+                                       Fill="#28006633" Stroke="#B4006633" StrokeThickness="1"
+                                       RadiusX="2" RadiusY="2"
+                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Text="Municipio con proyecto" FontSize="11" 
+                                       VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"
+                                       FontFamily="{StaticResource AppFont}"/>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Panel de Capas Añadidas Recientemente -->
+                <Border Style="{StaticResource IntToVis}" Background="#F9FFFFFF" CornerRadius="6" Padding="12,10"
+                        HorizontalAlignment="Right" VerticalAlignment="Top" Margin="16"
+                        BorderBrush="#20000000" BorderThickness="1"
+                        Effect="{StaticResource CardShadow}">
+                    <StackPanel>
+                        <TextBlock Text="Capas Añadidas" FontWeight="SemiBold" FontSize="12" 
+                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                   FontFamily="{StaticResource AppFont}" Margin="0,0,0,6"/>
+                        <ItemsControl ItemsSource="{Binding CapasAdicionales}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <DockPanel Margin="0,3">
+                                        <Button Content="✕" Command="{Binding QuitarCommand}" DockPanel.Dock="Right"
+                                                Background="Transparent" BorderThickness="0" Foreground="Red"
+                                                FontSize="10" VerticalAlignment="Center" Cursor="Hand" Padding="2"/>
+                                        <TextBlock Text="{Binding Nombre}" FontSize="12" VerticalAlignment="Center"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"
+                                                   FontFamily="{StaticResource AppFont}" Margin="0,0,8,0"/>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </Border>
+
+                <!-- Botón Home — estilo ArcGIS tool button -->
+                <Button x:Name="HomeButton"
+                        Content="🏠" ToolTip="Restaurar vista inicial"
+                        Style="{StaticResource MapToolButton}"
+                        HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                        Margin="16"
+                        Command="{Binding HomeCommand}"/>
+            </Grid>
+
+            <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" Background="{StaticResource SeparatorBrush}" 
+                          Visibility="{Binding ArchivosVM.HasProyectoDetalle, Converter={StaticResource BoolToVis}}" />
+
+            <!-- Archivos -->
+            <Grid Grid.Row="2" Background="{StaticResource PanelBrush}" Height="250"
+                  Visibility="{Binding ArchivosVM.HasProyectoDetalle, Converter={StaticResource BoolToVis}}">
+                <!-- Usamos el ContentControl para mostrar ArchivosView -->
+                <views:ArchivosView DataContext="{Binding ArchivosVM}" />
+            </Grid>
         </Grid>
+
+        <!-- Panel lateral derecho: Detalle del proyecto -->
+        <Border Grid.Column="2" Width="320" Background="{StaticResource PanelBrush}" 
+                BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1,0,0,0"
+                Visibility="{Binding ArchivosVM.HasProyectoDetalle, Converter={StaticResource BoolToVis}}">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                          DataContext="{Binding ArchivosVM.ProyectoDetalle}">
+                <StackPanel Margin="16,14,16,16">
+
+                    <!-- Botones: Cerrar y Editar -->
+                    <DockPanel Margin="0,0,0,10">
+                        <Button Content="✕ Cerrar" Command="{Binding VolverCommand}"
+                                Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
+                                FontSize="12"/>
+                        <Button Content="✏️ Editar" Command="{Binding EditarCommand}"
+                                Style="{StaticResource SecondaryButton}" HorizontalAlignment="Right"
+                                Padding="12,6" FontSize="12"/>
+                    </DockPanel>
+
+                    <!-- Franja verde UIS -->
+                    <Rectangle Height="4" Fill="{StaticResource UisGreenBrush}" 
+                               Margin="0,0,0,14" RadiusX="2" RadiusY="2"/>
+
+                    <!-- Título -->
+                    <TextBlock Text="{Binding Titulo}" FontWeight="Bold" FontSize="16" 
+                               TextWrapping="Wrap" Margin="0,0,0,14"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               FontFamily="{StaticResource AppFont}"/>
+
+                    <Separator Style="{StaticResource ModernSeparator}" Margin="0,0,0,12"/>
+
+                    <!-- Descripción -->
+                    <TextBlock Text="Descripción" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="{Binding Descripcion, TargetNullValue='Sin descripción'}" 
+                               TextWrapping="Wrap" FontSize="13" Margin="0,0,0,12"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               FontFamily="{StaticResource AppFont}"/>
+
+                    <!-- Fecha -->
+                    <TextBlock Text="Fecha" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="{Binding FechaTexto}" FontSize="13" Margin="0,0,0,12"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               FontFamily="{StaticResource AppFont}"/>
+
+                    <!-- Palabra clave -->
+                    <TextBlock Text="Palabra clave" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="{Binding PalabraClave, TargetNullValue='—'}" 
+                               FontSize="13" Margin="0,0,0,12"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               FontFamily="{StaticResource AppFont}"/>
+
+                    <!-- Municipio -->
+                    <TextBlock Text="Municipio" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="{Binding MunicipioNombre, TargetNullValue='No asignado'}" 
+                               FontSize="13" Margin="0,0,0,12"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               FontFamily="{StaticResource AppFont}"/>
+
+                    <!-- Coordenadas -->
+                    <TextBlock Text="Coordenadas" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="{Binding Coordenadas}" FontSize="13" Margin="0,0,0,12"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               FontFamily="{StaticResource AppFont}"/>
+
+                    <Separator Style="{StaticResource ModernSeparator}" Margin="0,0,0,12"/>
+
+                    <!-- Ruta de archivos -->
+                    <TextBlock Text="Ruta de archivos" Style="{StaticResource FieldLabel}"/>
+                    <TextBlock Text="{Binding RutaArchivos, TargetNullValue='Sin ruta asignada'}" 
+                               FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" 
+                               TextWrapping="Wrap" Margin="0,0,0,10"
+                               FontFamily="{StaticResource AppFont}"/>
+                    <Button Content="📁 Abrir carpeta" Command="{Binding AbrirCarpetaCommand}"
+                            Style="{StaticResource OutlineButton}" HorizontalAlignment="Left"
+                            Padding="12,6" FontSize="12"/>
+                </StackPanel>
+            </ScrollViewer>
+        </Border>
     </Grid>
 </UserControl>

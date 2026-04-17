@@ -45,6 +45,7 @@ namespace Geomatica.Desktop.ViewModels
         }
 
         public event EventHandler<ProyectoDetalleDto>? EditarSolicitado;
+        public event EventHandler<string>? AbrirEnMapaSolicitado;
 
         public ArchivosViewModel(FiltrosViewModel filtros, ProyectoArchivosService archivosService)
         {
@@ -74,6 +75,7 @@ namespace Geomatica.Desktop.ViewModels
                     else if (_filtros?.SelectedProyecto == null)
                     {
                         _rutaRaizProyecto = "";
+                        ProyectoDetalle = null;
                         if (RutaActual == "") RefrescarSegunFiltros();
                         else RutaActual = "";
                     }
@@ -327,6 +329,19 @@ namespace Geomatica.Desktop.ViewModels
                 catch (Exception ex)
                 {
                     MessageBox.Show($"Error descargando archivo: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        [RelayCommand]
+        private void AbrirEnMapa()
+        {
+            if (Seleccionado is ArchivoVirtual archivo)
+            {
+                string rutaFisica = Path.Combine(_rutaRaizProyecto, archivo.RutaRelativaVirtual.TrimStart('/', '\\'));
+                if (File.Exists(rutaFisica))
+                {
+                    AbrirEnMapaSolicitado?.Invoke(this, rutaFisica);
                 }
             }
         }

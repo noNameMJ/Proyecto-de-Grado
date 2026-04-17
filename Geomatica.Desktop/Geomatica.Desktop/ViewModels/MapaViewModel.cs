@@ -9,9 +9,18 @@ using System.Text.Json;
 using System.Windows;
 using CommunityToolkit.Mvvm.Input;
 using Esri.ArcGISRuntime.UI.Controls;
+using System.Collections.ObjectModel;
+using System.IO;
 
 namespace Geomatica.Desktop.ViewModels
 {
+    public class CapaUsuarioItem
+    {
+        public string Nombre { get; set; } = "";
+        public Layer? Capa { get; set; }
+        public IRelayCommand? QuitarCommand { get; set; }
+    }
+
  public class MapaViewModel : INotifyPropertyChanged
  {
  private readonly IProyectoRepository _proyectos;
@@ -19,6 +28,7 @@ namespace Geomatica.Desktop.ViewModels
 
  // Referencia opcional a los filtros compartidos
  public FiltrosViewModel Filtros { get; }
+ public ArchivosViewModel ArchivosVM { get; }
  private Layer? _layerMunicipios;
  private Layer? _layerProyectos;
  public Layer? LayerProyectos => _layerProyectos;
@@ -31,21 +41,86 @@ namespace Geomatica.Desktop.ViewModels
  // Track the MapView that currently displays this Map to release ownership when re-attaching
  private MapView? _ownerMapView;
 
+ public ObservableCollection<CapaUsuarioItem> CapasAdicionales { get; } = new();
+
  // Comando y evento para Home (MVVM)
  public IRelayCommand HomeCommand { get; }
  public event EventHandler? HomeRequested;
  public event EventHandler<ProyectoDetalleDto>? FichaProyectoSolicitada;
 
  // Nuevo constructor: recibe los filtros (opción B)
- public MapaViewModel(IProyectoRepository proyectos, IMunicipioRepository municipios, FiltrosViewModel filtros)
+ public MapaViewModel(IProyectoRepository proyectos, IMunicipioRepository municipios, FiltrosViewModel filtros, ArchivosViewModel archivosVM)
  {
  _proyectos = proyectos;
  _municipios = municipios;
  Filtros = filtros;
+ ArchivosVM = archivosVM;
 
  HomeCommand = new RelayCommand(() => HomeRequested?.Invoke(this, EventArgs.Empty));
 
+ ArchivosVM.AbrirEnMapaSolicitado += async (s, path) => await CargarCapaAdicionalAsync(path);
+ Filtros.PropertyChanged += Filtros_PropertyChanged;
+
  SetupMap();
+ }
+
+ private async void Filtros_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+ {
+     if (e.PropertyName == nameof(FiltrosViewModel.SelectedProyecto))
+     {
+         if (Filtros.SelectedProyecto != null)
+         {
+             await AbrirFichaProyectoAsync(Filtros.SelectedProyecto.Id);
+         }
+     }
+ }
+
+ private async Task CargarCapaAdicionalAsync(string path)
+ {
+    if (Map == null) return;
+    try
+    {
+        Layer? layer = null;
+        var ext = Path.GetExtension(path).ToLowerInvariant();
+
+        if (ext == ".shp")
+        {
+            var shapefile = await ShapefileFeatureTable.OpenAsync(path);
+            layer = new FeatureLayer(shapefile);
+        }
+        else if (ext == ".kml" || ext == ".kmz")
+        {
+            var dataset = new Esri.ArcGISRuntime.Ogc.KmlDataset(new Uri(path));
+            layer = new KmlLayer(dataset);
+        }
+        else if (ext == ".geodatabase")
+        {
+            var gdb = await Geodatabase.OpenAsync(path);
+            var table = gdb.GeodatabaseFeatureTables.FirstOrDefault();
+            if (table != null) layer = new FeatureLayer(table);
+        }
+
+        if (layer != null)
+        {
+            Map.OperationalLayers.Add(layer);
+            var item = new CapaUsuarioItem { Nombre = Path.GetFileName(path), Capa = layer };
+            item.QuitarCommand = new RelayCommand(() => 
+            {
+                if (item.Capa != null) Map.OperationalLayers.Remove(item.Capa);
+                CapasAdicionales.Remove(item);
+            });
+
+            Application.Current.Dispatcher.Invoke(() => CapasAdicionales.Add(item));
+        }
+        else
+        {
+            MessageBox.Show("El formato de archivo no se puede mostrar en el mapa.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+    catch (Exception ex)
+    {
+        MessageBox.Show($"Error al cargar en mapa: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
  }
 
  public async Task AbrirFichaProyectoAsync(int idProyecto)

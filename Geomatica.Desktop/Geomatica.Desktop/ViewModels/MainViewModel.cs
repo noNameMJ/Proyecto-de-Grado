@@ -76,20 +76,21 @@ namespace Geomatica.Desktop.ViewModels
 
         private void OnFichaProyectoSolicitada(object? sender, ProyectoDetalleDto detalle)
         {
-            _filesVM ??= _filesFactory();
-            _filesVM.PropertyChanged -= FilesVM_PropertyChanged;
-            _filesVM.PropertyChanged += FilesVM_PropertyChanged;
+            if (_mapVM == null) return;
+
+            var archivosVm = _mapVM.ArchivosVM;
 
             var fichaVm = new FichaProyectoViewModel(detalle, () =>
             {
-                // "Cerrar detalle" vuelve al mapa
-                _filesVM.ProyectoDetalle = null;
-                ShowMapa();
+                // "Cerrar detalle" limpia la ficha pero nos quedamos en MapaView.
+                archivosVm.ProyectoDetalle = null;
             });
             fichaVm.EditarSolicitado += OnEditarSolicitado;
 
-            _filesVM.ProyectoDetalle = fichaVm;
-            CurrentView = _filesVM;
+            archivosVm.ProyectoDetalle = fichaVm;
+
+            // Asegurarse de que el current view siga siendo Mapa y se actualice el visual.
+            CurrentView = _mapVM;
             OnPropertyChanged(nameof(CurrentViewName));
         }
 
