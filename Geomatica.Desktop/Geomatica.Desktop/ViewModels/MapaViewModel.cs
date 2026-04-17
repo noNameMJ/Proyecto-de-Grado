@@ -123,17 +123,32 @@ namespace Geomatica.Desktop.ViewModels
     }
  }
 
+ private bool _isOpeningFicha = false;
+
  public async Task AbrirFichaProyectoAsync(int idProyecto)
  {
+  if (_isOpeningFicha) return;
+  _isOpeningFicha = true;
   try
   {
    var detalle = await _proyectos.ObtenerPorIdAsync(idProyecto);
    if (detalle != null)
+   {
+    if (Filtros != null && Filtros.SelectedProyecto?.Id != detalle.Id)
+    {
+        Filtros.SelectedProyecto = new FiltrosViewModel.ProyectoItem(
+            detalle.Id, detalle.Titulo, detalle.Lon, detalle.Lat, detalle.RutaArchivos);
+    }
     FichaProyectoSolicitada?.Invoke(this, detalle);
+   }
   }
   catch (Exception ex)
   {
    System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error cargando detalle de proyecto {idProyecto}: {ex}");
+  }
+  finally
+  {
+      _isOpeningFicha = false;
   }
  }
 
@@ -481,7 +496,7 @@ namespace Geomatica.Desktop.ViewModels
  /// Parses a GeoJSON geometry string (Polygon/MultiPolygon) into an ArcGIS Geometry.
  /// Geometry.FromJson() expects Esri JSON, not GeoJSON, so we parse coordinates manually.
  /// </summary>
- internal static Geometry? ParseGeoJson(string geoJson)
+ public static Geometry? ParseGeoJson(string geoJson)
  {
   using var doc = JsonDocument.Parse(geoJson);
   var root = doc.RootElement;
@@ -494,26 +509,38 @@ namespace Geomatica.Desktop.ViewModels
 
   // MultiPolygon: [polygon, polygon, ...] where polygon = [ring, ring, ...]
   // Polygon: [ring, ring, ...] where ring = [[lon, lat], ...]
-  var polygons = type == "MultiPolygon"
-   ? coordinates.EnumerateArray()
-   : new[] { coordinates }.AsEnumerable();
-
-  foreach (var polygon in polygons)
+  if (type == "Polygon")
   {
-   foreach (var ring in polygon.EnumerateArray())
-   {
-    var points = new MapPoint[ring.GetArrayLength()];
-    int pointIndex = 0;
+  	foreach (var ring in coordinates.EnumerateArray())
+  	{
+  		var numPoints = ring.GetArrayLength();
+  		var points = new MapPoint[numPoints];
+  		int pointIndex = 0;
 
-    foreach (var point in ring.EnumerateArray())
-    {
-     var enumerator = point.EnumerateArray().GetEnumerator();
-     enumerator.MoveNext(); double lon = enumerator.Current.GetDouble();
-     enumerator.MoveNext(); double lat = enumerator.Current.GetDouble();
-     points[pointIndex++] = new MapPoint(lon, lat, SpatialReferences.Wgs84);
-    }
-    builder.AddPart(points);
-   }
+  		foreach (var point in ring.EnumerateArray())
+  		{
+  			points[pointIndex++] = new MapPoint(point[0].GetDouble(), point[1].GetDouble(), SpatialReferences.Wgs84);
+  		}
+  		builder.AddPart(points);
+  	}
+  }
+  else
+  {
+  	foreach (var polygon in coordinates.EnumerateArray())
+  	{
+  		foreach (var ring in polygon.EnumerateArray())
+  		{
+  			var numPoints = ring.GetArrayLength();
+  			var points = new MapPoint[numPoints];
+  			int pointIndex = 0;
+
+  			foreach (var point in ring.EnumerateArray())
+  			{
+  				points[pointIndex++] = new MapPoint(point[0].GetDouble(), point[1].GetDouble(), SpatialReferences.Wgs84);
+  			}
+  			builder.AddPart(points);
+  		}
+  	}
   }
 
   return builder.ToGeometry();

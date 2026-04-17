@@ -446,12 +446,8 @@ namespace Geomatica.Desktop.Views
                     }
                     else if (!tieneFiltroDepartamento && !tieneFilterMunicipio)
                     {
-                        // Sin filtro geográfico (Todos o Limpiar): volver a vista inicial
-                        var mvHome = this.FindName("controlMapView") as MapView;
-                        if (mvHome != null && vm.Map?.InitialViewpoint != null && !ct.IsCancellationRequested)
-                        {
-                            await mvHome.SetViewpointAsync(vm.Map.InitialViewpoint);
-                        }
+                        // No auto-zoom a "home" al simplemente realizar búsquedas por texto o fechas.
+                        // El usuario puede usar el botón 🏠 manualmente si desea regresar a la vista inicial.
                     }
                 }
 

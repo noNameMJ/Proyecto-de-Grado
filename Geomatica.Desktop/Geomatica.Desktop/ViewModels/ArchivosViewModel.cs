@@ -303,6 +303,83 @@ namespace Geomatica.Desktop.ViewModels
         }
 
         [RelayCommand]
+        private void NuevaCarpeta()
+        {
+            if (string.IsNullOrWhiteSpace(_rutaRaizProyecto))
+            {
+                MessageBox.Show("Debe seleccionar un proyecto válido primero.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+
+            string rutaFisica = Path.Combine(_rutaRaizProyecto, RutaActual.TrimStart('/', '\\'));
+            if (!Directory.Exists(rutaFisica))
+            {
+                MessageBox.Show("La carpeta de destino no existe o no tiene acceso.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+
+            var dialog = new Window
+            {
+                Title = "Nueva Carpeta",
+                Width = 350,
+                Height = 150,
+                WindowStartupLocation = WindowStartupLocation.CenterScreen,
+                ResizeMode = ResizeMode.NoResize,
+                Background = SystemColors.ControlBrush
+            };
+
+            var stack = new System.Windows.Controls.StackPanel { Margin = new Thickness(15) };
+            stack.Children.Add(new System.Windows.Controls.TextBlock { Text = "Nombre de la nueva carpeta:", Margin = new Thickness(0, 0, 0, 10) });
+
+            var txtNombre = new System.Windows.Controls.TextBox { Margin = new Thickness(0, 0, 0, 15), Padding = new Thickness(3) };
+            if (Application.Current != null && Application.Current.MainWindow != null)
+                txtNombre.FontFamily = Application.Current.MainWindow.FontFamily;
+            stack.Children.Add(txtNombre);
+
+            var panelBotones = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+            var btnAceptar = new System.Windows.Controls.Button { Content = "Aceptar", Width = 80, Margin = new Thickness(0, 0, 10, 0), Padding = new Thickness(3), IsDefault = true };
+            var btnCancelar = new System.Windows.Controls.Button { Content = "Cancelar", Width = 80, Padding = new Thickness(3), IsCancel = true };
+
+            btnAceptar.Click += (s, e) => { dialog.DialogResult = true; };
+            panelBotones.Children.Add(btnAceptar);
+            panelBotones.Children.Add(btnCancelar);
+
+            stack.Children.Add(panelBotones);
+            dialog.Content = stack;
+
+            if (dialog.ShowDialog() == true)
+            {
+                var nombre = txtNombre.Text.Trim();
+                if (string.IsNullOrWhiteSpace(nombre)) return;
+
+                var invalidChars = Path.GetInvalidFileNameChars();
+                if (nombre.Any(c => invalidChars.Contains(c)))
+                {
+                    MessageBox.Show("El nombre de la carpeta contiene caracteres no válidos.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
+
+                var nuevaRuta = Path.Combine(rutaFisica, nombre);
+                if (Directory.Exists(nuevaRuta) || File.Exists(nuevaRuta))
+                {
+                    MessageBox.Show("Ya existe un archivo o carpeta con ese nombre.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                try
+                {
+                    Directory.CreateDirectory(nuevaRuta);
+                    Estado = $"Carpeta '{nombre}' creada";
+                    RefrescarSegunFiltros();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Error al crear la carpeta: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+            }
+        }
+
+        [RelayCommand]
         private void Descargar()
         {
             if (Seleccionado is not ArchivoVirtual archivo)

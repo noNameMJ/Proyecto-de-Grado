@@ -11,6 +11,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Geomatica.Data", "Geomatica
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Geomatica.Domain", "Geomatica.Domain\Geomatica.Domain.csproj", "{18B68B26-4B68-4E82-9F4C-EFF85BE00BE7}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BenchmarkSuite4", "BenchmarkSuite4\BenchmarkSuite4.csproj", "{58DE2B95-B7E5-3E9C-F1E8-6D24C25A34E0}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -33,6 +35,10 @@ Global
 		{18B68B26-4B68-4E82-9F4C-EFF85BE00BE7}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{18B68B26-4B68-4E82-9F4C-EFF85BE00BE7}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{18B68B26-4B68-4E82-9F4C-EFF85BE00BE7}.Release|Any CPU.Build.0 = Release|Any CPU
+		{58DE2B95-B7E5-3E9C-F1E8-6D24C25A34E0}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{58DE2B95-B7E5-3E9C-F1E8-6D24C25A34E0}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{58DE2B95-B7E5-3E9C-F1E8-6D24C25A34E0}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{58DE2B95-B7E5-3E9C-F1E8-6D24C25A34E0}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

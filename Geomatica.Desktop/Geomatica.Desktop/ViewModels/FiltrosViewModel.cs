@@ -52,7 +52,8 @@ namespace Geomatica.Desktop.ViewModels
             PalabraClave = null;
             Desde = null;
             Hasta = null;
-            SelectedProyecto = null;
+            // No deseleccionamos el proyecto actual para no cerrar la ficha de detalle
+            // SelectedProyecto = null;
 
             if (SelectedDepartamento == DepartamentoItem.Todos)
             {

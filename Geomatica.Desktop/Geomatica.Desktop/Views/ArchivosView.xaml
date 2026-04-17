@@ -75,6 +75,8 @@
             <StackPanel Orientation="Horizontal">
                 <Button Content="➕ Subir Archivo" Command="{Binding SubirCommand}" 
                         Style="{StaticResource PrimaryButton}" Padding="14,6"/>
+                <Button Content="📁 Nueva Carpeta" Command="{Binding NuevaCarpetaCommand}" 
+                        Style="{StaticResource OutlineButton}" Margin="8,0,0,0" Padding="14,6"/>
                 <Button Content="⬇️ Descargar" Command="{Binding DescargarCommand}" 
                         Style="{StaticResource OutlineButton}" Margin="8,0,0,0" Padding="14,6"/>
                 <Button Content="🗺️ Ver en Mapa" Command="{Binding AbrirEnMapaCommand}" 
