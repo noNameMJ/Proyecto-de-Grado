@@ -1,6 +1,7 @@
 ﻿using Esri.ArcGISRuntime.Data;
 using Esri.ArcGISRuntime.Mapping;
 using Esri.ArcGISRuntime.UI.Controls;
+using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
@@ -13,22 +14,26 @@ namespace Geomatica.Desktop.Views
     public partial class MapaView : UserControl
     {
         private ViewModels.MapaViewModel? _currentVm;
+        private readonly MapView _controlMapView;
         private MapView? _attachedMapView;
         private CancellationTokenSource? _loadCts;
         private CancellationTokenSource? _restoreVpCts;
 
         public MapaView()
         {
-            InitializeComponent();
+            Application.LoadComponent(this, new Uri("/Geomatica.Desktop;component/Views/MapaView.xaml", UriKind.Relative));
+
+            _controlMapView = FindName("controlMapView") as MapView
+                ?? throw new InvalidOperationException("No se encontró el control 'controlMapView' en MapaView.xaml.");
 
             DataContextChanged += MapaView_DataContextChanged;
             Unloaded += MapaView_Unloaded;
-            controlMapView.GeoViewTapped += ControlMapView_GeoViewTapped;
+            _controlMapView.GeoViewTapped += ControlMapView_GeoViewTapped;
         }
 
         private void MapaView_DataContextChanged(object? sender, DependencyPropertyChangedEventArgs e)
         {
-            var mv = this.FindName("controlMapView") as MapView;
+            var mv = _controlMapView;
 
             if (e.OldValue is ViewModels.MapaViewModel oldVm)
             {
@@ -161,7 +166,7 @@ namespace Geomatica.Desktop.Views
             _restoreVpCts?.Cancel();
             _loadCts?.Cancel();
 
-            var mv = this.FindName("controlMapView") as MapView;
+            var mv = _controlMapView;
 
             if (DataContext is ViewModels.MapaViewModel vm)
             {
@@ -215,7 +220,7 @@ namespace Geomatica.Desktop.Views
             {
                 Dispatcher.InvokeAsync(async () =>
                 {
-                    var mv = this.FindName("controlMapView") as MapView;
+                    var mv = _controlMapView;
                     if (mv == null) return;
 
                     // Ask the ViewModel to attach the MapView (will handle detaching previous owner)
@@ -252,7 +257,7 @@ namespace Geomatica.Desktop.Views
         {
             _restoreVpCts?.Cancel();
             _loadCts?.Cancel();
-            var mv = this.FindName("controlMapView") as MapView;
+            var mv = _controlMapView;
             if (sender is ViewModels.MapaViewModel vm && mv != null && vm.Map != null)
             {
                 try
@@ -306,7 +311,7 @@ namespace Geomatica.Desktop.Views
             _loadCts?.Cancel();
             try
             {
-                var mv = this.FindName("controlMapView") as MapView;
+                var mv = _controlMapView;
                 if (mv == null) return;
 
                 var punto = new Esri.ArcGISRuntime.Geometry.MapPoint(
@@ -437,7 +442,7 @@ namespace Geomatica.Desktop.Views
                         var extent = vm.ObtenerExtentMunicipiosFiltrados();
                         if (extent != null)
                         {
-                            var mvZoom = this.FindName("controlMapView") as MapView;
+                            var mvZoom = _controlMapView;
                             if (mvZoom != null && !ct.IsCancellationRequested)
                             {
                                 await mvZoom.SetViewpointGeometryAsync(extent, 40);

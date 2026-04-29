@@ -4,7 +4,7 @@
              xmlns:esri="http://schemas.esri.com/arcgis/runtime/2013">
     <Grid Background="{StaticResource SurfaceBrush}">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <StackPanel Margin="32,24" MaxWidth="620" HorizontalAlignment="Left">
+            <StackPanel Margin="32,24" MaxWidth="800" HorizontalAlignment="Stretch">
 
                 <TextBlock Text="Editar Proyecto" Style="{StaticResource PageTitle}" Margin="0,0,0,6"/>
                 <Rectangle Height="3" Width="50" Fill="{StaticResource UisGoldBrush}" 
@@ -31,22 +31,22 @@
                         <Separator Style="{StaticResource ModernSeparator}"/>
 
                         <TextBlock Text="Ubicación" Style="{StaticResource SectionTitle}"/>
-                        <StackPanel Orientation="Horizontal">
+                        <WrapPanel Orientation="Horizontal">
                             <StackPanel Margin="0,0,20,0">
                                 <TextBlock Text="Departamento" Style="{StaticResource FieldLabel}"/>
                                 <ComboBox ItemsSource="{Binding Departamentos}" 
                                           SelectedItem="{Binding SelectedDepartamento}" 
-                                          DisplayMemberPath="Nombre" Width="200" 
+                                          DisplayMemberPath="Nombre" MinWidth="200" 
                                           Style="{StaticResource ModernComboBox}" Margin="0,0,0,14"/>
                             </StackPanel>
                             <StackPanel>
                                 <TextBlock Text="Municipio" Style="{StaticResource FieldLabel}"/>
                                 <ComboBox ItemsSource="{Binding Municipios}" 
                                           SelectedItem="{Binding SelectedMunicipio}" 
-                                          DisplayMemberPath="Nombre" Width="200" 
+                                          DisplayMemberPath="Nombre" MinWidth="200" 
                                           Style="{StaticResource ModernComboBox}" Margin="0,0,0,14"/>
                             </StackPanel>
-                        </StackPanel>
+                        </WrapPanel>
 
                         <TextBlock Text="Coordenadas (Opcional — WGS84)" Style="{StaticResource FieldLabel}" Margin="0,4,0,4"/>
                         <StackPanel Orientation="Horizontal">

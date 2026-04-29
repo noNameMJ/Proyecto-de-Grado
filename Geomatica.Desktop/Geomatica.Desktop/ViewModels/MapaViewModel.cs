@@ -19,6 +19,7 @@ namespace Geomatica.Desktop.ViewModels
         public string Nombre { get; set; } = "";
         public Layer? Capa { get; set; }
         public IRelayCommand? QuitarCommand { get; set; }
+        public IRelayCommand? ZoomCommand { get; set; }
     }
 
  public class MapaViewModel : INotifyPropertyChanged
@@ -93,21 +94,128 @@ namespace Geomatica.Desktop.ViewModels
             var dataset = new Esri.ArcGISRuntime.Ogc.KmlDataset(new Uri(path));
             layer = new KmlLayer(dataset);
         }
-        else if (ext == ".geodatabase")
+        else if (ext == ".geodatabase" || ext == ".gdb")
         {
+            // Maneja bases de datos locales .geodatabase y file geodatabases (.gdb) si el SDK lo soporta como path
             var gdb = await Geodatabase.OpenAsync(path);
             var table = gdb.GeodatabaseFeatureTables.FirstOrDefault();
             if (table != null) layer = new FeatureLayer(table);
+        }
+        else if (ext == ".slpk")
+        {
+            // IntegratedMesh, PointCloud or 3D Objects in a Scene Layer
+            layer = new ArcGISSceneLayer(new Uri(path));
+        }
+        else if (ext == ".las" || ext == ".laz" || ext == ".zlas")
+        {
+            // Nota: Para visualizar archivos de Nube de Puntos directamente en MapView WPF como dataset
+            // Dependiendo de la versión de ArcGIS Runtime puede ser PointCloudLayer.
+            try 
+            {
+                layer = new PointCloudLayer(new Uri(path));
+            } 
+            catch (Exception)
+            {
+                MessageBox.Show("ArcGIS Runtime requiere un SLPK o dataset compatible para nubes de puntos .las/.laz.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+        }
+        else if (ext == ".tif" || ext == ".tiff")
+        {
+            try
+            {
+                var raster = new Esri.ArcGISRuntime.Rasters.Raster(path);
+                await raster.LoadAsync();
+
+                var rasterLayer = new RasterLayer(raster);
+                layer = rasterLayer;
+                await layer.LoadAsync();
+
+                // Intentar aplicar un renderer por defecto si es posible para evitar "Internal Error" en WPF
+                if (rasterLayer.Renderer == null)
+                {
+                    var parameters = new Esri.ArcGISRuntime.Rasters.MinMaxStretchParameters(new double[] { 0 }, new double[] { 255 });
+                    var stretchRenderer = new Esri.ArcGISRuntime.Rasters.StretchRenderer(parameters, null, true, null);
+                    rasterLayer.Renderer = stretchRenderer;
+                }
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Error al leer el archivo TIF: {ex.Message}", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
         }
 
         if (layer != null)
         {
             Map.OperationalLayers.Add(layer);
+
+            // Escuchar el evento de carga para poder hacer un zoom inicial a la capa y reparar rastros
+            layer.LoadStatusChanged += async (s, e) =>
+            {
+                if (e.Status == Esri.ArcGISRuntime.LoadStatus.Loaded && _ownerMapView != null)
+                {
+                    try
+                    {
+                        var extent = layer.FullExtent;
+                        if (extent != null)
+                        {
+                            await Application.Current.Dispatcher.InvokeAsync(async () =>
+                            {
+                                await _ownerMapView.SetViewpointGeometryAsync(extent, 20); // 20 units padding para visualizarlo completo
+                            });
+                        }
+                        else
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[CargarCapa] El Extent de la capa es nulo. ({path})");
+                            Application.Current.Dispatcher.Invoke(() => 
+                            {
+                                MessageBox.Show("La capa se cargó, pero no reporta una ubicación espacial (Extent nulo). Es posible que no esté georreferenciada.", "Aviso de Capa", MessageBoxButton.OK, MessageBoxImage.Information);
+                            });
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[CargarCapa] Error procesando capa cargada: {ex}");
+                    }
+                }
+                else if (e.Status == Esri.ArcGISRuntime.LoadStatus.FailedToLoad) 
+                {
+                    Application.Current.Dispatcher.Invoke(() => 
+                    {
+                        var err = layer.LoadError?.Message ?? "Error desconocido.";
+                        MessageBox.Show($"La capa falló al renderizarse en el mapa.\nDetalle: {err}", "Error de Capa", MessageBoxButton.OK, MessageBoxImage.Error);
+                    });
+                }
+            };
+            
+            // Forzar carga de la capa
+            await layer.LoadAsync();
+
             var item = new CapaUsuarioItem { Nombre = Path.GetFileName(path), Capa = layer };
             item.QuitarCommand = new RelayCommand(() => 
             {
                 if (item.Capa != null) Map.OperationalLayers.Remove(item.Capa);
                 CapasAdicionales.Remove(item);
+            });
+            
+            item.ZoomCommand = new RelayCommand(async () =>
+            {
+                if (item.Capa?.FullExtent != null && _ownerMapView != null)
+                {
+                    try
+                    {
+                        await _ownerMapView.SetViewpointGeometryAsync(item.Capa.FullExtent, 50);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Error al hacer zoom a capa: {ex.Message}");
+                    }
+                }
+                else
+                {
+                    MessageBox.Show("La capa no tiene información espacial válida para hacer zoom.", "Zoom a Capa", MessageBoxButton.OK, MessageBoxImage.Warning);
+                }
             });
 
             Application.Current.Dispatcher.Invoke(() => CapasAdicionales.Add(item));
@@ -400,11 +508,14 @@ namespace Geomatica.Desktop.ViewModels
    if (_cachedGeometries.TryGetValue(codigo, out var geom))
    {
     var ext = geom.Extent;
-    xmin = Math.Min(xmin, ext.XMin);
-    ymin = Math.Min(ymin, ext.YMin);
-    xmax = Math.Max(xmax, ext.XMax);
-    ymax = Math.Max(ymax, ext.YMax);
-    any = true;
+    if (ext != null)
+    {
+     xmin = Math.Min(xmin, ext.XMin);
+     ymin = Math.Min(ymin, ext.YMin);
+     xmax = Math.Max(xmax, ext.XMax);
+     ymax = Math.Max(ymax, ext.YMax);
+     any = true;
+    }
    }
   }
   return any ? new Envelope(xmin, ymin, xmax, ymax, SpatialReferences.Wgs84) : null;
@@ -545,5 +656,5 @@ namespace Geomatica.Desktop.ViewModels
 
   return builder.ToGeometry();
  }
- }
+}
 }

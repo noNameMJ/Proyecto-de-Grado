@@ -24,7 +24,7 @@
 	
   <ItemGroup>
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
-    <PackageReference Include="Esri.ArcGISRuntime.WPF" Version="200.8.0" />
+    <PackageReference Include="Esri.ArcGISRuntime.WPF" Version="300.0.0" />
     <PackageReference Include="Microsoft.Extensions.Configuration" Version="9.0.9" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="9.0.9" />
     <PackageReference Include="Microsoft.Extensions.Configuration.UserSecrets" Version="9.0.9" />

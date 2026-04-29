@@ -3,7 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Grid Background="{StaticResource SurfaceBrush}">
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel MaxWidth="700" Margin="32,24" HorizontalAlignment="Center">
+            <StackPanel MaxWidth="900" Margin="32,24" HorizontalAlignment="Stretch">
 
                 <!-- Barra superior: Volver + Editar -->
                 <DockPanel Margin="0,0,0,16">

@@ -23,6 +23,8 @@ namespace Geomatica.Desktop.ViewModels
         // En la UI mostramos la ruta relativa virtual. Vacio ("") es la raíz del proyecto.
         [ObservableProperty] private string rutaActual = "";
         
+        [ObservableProperty] private string busquedaTexto = "";
+
         public ObservableCollection<object> Items { get; } = new();
 
         [ObservableProperty] private NodoArchivoVirtual? seleccionado;
@@ -44,7 +46,6 @@ namespace Geomatica.Desktop.ViewModels
             }
         }
 
-        public event EventHandler<ProyectoDetalleDto>? EditarSolicitado;
         public event EventHandler<string>? AbrirEnMapaSolicitado;
 
         public ArchivosViewModel(FiltrosViewModel filtros, ProyectoArchivosService archivosService)
@@ -101,6 +102,10 @@ namespace Geomatica.Desktop.ViewModels
             {
                 RefrescarSegunFiltros();
             }
+            else if (e.PropertyName == nameof(BusquedaTexto))
+            {
+                RefrescarSegunFiltros();
+            }
         }
 
         [RelayCommand]
@@ -123,6 +128,12 @@ namespace Geomatica.Desktop.ViewModels
                 if (!string.IsNullOrWhiteSpace(_filtros?.PalabraClave))
                 {
                     nodos = nodos.Where(n => n.EsCarpeta || n.Nombre.Contains(_filtros.PalabraClave, StringComparison.OrdinalIgnoreCase)).ToList();
+                }
+
+                // Aplicar búsqueda específica en archivos
+                if (!string.IsNullOrWhiteSpace(BusquedaTexto))
+                {
+                    nodos = nodos.Where(n => n.Nombre.Contains(BusquedaTexto, StringComparison.OrdinalIgnoreCase)).ToList();
                 }
 
                 foreach (var nodo in nodos)

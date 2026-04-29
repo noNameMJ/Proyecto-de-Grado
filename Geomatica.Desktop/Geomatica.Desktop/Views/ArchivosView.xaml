@@ -45,9 +45,17 @@
                            Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
                            FontFamily="{StaticResource AppFont}" Margin="0,0,6,0"/>
                 <TextBlock Text="{Binding RutaActual}" VerticalAlignment="Center" 
-                           TextTrimming="CharacterEllipsis" FontSize="12"
+                           TextTrimming="CharacterEllipsis" FontSize="12" Width="300"
                            Foreground="{StaticResource TextPrimaryBrush}"
                            FontFamily="{StaticResource AppFont}"/>
+               
+                <!-- Buscador de archivos -->
+                <TextBlock Text="Buscar:" VerticalAlignment="Center" FontWeight="SemiBold" 
+                           Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
+                           FontFamily="{StaticResource AppFont}" Margin="20,0,6,0"/>
+                <TextBox Width="150" VerticalAlignment="Center" 
+                         Text="{Binding BusquedaTexto, UpdateSourceTrigger=PropertyChanged}" 
+                         Style="{StaticResource ModernTextBox}" />
             </StackPanel>
         </Border>
 

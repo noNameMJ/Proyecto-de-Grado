@@ -3,6 +3,7 @@ using Esri.ArcGISRuntime.Mapping;
 using Esri.ArcGISRuntime.Symbology;
 using Esri.ArcGISRuntime.UI;
 using Geomatica.Desktop.ViewModels;
+using System;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -12,27 +13,37 @@ namespace Geomatica.Desktop.Views
     {
         private readonly GraphicsOverlay _pinOverlay = new();
         private readonly GraphicsOverlay _municipioOverlay = new();
+        private readonly Esri.ArcGISRuntime.UI.Controls.MapView _pickerMapView;
         private CrearProyectoViewModel? _currentVm;
 
         public CrearProyectoView()
         {
-            InitializeComponent();
+            CargarXaml();
+
+            _pickerMapView = FindName("pickerMapView") as Esri.ArcGISRuntime.UI.Controls.MapView
+                ?? throw new InvalidOperationException("No se encontró el control 'pickerMapView' en CrearProyectoView.xaml.");
 
             var map = new Map(BasemapStyle.ArcGISTopographic);
             var center = new MapPoint(-73.1198, 7.1254, SpatialReferences.Wgs84);
             map.InitialViewpoint = new Viewpoint(center, 2_000_000);
-            pickerMapView.Map = map;
-            pickerMapView.GraphicsOverlays.Add(_municipioOverlay);
-            pickerMapView.GraphicsOverlays.Add(_pinOverlay);
-            pickerMapView.GeoViewTapped += PickerMapView_GeoViewTapped;
+            _pickerMapView.Map = map;
+            _pickerMapView.GraphicsOverlays?.Add(_municipioOverlay);
+            _pickerMapView.GraphicsOverlays?.Add(_pinOverlay);
+            _pickerMapView.GeoViewTapped += PickerMapView_GeoViewTapped;
 
             DataContextChanged += OnDataContextChanged;
             Unloaded += (_, _) =>
             {
                 DetachVm();
-                pickerMapView.GeoViewTapped -= PickerMapView_GeoViewTapped;
-                pickerMapView.Map = null;
+                _pickerMapView.GeoViewTapped -= PickerMapView_GeoViewTapped;
+                _pickerMapView.Map = null;
             };
+        }
+
+        private void CargarXaml()
+        {
+            var resourceLocator = new Uri("/Geomatica.Desktop;component/Views/CrearProyectoView.xaml", UriKind.Relative);
+            Application.LoadComponent(this, resourceLocator);
         }
 
         private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -71,7 +82,10 @@ namespace Geomatica.Desktop.Views
 
                 _municipioOverlay.Graphics.Add(new Graphic(geom, fill));
 
-                await pickerMapView.SetViewpointGeometryAsync(geom.Extent, 40);
+                if (geom.Extent != null)
+                {
+                    await _pickerMapView.SetViewpointGeometryAsync(geom.Extent, 40);
+                }
             });
         }
 
