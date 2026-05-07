@@ -209,7 +209,7 @@ namespace Geomatica.Desktop
                 {
                     // Configuramos SIEMPRE el handler visual para interceptar challenges, haya client id o no
                     Esri.ArcGISRuntime.Security.AuthenticationManager.Current.ChallengeHandler = new Esri.ArcGISRuntime.Security.DefaultChallengeHandler();
-                    Esri.ArcGISRuntime.Security.AuthenticationManager.Current.OAuthAuthorizeHandler = new Geomatica.Desktop.OAuthAuthorizeHandler();
+                    Esri.ArcGISRuntime.Security.AuthenticationManager.Current.OAuthHandler = new Geomatica.Desktop.OAuthAuthorizeHandler();
 
                     if (!string.IsNullOrEmpty(clientId))
                     {
