@@ -125,19 +125,9 @@ namespace Geomatica.Desktop.ViewModels
             try
             {
                 var raster = new Esri.ArcGISRuntime.Rasters.Raster(path);
-                await raster.LoadAsync();
 
                 var rasterLayer = new RasterLayer(raster);
                 layer = rasterLayer;
-                await layer.LoadAsync();
-
-                // Intentar aplicar un renderer por defecto si es posible para evitar "Internal Error" en WPF
-                if (rasterLayer.Renderer == null)
-                {
-                    var parameters = new Esri.ArcGISRuntime.Rasters.MinMaxStretchParameters(new double[] { 0 }, new double[] { 255 });
-                    var stretchRenderer = new Esri.ArcGISRuntime.Rasters.StretchRenderer(parameters, null, true, null);
-                    rasterLayer.Renderer = stretchRenderer;
-                }
             }
             catch (Exception ex)
             {
