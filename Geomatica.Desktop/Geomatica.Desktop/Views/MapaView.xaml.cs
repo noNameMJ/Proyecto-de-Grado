@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Extensions.DependencyInjection;
 using Geomatica.Data.Repositories;
+using Geomatica.Desktop.Services;
 
 namespace Geomatica.Desktop.Views
 {
@@ -218,6 +219,8 @@ namespace Geomatica.Desktop.Views
 
         private void ControlMapView_LayerViewStateChanged(object? sender, LayerViewStateChangedEventArgs e)
         {
+            RasterDiagnostics.Log($"MapView.LayerViewStateChanged: layerType={e.Layer?.GetType().FullName}; status={e.LayerViewState?.Status}; senderType={sender?.GetType().FullName}");
+            RasterDiagnostics.LogException("MapView.LayerViewStateChanged.LayerViewState.Error", e.LayerViewState?.Error);
             if (e.LayerViewState?.Status != LayerViewStatus.Error) return;
             if (e.Layer is not RasterLayer) return;
 

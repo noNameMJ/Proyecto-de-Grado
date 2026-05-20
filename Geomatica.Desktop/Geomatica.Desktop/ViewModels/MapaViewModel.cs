@@ -2,6 +2,7 @@
 using Esri.ArcGISRuntime.Geometry;
 using Esri.ArcGISRuntime.Mapping;
 using Esri.ArcGISRuntime.Symbology;
+using Esri.ArcGISRuntime.Rasters;
 using Geomatica.Data.Repositories;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
@@ -11,6 +12,7 @@ using CommunityToolkit.Mvvm.Input;
 using Esri.ArcGISRuntime.UI.Controls;
 using System.Collections.ObjectModel;
 using System.IO;
+using Geomatica.Desktop.Services;
 
 namespace Geomatica.Desktop.ViewModels
 {
@@ -81,6 +83,9 @@ namespace Geomatica.Desktop.ViewModels
     if (Map == null) return;
     try
     {
+        RasterDiagnostics.Log($"Loading user layer path={path}");
+        RasterDiagnostics.LogDispatcher("MapaViewModel.CargarCapaAdicionalAsync");
+        RasterDiagnostics.LogFile(path);
         Layer? layer = null;
         var ext = Path.GetExtension(path).ToLowerInvariant();
 
@@ -122,102 +127,18 @@ namespace Geomatica.Desktop.ViewModels
         }
         else if (ext == ".tif" || ext == ".tiff")
         {
-            try
-            {
-                if (!File.Exists(path))
-                {
-                    MessageBox.Show("El archivo raster no existe en la ruta indicada.", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                var fileInfo = new FileInfo(path);
-                if (fileInfo.Length > 1_000_000_000)
-                {
-                    MessageBox.Show("El raster supera 1 GB. ArcGIS Runtime puede fallar con TIFFs grandes o con pirámides no compatibles. Si falla, conviértelo a COG o sin compresión.", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Information);
-                }
-
-                var raster = new Esri.ArcGISRuntime.Rasters.Raster(path);
-                await raster.LoadAsync();
-                if (raster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
-                {
-                    var err = raster.LoadError?.Message ?? "Error desconocido al cargar el raster.";
-                    MessageBox.Show($"Error al cargar el raster: {err}", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                var rasterInfo = raster.RasterInfo;
-                if (rasterInfo == null)
-                {
-                    MessageBox.Show("No se pudo leer la información del raster.", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
-                    return;
-                }
-
-                var rasterLayer = new RasterLayer(raster);
-                rasterLayer.LoadStatusChanged += (s, e) =>
-                {
-                    if (e.Status == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
-                    {
-                        var err = rasterLayer.LoadError?.Message ?? "Error interno al cargar la capa raster.";
-                        var hint = err.Contains("Internal error", StringComparison.OrdinalIgnoreCase)
-                            ? "\nSugerencia: verifica que sea un archivo raster soportado (p. ej. .tif/.tiff/.img/.jp2/.png/.jpg) y no una carpeta o mosaico."
-                            : string.Empty;
-                        Application.Current.Dispatcher.Invoke(() =>
-                        {
-                            MessageBox.Show($"Error al renderizar el raster en el mapa.\nRuta: {path}\nDetalle: {err}{hint}", "Error de Raster", MessageBoxButton.OK, MessageBoxImage.Error);
-                        });
-                    }
-                };
-                await rasterLayer.LoadAsync();
-                if (rasterLayer.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
-                {
-                    var err = rasterLayer.LoadError?.Message ?? "Error interno al cargar la capa raster.";
-                    MessageBox.Show($"Error al renderizar el raster en el mapa.\nRuta: {path}\nDetalle: {err}", "Error de Raster", MessageBoxButton.OK, MessageBoxImage.Error);
-                    return;
-                }
-                layer = rasterLayer;
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Error al leer el archivo TIF: {ex.Message}", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
+            layer = await CrearRasterLayerValidadoAsync(path);
+            if (layer == null) return;
         }
 
         if (layer != null)
         {
-            await Application.Current.Dispatcher.InvokeAsync(() =>
-            {
-                Map.OperationalLayers.Add(layer);
-            });
-
-            // Escuchar el evento de carga para poder hacer un zoom inicial a la capa y reparar rastros
             layer.LoadStatusChanged += async (s, e) =>
             {
+                RasterDiagnostics.LogArcGisLayerError("Layer.LoadStatusChanged", layer.Name, e.Status.ToString(), layer.LoadError);
                 if (e.Status == Esri.ArcGISRuntime.LoadStatus.Loaded && _ownerMapView != null)
                 {
-                    try
-                    {
-                        var extent = layer.FullExtent;
-                        if (extent != null)
-                        {
-                            await Application.Current.Dispatcher.InvokeAsync(async () =>
-                            {
-                                await _ownerMapView.SetViewpointGeometryAsync(extent, 20); // 20 units padding para visualizarlo completo
-                            });
-                        }
-                        else
-                        {
-                            System.Diagnostics.Debug.WriteLine($"[CargarCapa] El Extent de la capa es nulo. ({path})");
-                            Application.Current.Dispatcher.Invoke(() => 
-                            {
-                                MessageBox.Show("La capa se cargó, pero no reporta una ubicación espacial (Extent nulo). Es posible que no esté georreferenciada.", "Aviso de Capa", MessageBoxButton.OK, MessageBoxImage.Information);
-                            });
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[CargarCapa] Error procesando capa cargada: {ex}");
-                    }
+                    await ZoomCapaAsync(layer, 20, "carga inicial");
                 }
                 else if (e.Status == Esri.ArcGISRuntime.LoadStatus.FailedToLoad) 
                 {
@@ -228,9 +149,15 @@ namespace Geomatica.Desktop.ViewModels
                     });
                 }
             };
+
+            RasterDiagnostics.Log($"Adding layer to map: name={layer.Name}; type={layer.GetType().FullName}; loadStatus={layer.LoadStatus}; extent={layer.FullExtent}");
+            await Application.Current.Dispatcher.InvokeAsync(() => Map.OperationalLayers.Add(layer));
             
-            // Forzar carga de la capa
-            await layer.LoadAsync();
+            if (layer.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
+                await layer.LoadAsync();
+
+            if (layer.LoadStatus == Esri.ArcGISRuntime.LoadStatus.Loaded && _ownerMapView != null)
+                await ZoomCapaAsync(layer, 20, "post-add");
 
             var item = new CapaUsuarioItem { Nombre = Path.GetFileName(path), Capa = layer };
             item.QuitarCommand = new RelayCommand(() => 
@@ -241,21 +168,8 @@ namespace Geomatica.Desktop.ViewModels
             
             item.ZoomCommand = new RelayCommand(async () =>
             {
-                if (item.Capa?.FullExtent != null && _ownerMapView != null)
-                {
-                    try
-                    {
-                        await _ownerMapView.SetViewpointGeometryAsync(item.Capa.FullExtent, 50);
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"Error al hacer zoom a capa: {ex.Message}");
-                    }
-                }
-                else
-                {
-                    MessageBox.Show("La capa no tiene información espacial válida para hacer zoom.", "Zoom a Capa", MessageBoxButton.OK, MessageBoxImage.Warning);
-                }
+                if (item.Capa != null)
+                    await ZoomCapaAsync(item.Capa, 50, "manual");
             });
 
             Application.Current.Dispatcher.Invoke(() => CapasAdicionales.Add(item));
@@ -267,7 +181,196 @@ namespace Geomatica.Desktop.ViewModels
     }
     catch (Exception ex)
     {
+        RasterDiagnostics.LogException("Unexpected user layer load error", ex);
         MessageBox.Show($"Error al cargar en mapa: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+ }
+
+ private async Task<Layer?> CrearRasterLayerValidadoAsync(string path)
+ {
+    try
+    {
+        if (!File.Exists(path))
+        {
+            MessageBox.Show("El archivo raster no existe en la ruta indicada.", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var fileInfo = new FileInfo(path);
+        var sidecars = BuscarSidecarsRaster(path);
+        RasterDiagnostics.Log($"TIFF selected path={path}; sidecars={string.Join(", ", sidecars.Select(s => Path.GetFileName(s)))}");
+
+        var raster = new Raster(path);
+        await raster.LoadAsync();
+        if (raster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
+        {
+            RasterDiagnostics.LogException("Raster.LoadAsync failed", raster.LoadError);
+            MessageBox.Show(
+                $"ArcGIS Runtime no pudo cargar el TIFF.\n\nRuta: {path}\nDetalle: {ObtenerMensajeErrorArcGis(raster.LoadError)}",
+                "Error de Raster",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            return null;
+        }
+
+        var rasterInfo = raster.RasterInfo;
+        if (rasterInfo == null)
+        {
+            RasterDiagnostics.Log($"RasterInfo is null path={path}");
+            MessageBox.Show("No se pudo leer la información del raster.", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var rasterLayer = new RasterLayer(raster);
+        rasterLayer.LoadStatusChanged += (s, e) =>
+        {
+            RasterDiagnostics.LogArcGisLayerError("RasterLayer.LoadStatusChanged", rasterLayer.Name, e.Status.ToString(), rasterLayer.LoadError);
+        };
+
+        await rasterLayer.LoadAsync();
+        RasterDiagnostics.LogRasterMetadata(
+            path,
+            fileInfo.Length,
+            raster.LoadStatus.ToString(),
+            rasterLayer.LoadStatus.ToString(),
+            rasterInfo.Extent?.ToString(),
+            rasterLayer.FullExtent?.ToString(),
+            rasterInfo.SpatialReference?.ToString(),
+            rasterLayer.SpatialReference?.ToString());
+
+        if (rasterLayer.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
+        {
+            RasterDiagnostics.LogException("RasterLayer.LoadAsync failed", rasterLayer.LoadError);
+            MessageBox.Show(
+                $"ArcGIS Runtime cargó el TIFF, pero no pudo crear la capa raster.\n\nRuta: {path}\nDetalle: {ObtenerMensajeErrorArcGis(rasterLayer.LoadError)}",
+                "Error de Raster",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            return null;
+        }
+
+        var validationError = ValidarRasterGeorreferenciado(path, rasterInfo, rasterLayer, sidecars);
+        if (validationError != null)
+        {
+            RasterDiagnostics.Log($"Raster rejected path={path}; reason={validationError.Replace(Environment.NewLine, " | ")}");
+            MessageBox.Show(validationError, "Raster TIFF no georreferenciado", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        if (fileInfo.Length > 700_000_000)
+        {
+            MessageBox.Show(
+                "El raster se cargó, pero es grande. Si el paneo o zoom se siente lento, usa un GeoTIFF/COG con pirámides internas.",
+                "Raster grande",
+                MessageBoxButton.OK,
+                MessageBoxImage.Information);
+        }
+
+        return rasterLayer;
+    }
+    catch (Exception ex)
+    {
+        RasterDiagnostics.LogException("Exception loading TIFF raster", ex);
+        MessageBox.Show(
+            $"Error al leer el archivo TIFF.\n\nRuta: {path}\nDetalle: {ex.Message}",
+            "Error de Raster",
+            MessageBoxButton.OK,
+            MessageBoxImage.Error);
+        return null;
+    }
+ }
+
+ private static string? ValidarRasterGeorreferenciado(string path, RasterInfo rasterInfo, RasterLayer rasterLayer, IReadOnlyList<string> sidecars)
+ {
+    var extent = rasterLayer.FullExtent ?? rasterInfo.Extent;
+    if (extent == null)
+        return $"ArcGIS Runtime cargó el TIFF, pero la capa no reporta un extent espacial.\n\nRuta: {path}";
+
+    if (!EsEnvelopeFinito(extent))
+        return $"ArcGIS Runtime cargó el TIFF, pero el extent contiene coordenadas inválidas.\n\nRuta: {path}\nExtent: {extent}";
+
+    var sr = rasterLayer.SpatialReference ?? rasterInfo.SpatialReference ?? extent.SpatialReference;
+    if (sr == null)
+    {
+        var sidecarText = sidecars.Count == 0
+            ? "No se encontraron archivos auxiliares .tfw/.prj/.aux.xml junto al TIFF."
+            : $"Se encontraron archivos auxiliares ({string.Join(", ", sidecars.Select(Path.GetFileName))}), pero ArcGIS Runtime no los aplicó al raster.";
+
+        return
+            "ArcGIS Runtime cargó el TIFF como imagen sin sistema de coordenadas. La app no lo agregará al mapa porque su extent queda en coordenadas de pixel y puede bloquear el renderizado.\n\n" +
+            $"Ruta: {path}\n" +
+            $"Extent leído: {extent}\n" +
+            $"{sidecarText}\n\n" +
+            "Corrección del dato: reproyecta el raster a un GeoTIFF/COG que ArcGIS Runtime WPF reconozca con SpatialReference. " +
+            "En la matriz de pruebas de este proyecto, el TIFF en EPSG:3116 y el COG EPSG:3116 siguieron cargando sin SpatialReference; " +
+            "el GeoTIFF reproyectado a EPSG:4326 sí reportó SpatialReference y FullExtent válidos. Para mosaicos grandes, publica el raster como ImageServer o genera pirámides/overviews internas.";
+    }
+
+    return null;
+ }
+
+ private static bool EsEnvelopeFinito(Envelope extent)
+    => double.IsFinite(extent.XMin)
+       && double.IsFinite(extent.YMin)
+       && double.IsFinite(extent.XMax)
+       && double.IsFinite(extent.YMax)
+       && extent.XMax > extent.XMin
+       && extent.YMax > extent.YMin;
+
+ private static IReadOnlyList<string> BuscarSidecarsRaster(string path)
+ {
+    var dir = Path.GetDirectoryName(path);
+    var name = Path.GetFileNameWithoutExtension(path);
+    if (string.IsNullOrWhiteSpace(dir) || string.IsNullOrWhiteSpace(name)) return Array.Empty<string>();
+
+    var candidates = new[]
+    {
+        Path.Combine(dir, name + ".tfw"),
+        Path.Combine(dir, name + ".tifw"),
+        Path.Combine(dir, name + ".wld"),
+        Path.Combine(dir, name + ".prj"),
+        path + ".aux.xml"
+    };
+    return candidates.Where(File.Exists).ToArray();
+ }
+
+ private static string ObtenerMensajeErrorArcGis(Exception? error)
+ {
+    if (error == null) return "Error desconocido.";
+    var messages = new List<string>();
+    for (var current = error; current != null; current = current.InnerException)
+        messages.Add(current.Message);
+    return string.Join(" | ", messages);
+ }
+
+ private async Task ZoomCapaAsync(Layer layer, double padding, string origen)
+ {
+    if (_ownerMapView == null)
+    {
+        MessageBox.Show("La vista de mapa todavía no está lista para centrar la capa.", "Zoom a Capa", MessageBoxButton.OK, MessageBoxImage.Information);
+        return;
+    }
+
+    var extent = layer.FullExtent;
+    if (extent == null || extent.SpatialReference == null || !EsEnvelopeFinito(extent))
+    {
+        RasterDiagnostics.Log($"Zoom rejected origin={origen}; layer={layer.Name}; extent={extent}");
+        MessageBox.Show("La capa no tiene información espacial válida para hacer zoom.", "Zoom a Capa", MessageBoxButton.OK, MessageBoxImage.Warning);
+        return;
+    }
+
+    try
+    {
+        await Application.Current.Dispatcher.InvokeAsync(async () =>
+        {
+            RasterDiagnostics.Log($"Zoom layer origin={origen}; layer={layer.Name}; extent={extent}");
+            await _ownerMapView.SetViewpointGeometryAsync(extent, padding);
+        });
+    }
+    catch (Exception ex)
+    {
+        RasterDiagnostics.LogException($"Zoom layer failed origin={origen}; layer={layer.Name}", ex);
+        MessageBox.Show($"No se pudo centrar la capa.\n\nDetalle: {ex.Message}", "Zoom a Capa", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
  }
 

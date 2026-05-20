@@ -1,0 +1,755 @@
+{
+  "createdUtc": "2026-05-20T16:25:14Z",
+  "inputs": {
+    "original": {
+      "path": "D:\\Pruebas\\2_mosaic\\Mompos_2026_mosaic_group1.tif",
+      "exists": true,
+      "bytes": 692440210,
+      "driver": "GTiff",
+      "width": 25750,
+      "height": 27193,
+      "count": 3,
+      "dtypes": [
+        "uint8",
+        "uint8",
+        "uint8"
+      ],
+      "crs": "EPSG:3116",
+      "transform": [
+        0.022070000000000003,
+        0.0,
+        962335.0581900001,
+        0.0,
+        -0.022070000000000003,
+        1513161.81927,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "bounds": [
+        962335.0581900001,
+        1512561.6697600002,
+        962903.3606900001,
+        1513161.81927
+      ],
+      "nodatavals": [
+        null,
+        null,
+        null
+      ],
+      "colorinterp": [
+        "3",
+        "4",
+        "5"
+      ],
+      "is_tiled": false,
+      "block_shapes": [
+        [
+          1,
+          25750
+        ],
+        [
+          1,
+          25750
+        ],
+        [
+          1,
+          25750
+        ]
+      ],
+      "open_ms": 15
+    },
+    "transparent": {
+      "path": "D:\\Pruebas\\2_mosaic\\Mompos_2026_transparent_mosaic_group1.tif",
+      "exists": true,
+      "bytes": 799705444,
+      "driver": "GTiff",
+      "width": 25750,
+      "height": 27193,
+      "count": 4,
+      "dtypes": [
+        "uint8",
+        "uint8",
+        "uint8",
+        "uint8"
+      ],
+      "crs": "EPSG:3116",
+      "transform": [
+        0.022070000000000003,
+        0.0,
+        962335.0581900001,
+        0.0,
+        -0.022070000000000003,
+        1513161.81927,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "bounds": [
+        962335.0581900001,
+        1512561.6697600002,
+        962903.3606900001,
+        1513161.81927
+      ],
+      "nodatavals": [
+        null,
+        null,
+        null,
+        null
+      ],
+      "colorinterp": [
+        "3",
+        "4",
+        "5",
+        "6"
+      ],
+      "is_tiled": false,
+      "block_shapes": [
+        [
+          1,
+          25750
+        ],
+        [
+          1,
+          25750
+        ],
+        [
+          1,
+          25750
+        ],
+        [
+          1,
+          25750
+        ]
+      ],
+      "open_ms": 1
+    }
+  },
+  "variants": {
+    "original": {
+      "path": "D:\\Pruebas\\2_mosaic\\Mompos_2026_mosaic_group1.tif",
+      "exists": true,
+      "bytes": 692440210,
+      "driver": "GTiff",
+      "width": 25750,
+      "height": 27193,
+      "count": 3,
+      "dtypes": [
+        "uint8",
+        "uint8",
+        "uint8"
+      ],
+      "crs": "EPSG:3116",
+      "transform": [
+        0.022070000000000003,
+        0.0,
+        962335.0581900001,
+        0.0,
+        -0.022070000000000003,
+        1513161.81927,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "bounds": [
+        962335.0581900001,
+        1512561.6697600002,
+        962903.3606900001,
+        1513161.81927
+      ],
+      "nodatavals": [
+        null,
+        null,
+        null
+      ],
+      "colorinterp": [
+        "3",
+        "4",
+        "5"
+      ],
+      "is_tiled": false,
+      "block_shapes": [
+        [
+          1,
+          25750
+        ],
+        [
+          1,
+          25750
+        ],
+        [
+          1,
+          25750
+        ]
+      ],
+      "open_ms": 1,
+      "prepare_ms": 1
+    },
+    "geotiff_embedded": {
+      "path": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\Mompos_2026_mosaic_group1_embedded.tif",
+      "exists": true,
+      "bytes": 1406506885,
+      "driver": "GTiff",
+      "width": 25750,
+      "height": 27193,
+      "count": 3,
+      "dtypes": [
+        "uint8",
+        "uint8",
+        "uint8"
+      ],
+      "crs": "EPSG:3116",
+      "transform": [
+        0.022070000000000003,
+        0.0,
+        962335.0581900001,
+        0.0,
+        -0.022070000000000003,
+        1513161.81927,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "bounds": [
+        962335.0581900001,
+        1512561.6697600002,
+        962903.3606900001,
+        1513161.81927
+      ],
+      "nodatavals": [
+        null,
+        null,
+        null
+      ],
+      "colorinterp": [
+        "3",
+        "4",
+        "5"
+      ],
+      "is_tiled": true,
+      "block_shapes": [
+        [
+          512,
+          512
+        ],
+        [
+          512,
+          512
+        ],
+        [
+          512,
+          512
+        ]
+      ],
+      "open_ms": 2,
+      "prepare_ms": 2
+    },
+    "reduced": {
+      "path": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\Mompos_2026_mosaic_group1_reduced.tif",
+      "exists": true,
+      "bytes": 16801868,
+      "driver": "GTiff",
+      "width": 3878,
+      "height": 4096,
+      "count": 3,
+      "dtypes": [
+        "uint8",
+        "uint8",
+        "uint8"
+      ],
+      "crs": "EPSG:3116",
+      "transform": [
+        0.14654525528623003,
+        0.0,
+        962335.0581900001,
+        0.0,
+        -0.14652087646484377,
+        1513161.81927,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "bounds": [
+        962335.0581900001,
+        1512561.6697600002,
+        962903.3606900001,
+        1513161.81927
+      ],
+      "nodatavals": [
+        null,
+        null,
+        null
+      ],
+      "colorinterp": [
+        "3",
+        "4",
+        "5"
+      ],
+      "is_tiled": true,
+      "block_shapes": [
+        [
+          512,
+          512
+        ],
+        [
+          512,
+          512
+        ],
+        [
+          512,
+          512
+        ]
+      ],
+      "open_ms": 2,
+      "prepare_ms": 2
+    },
+    "no_alpha": {
+      "path": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\Mompos_2026_transparent_mosaic_group1_rgb.tif",
+      "exists": true,
+      "bytes": 16787652,
+      "driver": "GTiff",
+      "width": 3878,
+      "height": 4096,
+      "count": 3,
+      "dtypes": [
+        "uint8",
+        "uint8",
+        "uint8"
+      ],
+      "crs": "EPSG:3116",
+      "transform": [
+        0.14654525528623003,
+        0.0,
+        962335.0581900001,
+        0.0,
+        -0.14652087646484377,
+        1513161.81927,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "bounds": [
+        962335.0581900001,
+        1512561.6697600002,
+        962903.3606900001,
+        1513161.81927
+      ],
+      "nodatavals": [
+        null,
+        null,
+        null
+      ],
+      "colorinterp": [
+        "3",
+        "4",
+        "5"
+      ],
+      "is_tiled": true,
+      "block_shapes": [
+        [
+          512,
+          512
+        ],
+        [
+          512,
+          512
+        ],
+        [
+          512,
+          512
+        ]
+      ],
+      "open_ms": 2,
+      "prepare_ms": 2
+    },
+    "cog": {
+      "path": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\Mompos_2026_mosaic_group1_cog.tif",
+      "exists": true,
+      "bytes": 28116693,
+      "driver": "GTiff",
+      "width": 3878,
+      "height": 4096,
+      "count": 3,
+      "dtypes": [
+        "uint8",
+        "uint8",
+        "uint8"
+      ],
+      "crs": "EPSG:3116",
+      "transform": [
+        0.14654525528623003,
+        0.0,
+        962335.0581900001,
+        0.0,
+        -0.14652087646484377,
+        1513161.81927,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "bounds": [
+        962335.0581900001,
+        1512561.6697600002,
+        962903.3606900001,
+        1513161.81927
+      ],
+      "nodatavals": [
+        null,
+        null,
+        null
+      ],
+      "colorinterp": [
+        "3",
+        "4",
+        "5"
+      ],
+      "is_tiled": true,
+      "block_shapes": [
+        [
+          512,
+          512
+        ],
+        [
+          512,
+          512
+        ],
+        [
+          512,
+          512
+        ]
+      ],
+      "open_ms": 2,
+      "prepare_ms": 2
+    },
+    "reprojected_4326": {
+      "path": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\Mompos_2026_mosaic_group1_4326.tif",
+      "exists": true,
+      "bytes": 15772899,
+      "driver": "GTiff",
+      "width": 3895,
+      "height": 4087,
+      "count": 3,
+      "dtypes": [
+        "uint8",
+        "uint8",
+        "uint8"
+      ],
+      "crs": "EPSG:4326",
+      "transform": [
+        1.3289268979558273e-06,
+        0.0,
+        -74.42027065685252,
+        0.0,
+        -1.3289268979558273e-06,
+        9.236220200857373,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "bounds": [
+        -74.42027065685252,
+        9.230788876625427,
+        -74.41509448658499,
+        9.236220200857373
+      ],
+      "nodatavals": [
+        null,
+        null,
+        null
+      ],
+      "colorinterp": [
+        "3",
+        "4",
+        "5"
+      ],
+      "is_tiled": true,
+      "block_shapes": [
+        [
+          512,
+          512
+        ],
+        [
+          512,
+          512
+        ],
+        [
+          512,
+          512
+        ]
+      ],
+      "open_ms": 1,
+      "prepare_ms": 1
+    },
+    "reprojected_3857": {
+      "path": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\Mompos_2026_mosaic_group1_3857.tif",
+      "exists": true,
+      "bytes": 15806597,
+      "driver": "GTiff",
+      "width": 3869,
+      "height": 4112,
+      "count": 3,
+      "dtypes": [
+        "uint8",
+        "uint8",
+        "uint8"
+      ],
+      "crs": "EPSG:3857",
+      "transform": [
+        0.14895438554859938,
+        0.0,
+        -8284426.634218421,
+        0.0,
+        -0.14895438554859938,
+        1032653.5288683983,
+        0.0,
+        0.0,
+        1.0
+      ],
+      "bounds": [
+        -8284426.634218421,
+        1032041.0284350225,
+        -8283850.329700734,
+        1032653.5288683983
+      ],
+      "nodatavals": [
+        null,
+        null,
+        null
+      ],
+      "colorinterp": [
+        "3",
+        "4",
+        "5"
+      ],
+      "is_tiled": true,
+      "block_shapes": [
+        [
+          512,
+          512
+        ],
+        [
+          512,
+          512
+        ],
+        [
+          512,
+          512
+        ]
+      ],
+      "open_ms": 2,
+      "prepare_ms": 2
+    }
+  },
+  "arcgis": {
+    "original": {
+      "Name": "original",
+      "Path": "D:\\Pruebas\\2_mosaic\\Mompos_2026_mosaic_group1.tif",
+      "Bytes": 692440210,
+      "RasterLoadStatus": "Loaded",
+      "RasterLoadError": null,
+      "LayerLoadStatus": "Loaded",
+      "LayerLoadError": null,
+      "RasterSpatialReference": null,
+      "LayerSpatialReference": null,
+      "RasterExtent": "Envelope[XMin=-0.5, YMin=-27192.5, XMax=25749.5, YMax=0.5]",
+      "LayerExtent": "Envelope[XMin=-0.5, YMin=-27192.5, XMax=25749.5, YMax=0.5, WkText=]",
+      "LayerViewStatus": "Active",
+      "LayerViewError": null,
+      "RasterLoadMs": 92,
+      "LayerLoadMs": 0,
+      "SetViewpointMs": 286,
+      "SetViewpointCompleted": true,
+      "ExportCompleted": true,
+      "RenderHasNonWhitePixels": true,
+      "NonWhitePixels": 38132,
+      "ExportWidth": 886,
+      "ExportHeight": 686,
+      "ExportPath": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\original.arcgis.png",
+      "Exception": null,
+      "processExitCode": 0,
+      "processMs": 10963,
+      "stdout": "D:\\Repositorios\\Proyecto-de-Grado\\RasterMatrix\\Program.cs(70,51): warning CS8601: Posible asignaci\u00c3\u00b3n de referencia nula. [D:\\Repositorios\\Proyecto-de-Grado\\RasterMatrix\\RasterMatrix.csproj]\nLicensed For Developer Use Only",
+      "stderr": ""
+    },
+    "geotiff_embedded": {
+      "Name": "geotiff_embedded",
+      "Path": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\Mompos_2026_mosaic_group1_embedded.tif",
+      "Bytes": 1406506885,
+      "RasterLoadStatus": "Loaded",
+      "RasterLoadError": null,
+      "LayerLoadStatus": "Loaded",
+      "LayerLoadError": null,
+      "RasterSpatialReference": null,
+      "LayerSpatialReference": null,
+      "RasterExtent": "Envelope[XMin=-0.5, YMin=-27192.5, XMax=25749.5, YMax=0.5]",
+      "LayerExtent": "Envelope[XMin=-0.5, YMin=-27192.5, XMax=25749.5, YMax=0.5, WkText=]",
+      "LayerViewStatus": "Active",
+      "LayerViewError": null,
+      "RasterLoadMs": 92,
+      "LayerLoadMs": 0,
+      "SetViewpointMs": 268,
+      "SetViewpointCompleted": true,
+      "ExportCompleted": true,
+      "RenderHasNonWhitePixels": true,
+      "NonWhitePixels": 38091,
+      "ExportWidth": 886,
+      "ExportHeight": 686,
+      "ExportPath": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\geotiff_embedded.arcgis.png",
+      "Exception": null,
+      "processExitCode": 0,
+      "processMs": 10658,
+      "stdout": "Licensed For Developer Use Only",
+      "stderr": ""
+    },
+    "reduced": {
+      "Name": "reduced",
+      "Path": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\Mompos_2026_mosaic_group1_reduced.tif",
+      "Bytes": 16801868,
+      "RasterLoadStatus": "Loaded",
+      "RasterLoadError": null,
+      "LayerLoadStatus": "Loaded",
+      "LayerLoadError": null,
+      "RasterSpatialReference": null,
+      "LayerSpatialReference": null,
+      "RasterExtent": "Envelope[XMin=-0.5, YMin=-4095.5, XMax=3877.5, YMax=0.5]",
+      "LayerExtent": "Envelope[XMin=-0.5, YMin=-4095.5, XMax=3877.5, YMax=0.5, WkText=]",
+      "LayerViewStatus": "Active",
+      "LayerViewError": null,
+      "RasterLoadMs": 95,
+      "LayerLoadMs": 0,
+      "SetViewpointMs": 300,
+      "SetViewpointCompleted": true,
+      "ExportCompleted": true,
+      "RenderHasNonWhitePixels": true,
+      "NonWhitePixels": 38122,
+      "ExportWidth": 886,
+      "ExportHeight": 686,
+      "ExportPath": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\reduced.arcgis.png",
+      "Exception": null,
+      "processExitCode": 0,
+      "processMs": 10468,
+      "stdout": "Licensed For Developer Use Only",
+      "stderr": ""
+    },
+    "no_alpha": {
+      "Name": "no_alpha",
+      "Path": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\Mompos_2026_transparent_mosaic_group1_rgb.tif",
+      "Bytes": 16787652,
+      "RasterLoadStatus": "Loaded",
+      "RasterLoadError": null,
+      "LayerLoadStatus": "Loaded",
+      "LayerLoadError": null,
+      "RasterSpatialReference": null,
+      "LayerSpatialReference": null,
+      "RasterExtent": "Envelope[XMin=-0.5, YMin=-4095.5, XMax=3877.5, YMax=0.5]",
+      "LayerExtent": "Envelope[XMin=-0.5, YMin=-4095.5, XMax=3877.5, YMax=0.5, WkText=]",
+      "LayerViewStatus": "Active",
+      "LayerViewError": null,
+      "RasterLoadMs": 93,
+      "LayerLoadMs": 0,
+      "SetViewpointMs": 264,
+      "SetViewpointCompleted": true,
+      "ExportCompleted": true,
+      "RenderHasNonWhitePixels": true,
+      "NonWhitePixels": 38122,
+      "ExportWidth": 886,
+      "ExportHeight": 686,
+      "ExportPath": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\no_alpha.arcgis.png",
+      "Exception": null,
+      "processExitCode": 0,
+      "processMs": 10469,
+      "stdout": "Licensed For Developer Use Only",
+      "stderr": ""
+    },
+    "cog": {
+      "Name": "cog",
+      "Path": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\Mompos_2026_mosaic_group1_cog.tif",
+      "Bytes": 28116693,
+      "RasterLoadStatus": "Loaded",
+      "RasterLoadError": null,
+      "LayerLoadStatus": "Loaded",
+      "LayerLoadError": null,
+      "RasterSpatialReference": null,
+      "LayerSpatialReference": null,
+      "RasterExtent": "Envelope[XMin=-0.5, YMin=-4095.5, XMax=3877.5, YMax=0.5]",
+      "LayerExtent": "Envelope[XMin=-0.5, YMin=-4095.5, XMax=3877.5, YMax=0.5, WkText=]",
+      "LayerViewStatus": "Active",
+      "LayerViewError": null,
+      "RasterLoadMs": 88,
+      "LayerLoadMs": 0,
+      "SetViewpointMs": 265,
+      "SetViewpointCompleted": true,
+      "ExportCompleted": true,
+      "RenderHasNonWhitePixels": true,
+      "NonWhitePixels": 38161,
+      "ExportWidth": 886,
+      "ExportHeight": 686,
+      "ExportPath": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\cog.arcgis.png",
+      "Exception": null,
+      "processExitCode": 0,
+      "processMs": 10595,
+      "stdout": "Licensed For Developer Use Only",
+      "stderr": ""
+    },
+    "reprojected_4326": {
+      "Name": "reprojected_4326",
+      "Path": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\Mompos_2026_mosaic_group1_4326.tif",
+      "Bytes": 15772899,
+      "RasterLoadStatus": "Loaded",
+      "RasterLoadError": null,
+      "LayerLoadStatus": "Loaded",
+      "LayerLoadError": null,
+      "RasterSpatialReference": "SpatialReference[Wkid=4326]",
+      "LayerSpatialReference": "SpatialReference[Wkid=4326]",
+      "RasterExtent": "Envelope[XMin=-74.42027065685252, YMin=9.230788876625427, XMax=-74.41509448658499, YMax=9.236220200857373, Wkid=4326]",
+      "LayerExtent": "Envelope[XMin=-74.42027065685252, YMin=9.230788876625427, XMax=-74.41509448658499, YMax=9.236220200857373, Wkid=4326]",
+      "LayerViewStatus": "Active",
+      "LayerViewError": null,
+      "RasterLoadMs": 94,
+      "LayerLoadMs": 0,
+      "SetViewpointMs": 271,
+      "SetViewpointCompleted": true,
+      "ExportCompleted": true,
+      "RenderHasNonWhitePixels": true,
+      "NonWhitePixels": 38140,
+      "ExportWidth": 886,
+      "ExportHeight": 686,
+      "ExportPath": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\reprojected_4326.arcgis.png",
+      "Exception": null,
+      "processExitCode": 0,
+      "processMs": 10495,
+      "stdout": "Licensed For Developer Use Only",
+      "stderr": ""
+    },
+    "reprojected_3857": {
+      "Name": "reprojected_3857",
+      "Path": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\Mompos_2026_mosaic_group1_3857.tif",
+      "Bytes": 15806597,
+      "RasterLoadStatus": "Loaded",
+      "RasterLoadError": null,
+      "LayerLoadStatus": "Loaded",
+      "LayerLoadError": null,
+      "RasterSpatialReference": null,
+      "LayerSpatialReference": null,
+      "RasterExtent": "Envelope[XMin=-0.5, YMin=-4111.5, XMax=3868.5, YMax=0.5]",
+      "LayerExtent": "Envelope[XMin=-0.5, YMin=-4111.5, XMax=3868.5, YMax=0.5, WkText=]",
+      "LayerViewStatus": "Active",
+      "LayerViewError": null,
+      "RasterLoadMs": 88,
+      "LayerLoadMs": 0,
+      "SetViewpointMs": 260,
+      "SetViewpointCompleted": true,
+      "ExportCompleted": true,
+      "RenderHasNonWhitePixels": true,
+      "NonWhitePixels": 38144,
+      "ExportWidth": 886,
+      "ExportHeight": 686,
+      "ExportPath": "D:\\Repositorios\\Proyecto-de-Grado\\.raster-matrix\\reprojected_3857.arcgis.png",
+      "Exception": null,
+      "processExitCode": 0,
+      "processMs": 10501,
+      "stdout": "Licensed For Developer Use Only",
+      "stderr": ""
+    }
+  }
+}
