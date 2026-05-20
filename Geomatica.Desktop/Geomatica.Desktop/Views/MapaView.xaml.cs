@@ -1,5 +1,6 @@
 ﻿using Esri.ArcGISRuntime.Data;
 using Esri.ArcGISRuntime.Mapping;
+using Esri.ArcGISRuntime.UI;
 using Esri.ArcGISRuntime.UI.Controls;
 using System;
 using System.ComponentModel;
@@ -29,6 +30,7 @@ namespace Geomatica.Desktop.Views
             DataContextChanged += MapaView_DataContextChanged;
             Unloaded += MapaView_Unloaded;
             _controlMapView.GeoViewTapped += ControlMapView_GeoViewTapped;
+            _controlMapView.LayerViewStateChanged += ControlMapView_LayerViewStateChanged;
         }
 
         private void MapaView_DataContextChanged(object? sender, DependencyPropertyChangedEventArgs e)
@@ -212,6 +214,18 @@ namespace Geomatica.Desktop.Views
             }
 
             _currentVm = null;
+        }
+
+        private void ControlMapView_LayerViewStateChanged(object? sender, LayerViewStateChangedEventArgs e)
+        {
+            if (e.LayerViewState?.Status != LayerViewStatus.Error) return;
+            if (e.Layer is not RasterLayer) return;
+
+            var err = e.LayerViewState.Error?.Message ?? "Error interno al renderizar el raster.";
+            Application.Current.Dispatcher.Invoke(() =>
+            {
+                MessageBox.Show($"Error al renderizar la capa raster.\nDetalle: {err}", "Error de Raster", MessageBoxButton.OK, MessageBoxImage.Error);
+            });
         }
 
         private void Vm_PropertyChanged(object? sender, PropertyChangedEventArgs e)

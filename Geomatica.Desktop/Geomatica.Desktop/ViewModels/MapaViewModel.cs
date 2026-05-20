@@ -124,9 +124,56 @@ namespace Geomatica.Desktop.ViewModels
         {
             try
             {
+                if (!File.Exists(path))
+                {
+                    MessageBox.Show("El archivo raster no existe en la ruta indicada.", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                var fileInfo = new FileInfo(path);
+                if (fileInfo.Length > 1_000_000_000)
+                {
+                    MessageBox.Show("El raster supera 1 GB. ArcGIS Runtime puede fallar con TIFFs grandes o con pirámides no compatibles. Si falla, conviértelo a COG o sin compresión.", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+
                 var raster = new Esri.ArcGISRuntime.Rasters.Raster(path);
+                await raster.LoadAsync();
+                if (raster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
+                {
+                    var err = raster.LoadError?.Message ?? "Error desconocido al cargar el raster.";
+                    MessageBox.Show($"Error al cargar el raster: {err}", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+
+                var rasterInfo = raster.RasterInfo;
+                if (rasterInfo == null)
+                {
+                    MessageBox.Show("No se pudo leer la información del raster.", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
 
                 var rasterLayer = new RasterLayer(raster);
+                rasterLayer.LoadStatusChanged += (s, e) =>
+                {
+                    if (e.Status == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
+                    {
+                        var err = rasterLayer.LoadError?.Message ?? "Error interno al cargar la capa raster.";
+                        var hint = err.Contains("Internal error", StringComparison.OrdinalIgnoreCase)
+                            ? "\nSugerencia: verifica que sea un archivo raster soportado (p. ej. .tif/.tiff/.img/.jp2/.png/.jpg) y no una carpeta o mosaico."
+                            : string.Empty;
+                        Application.Current.Dispatcher.Invoke(() =>
+                        {
+                            MessageBox.Show($"Error al renderizar el raster en el mapa.\nRuta: {path}\nDetalle: {err}{hint}", "Error de Raster", MessageBoxButton.OK, MessageBoxImage.Error);
+                        });
+                    }
+                };
+                await rasterLayer.LoadAsync();
+                if (rasterLayer.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
+                {
+                    var err = rasterLayer.LoadError?.Message ?? "Error interno al cargar la capa raster.";
+                    MessageBox.Show($"Error al renderizar el raster en el mapa.\nRuta: {path}\nDetalle: {err}", "Error de Raster", MessageBoxButton.OK, MessageBoxImage.Error);
+                    return;
+                }
                 layer = rasterLayer;
             }
             catch (Exception ex)
@@ -138,7 +185,10 @@ namespace Geomatica.Desktop.ViewModels
 
         if (layer != null)
         {
-            Map.OperationalLayers.Add(layer);
+            await Application.Current.Dispatcher.InvokeAsync(() =>
+            {
+                Map.OperationalLayers.Add(layer);
+            });
 
             // Escuchar el evento de carga para poder hacer un zoom inicial a la capa y reparar rastros
             layer.LoadStatusChanged += async (s, e) =>
