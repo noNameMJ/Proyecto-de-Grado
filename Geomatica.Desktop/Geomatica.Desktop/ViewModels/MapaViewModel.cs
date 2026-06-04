@@ -13,6 +13,7 @@ using Esri.ArcGISRuntime.UI.Controls;
 using System.Collections.ObjectModel;
 using System.IO;
 using Geomatica.Desktop.Services;
+using Geomatica.Desktop.GDAL;
 
 namespace Geomatica.Desktop.ViewModels
 {
@@ -45,6 +46,8 @@ namespace Geomatica.Desktop.ViewModels
  private MapView? _ownerMapView;
 
  public ObservableCollection<CapaUsuarioItem> CapasAdicionales { get; } = new();
+
+ public string? UltimosSidecarsRaster { get; private set; }
 
  // Comando y evento para Home (MVVM)
  public IRelayCommand HomeCommand { get; }
@@ -186,8 +189,8 @@ namespace Geomatica.Desktop.ViewModels
     }
  }
 
- private async Task<Layer?> CrearRasterLayerValidadoAsync(string path)
- {
+    private async Task<Layer?> CrearRasterLayerValidadoAsync(string path)
+    {
     try
     {
         if (!File.Exists(path))
@@ -198,9 +201,17 @@ namespace Geomatica.Desktop.ViewModels
 
         var fileInfo = new FileInfo(path);
         var sidecars = BuscarSidecarsRaster(path);
+        UltimosSidecarsRaster = sidecars.Count == 0
+            ? null
+            : string.Join(", ", sidecars.Select(Path.GetFileName));
         RasterDiagnostics.Log($"TIFF selected path={path}; sidecars={string.Join(", ", sidecars.Select(s => Path.GetFileName(s)))}");
 
-        var raster = new Raster(path);
+        // Use GDAL converter to get a GeoTIFF path if needed
+        string rasterPathToLoad = GdalRasterConverter.GetRasterPathToLoad(path);
+        bool isConverted = !string.Equals(rasterPathToLoad, path, StringComparison.OrdinalIgnoreCase);
+        RasterDiagnostics.Log($"TIFF selected path={path}; converted={(isConverted ? "YES" : "NO")}; actual path={rasterPathToLoad}");
+
+        var raster = new Raster(rasterPathToLoad);
         await raster.LoadAsync();
         if (raster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
         {
@@ -236,7 +247,9 @@ namespace Geomatica.Desktop.ViewModels
             rasterInfo.Extent?.ToString(),
             rasterLayer.FullExtent?.ToString(),
             rasterInfo.SpatialReference?.ToString(),
-            rasterLayer.SpatialReference?.ToString());
+            rasterLayer.SpatialReference?.ToString(),
+            FormatearSpatialReferenceId(rasterInfo.SpatialReference),
+            FormatearSpatialReferenceId(rasterLayer.SpatialReference));
 
         if (rasterLayer.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
         {
@@ -278,9 +291,9 @@ namespace Geomatica.Desktop.ViewModels
             MessageBoxImage.Error);
         return null;
     }
- }
+    }
 
- private static string? ValidarRasterGeorreferenciado(string path, RasterInfo rasterInfo, RasterLayer rasterLayer, IReadOnlyList<string> sidecars)
+  private static string? ValidarRasterGeorreferenciado(string path, RasterInfo rasterInfo, RasterLayer rasterLayer, IReadOnlyList<string> sidecars)
  {
     var extent = rasterLayer.FullExtent ?? rasterInfo.Extent;
     if (extent == null)
@@ -294,16 +307,16 @@ namespace Geomatica.Desktop.ViewModels
     {
         var sidecarText = sidecars.Count == 0
             ? "No se encontraron archivos auxiliares .tfw/.prj/.aux.xml junto al TIFF."
-            : $"Se encontraron archivos auxiliares ({string.Join(", ", sidecars.Select(Path.GetFileName))}), pero ArcGIS Runtime no los aplicó al raster.";
+            : $"Sidecars detectados: {string.Join(", ", sidecars.Select(Path.GetFileName))}. ArcGIS Runtime no los aplicó al raster.";
 
         return
-            "ArcGIS Runtime cargó el TIFF como imagen sin sistema de coordenadas. La app no lo agregará al mapa porque su extent queda en coordenadas de pixel y puede bloquear el renderizado.\n\n" +
+            "ArcGIS Runtime cargó el TIFF sin sistema de coordenadas. La app no lo agregará al mapa porque su extent queda en coordenadas de pixel y provoca error de renderizado.\n\n" +
             $"Ruta: {path}\n" +
             $"Extent leído: {extent}\n" +
             $"{sidecarText}\n\n" +
-            "Corrección del dato: reproyecta el raster a un GeoTIFF/COG que ArcGIS Runtime WPF reconozca con SpatialReference. " +
-            "En la matriz de pruebas de este proyecto, el TIFF en EPSG:3116 y el COG EPSG:3116 siguieron cargando sin SpatialReference; " +
-            "el GeoTIFF reproyectado a EPSG:4326 sí reportó SpatialReference y FullExtent válidos. Para mosaicos grandes, publica el raster como ImageServer o genera pirámides/overviews internas.";
+            "Corrección del dato: exporta un GeoTIFF con CRS embebido (no solo sidecars). " +
+            "Si trabajas con MAGNA Colombia Bogotá TM (EPSG:3116), genera un GeoTIFF que ArcGIS Runtime WPF reconozca; " +
+            "en pruebas locales, el GeoTIFF reproyectado a EPSG:4326 sí reportó SpatialReference. Para mosaicos grandes, genera pirámides/overviews internas o publica un ImageServer.";
     }
 
     return null;
@@ -333,6 +346,13 @@ namespace Geomatica.Desktop.ViewModels
     };
     return candidates.Where(File.Exists).ToArray();
  }
+
+  private static string? FormatearSpatialReferenceId(SpatialReference? sr)
+  {
+     if (sr == null) return null;
+     if (sr.Wkid > 0) return $"WKID:{sr.Wkid}";
+     return null;
+  }
 
  private static string ObtenerMensajeErrorArcGis(Exception? error)
  {
@@ -801,3 +821,4 @@ namespace Geomatica.Desktop.ViewModels
  }
 }
 }
+

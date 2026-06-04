@@ -53,8 +53,12 @@ namespace Geomatica.Desktop.Services
 
                 try
                 {
-                    using var stream = new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None);
-                    Log("File lock probe: opened ReadWrite/FileShare.None successfully");
+                    using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+                    Log("File lock probe: opened Read/FileShare.ReadWrite successfully");
+                }
+                catch (IOException ex)
+                {
+                    LogException("File lock probe warning", ex);
                 }
                 catch (Exception ex)
                 {
@@ -75,12 +79,15 @@ namespace Geomatica.Desktop.Services
             string? rasterExtent,
             string? layerExtent,
             string? rasterSpatialReference,
-            string? layerSpatialReference)
+            string? layerSpatialReference,
+            string? rasterSpatialReferenceId,
+            string? layerSpatialReferenceId)
         {
             Log("Raster metadata " +
                 $"path={path}; bytes={bytes}; rasterStatus={rasterStatus}; layerStatus={layerStatus}; " +
                 $"rasterExtent={rasterExtent ?? "<null>"}; layerExtent={layerExtent ?? "<null>"}; " +
-                $"rasterSR={rasterSpatialReference ?? "<null>"}; layerSR={layerSpatialReference ?? "<null>"}");
+                $"rasterSR={rasterSpatialReference ?? "<null>"}; layerSR={layerSpatialReference ?? "<null>"}; " +
+                $"rasterSRId={rasterSpatialReferenceId ?? "<null>"}; layerSRId={layerSpatialReferenceId ?? "<null>"}");
         }
 
         public static void LogArcGisLayerError(string context, string? layerName, string? status, Exception? error)

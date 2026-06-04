@@ -225,9 +225,17 @@ namespace Geomatica.Desktop.Views
             if (e.Layer is not RasterLayer) return;
 
             var err = e.LayerViewState.Error?.Message ?? "Error interno al renderizar el raster.";
+            var sidecars = _currentVm?.UltimosSidecarsRaster;
             Application.Current.Dispatcher.Invoke(() =>
             {
-                MessageBox.Show($"Error al renderizar la capa raster.\nDetalle: {err}", "Error de Raster", MessageBoxButton.OK, MessageBoxImage.Error);
+                var extra = string.Empty;
+                if (err.Contains("spatial reference", StringComparison.OrdinalIgnoreCase))
+                {
+                    extra = "\n\nEl TIFF no tiene SpatialReference. Exporta un GeoTIFF con CRS embebido (no solo sidecars .prj/.tfw).";
+                    if (!string.IsNullOrWhiteSpace(sidecars))
+                        extra += $"\nSidecars detectados: {sidecars}.";
+                }
+                MessageBox.Show($"Error al renderizar la capa raster.\nDetalle: {err}{extra}", "Error de Raster", MessageBoxButton.OK, MessageBoxImage.Error);
             });
         }
 
