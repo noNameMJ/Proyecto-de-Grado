@@ -13,7 +13,6 @@ using Esri.ArcGISRuntime.UI.Controls;
 using System.Collections.ObjectModel;
 using System.IO;
 using Geomatica.Desktop.Services;
-using Geomatica.Desktop.GDAL;
 
 namespace Geomatica.Desktop.ViewModels
 {
@@ -206,12 +205,7 @@ namespace Geomatica.Desktop.ViewModels
             : string.Join(", ", sidecars.Select(Path.GetFileName));
         RasterDiagnostics.Log($"TIFF selected path={path}; sidecars={string.Join(", ", sidecars.Select(s => Path.GetFileName(s)))}");
 
-        // Use GDAL converter to get a GeoTIFF path if needed
-        string rasterPathToLoad = GdalRasterConverter.GetRasterPathToLoad(path);
-        bool isConverted = !string.Equals(rasterPathToLoad, path, StringComparison.OrdinalIgnoreCase);
-        RasterDiagnostics.Log($"TIFF selected path={path}; converted={(isConverted ? "YES" : "NO")}; actual path={rasterPathToLoad}");
-
-        var raster = new Raster(rasterPathToLoad);
+        var raster = new Raster(path);
         await raster.LoadAsync();
         if (raster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
         {
