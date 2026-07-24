@@ -20,6 +20,7 @@ namespace Geomatica.Desktop.ViewModels
     {
         public string Nombre { get; set; } = "";
         public Layer? Capa { get; set; }
+        public bool PermiteZoomSinReferencia { get; set; }
         public IRelayCommand? QuitarCommand { get; set; }
         public IRelayCommand? ZoomCommand { get; set; }
     }
@@ -135,11 +136,19 @@ namespace Geomatica.Desktop.ViewModels
 
         if (layer != null)
         {
+            if (layer is RasterLayer rasterLayer)
+            {
+                rasterLayer.IsVisible = true;
+                rasterLayer.Opacity = 1.0;
+            }
+
             layer.LoadStatusChanged += async (s, e) =>
             {
                 RasterDiagnostics.LogArcGisLayerError("Layer.LoadStatusChanged", layer.Name, e.Status.ToString(), layer.LoadError);
                 if (e.Status == Esri.ArcGISRuntime.LoadStatus.Loaded && _ownerMapView != null)
                 {
+                    // Darle un instante al MapView para que active la capa antes de hacer zoom
+                    await Task.Delay(250);
                     await ZoomCapaAsync(layer, 20, "carga inicial");
                 }
                 else if (e.Status == Esri.ArcGISRuntime.LoadStatus.FailedToLoad) 
@@ -154,12 +163,16 @@ namespace Geomatica.Desktop.ViewModels
 
             RasterDiagnostics.Log($"Adding layer to map: name={layer.Name}; type={layer.GetType().FullName}; loadStatus={layer.LoadStatus}; extent={layer.FullExtent}");
             await Application.Current.Dispatcher.InvokeAsync(() => Map.OperationalLayers.Add(layer));
-            
+
             if (layer.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
                 await layer.LoadAsync();
 
+            // Esperar a que el MapView active la capa antes de centrar
             if (layer.LoadStatus == Esri.ArcGISRuntime.LoadStatus.Loaded && _ownerMapView != null)
+            {
+                await Task.Delay(250);
                 await ZoomCapaAsync(layer, 20, "post-add");
+            }
 
             var item = new CapaUsuarioItem { Nombre = Path.GetFileName(path), Capa = layer };
             item.QuitarCommand = new RelayCommand(() => 
@@ -170,7 +183,9 @@ namespace Geomatica.Desktop.ViewModels
             
             item.ZoomCommand = new RelayCommand(async () =>
             {
-                if (item.Capa != null)
+                if (item.Capa != null && item.PermiteZoomSinReferencia)
+                    await ZoomRasterLocalAsync(item.Capa, 50, "manual");
+                else if (item.Capa != null)
                     await ZoomCapaAsync(item.Capa, 50, "manual");
             });
 
@@ -203,6 +218,7 @@ namespace Geomatica.Desktop.ViewModels
         UltimosSidecarsRaster = sidecars.Count == 0
             ? null
             : string.Join(", ", sidecars.Select(Path.GetFileName));
+        RasterDiagnostics.LogPix4DProduct(path, "orthomosaic", sidecars);
         RasterDiagnostics.Log($"TIFF selected path={path}; sidecars={string.Join(", ", sidecars.Select(s => Path.GetFileName(s)))}");
 
         var raster = new Raster(path);
@@ -211,8 +227,12 @@ namespace Geomatica.Desktop.ViewModels
         {
             RasterDiagnostics.LogException("Raster.LoadAsync failed", raster.LoadError);
             MessageBox.Show(
-                $"ArcGIS Runtime no pudo cargar el TIFF.\n\nRuta: {path}\nDetalle: {ObtenerMensajeErrorArcGis(raster.LoadError)}",
-                "Error de Raster",
+                $"No se pudo cargar el ortomosaico.\n\n" +
+                $"Ruta: {path}\n" +
+                $"Detalle: {ObtenerMensajeErrorArcGis(raster.LoadError)}\n\n" +
+                "Consejo para Pix4D: exporta el ortomosaico como GeoTIFF con el sistema de coordenadas incrustado (por ejemplo EPSG:4326 si trabajas en WGS84, o el CRS proyectado del proyecto). " +
+                "Asegúrate de que el archivo no esté bloqueado por otro proceso y que tenga las pirámides (overviews) generadas.",
+                "Error de ortomosaico",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             return null;
@@ -222,11 +242,35 @@ namespace Geomatica.Desktop.ViewModels
         if (rasterInfo == null)
         {
             RasterDiagnostics.Log($"RasterInfo is null path={path}");
-            MessageBox.Show("No se pudo leer la información del raster.", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show(
+                "No se pudo leer la información del ortomosaico.\n\n" +
+                "Verifica que el GeoTIFF generado por Pix4D no esté corrupto y que incluya metadatos de georreferenciación.",
+                "Aviso de ortomosaico",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
             return null;
         }
 
-        var rasterLayer = new RasterLayer(raster);
+        // Diagnóstico técnico del ortomosaico (RasterInfo en ArcGIS Runtime WPF
+        // solo expone propiedades básicas; evitamos miembros no disponibles).
+        try
+        {
+            RasterDiagnostics.LogRasterInfo(
+                path,
+                Path.GetFileName(path),
+                rasterInfo.Extent?.ToString(),
+                rasterInfo.SpatialReference?.ToString());
+        }
+        catch (Exception ex)
+        {
+            RasterDiagnostics.LogException("RasterInfo diagnostics failed", ex);
+        }
+
+        var rasterLayer = new RasterLayer(raster)
+        {
+            IsVisible = true,
+            Opacity = 1.0
+        };
         rasterLayer.LoadStatusChanged += (s, e) =>
         {
             RasterDiagnostics.LogArcGisLayerError("RasterLayer.LoadStatusChanged", rasterLayer.Name, e.Status.ToString(), rasterLayer.LoadError);
@@ -260,15 +304,16 @@ namespace Geomatica.Desktop.ViewModels
         if (validationError != null)
         {
             RasterDiagnostics.Log($"Raster rejected path={path}; reason={validationError.Replace(Environment.NewLine, " | ")}");
-            MessageBox.Show(validationError, "Raster TIFF no georreferenciado", MessageBoxButton.OK, MessageBoxImage.Warning);
+            await ActivarMapaRasterLocalAsync(path, rasterLayer, validationError);
             return null;
         }
 
         if (fileInfo.Length > 700_000_000)
         {
             MessageBox.Show(
-                "El raster se cargó, pero es grande. Si el paneo o zoom se siente lento, usa un GeoTIFF/COG con pirámides internas.",
-                "Raster grande",
+                "El ortomosaico se cargó correctamente, pero el archivo es grande. " +
+                "Si el paneo o zoom se siente lento, genera pirámides internas (overviews) en Pix4D o convierte el GeoTIFF a COG (Cloud Optimized GeoTIFF).",
+                "Ortomosaico grande",
                 MessageBoxButton.OK,
                 MessageBoxImage.Information);
         }
@@ -296,7 +341,7 @@ namespace Geomatica.Desktop.ViewModels
     if (!EsEnvelopeFinito(extent))
         return $"ArcGIS Runtime cargó el TIFF, pero el extent contiene coordenadas inválidas.\n\nRuta: {path}\nExtent: {extent}";
 
-    var sr = rasterLayer.SpatialReference ?? rasterInfo.SpatialReference ?? extent.SpatialReference;
+    var sr = rasterLayer.SpatialReference ?? rasterInfo.SpatialReference;
     if (sr == null)
     {
         var sidecarText = sidecars.Count == 0
@@ -304,13 +349,13 @@ namespace Geomatica.Desktop.ViewModels
             : $"Sidecars detectados: {string.Join(", ", sidecars.Select(Path.GetFileName))}. ArcGIS Runtime no los aplicó al raster.";
 
         return
-            "ArcGIS Runtime cargó el TIFF sin sistema de coordenadas. La app no lo agregará al mapa porque su extent queda en coordenadas de pixel y provoca error de renderizado.\n\n" +
+            "El ortomosaico de Pix4D no tiene sistema de coordenadas reconocido por ArcGIS Runtime. La app no lo superpondrá al mapa porque su extent queda en coordenadas de pixel.\n\n" +
             $"Ruta: {path}\n" +
             $"Extent leído: {extent}\n" +
             $"{sidecarText}\n\n" +
-            "Corrección del dato: exporta un GeoTIFF con CRS embebido (no solo sidecars). " +
-            "Si trabajas con MAGNA Colombia Bogotá TM (EPSG:3116), genera un GeoTIFF que ArcGIS Runtime WPF reconozca; " +
-            "en pruebas locales, el GeoTIFF reproyectado a EPSG:4326 sí reportó SpatialReference. Para mosaicos grandes, genera pirámides/overviews internas o publica un ImageServer.";
+            "Corrección en Pix4D: en el paso 'Exportar', elige el sistema de coordenadas del proyecto y marca la opción para incrustar el CRS en el GeoTIFF (no solo archivos .tfw/.prj aparte). " +
+            "Si usas MAGNA Colombia Bogotá (EPSG:3116), prueba exportar también una copia reproyectada a EPSG:4326; ArcGIS Runtime WPF la reconoce de forma más confiable. " +
+            "Para mosaicos grandes, genera pirámides/overviews internas o publica un ImageServer.";
     }
 
     return null;
@@ -336,12 +381,16 @@ namespace Geomatica.Desktop.ViewModels
         Path.Combine(dir, name + ".tifw"),
         Path.Combine(dir, name + ".wld"),
         Path.Combine(dir, name + ".prj"),
-        path + ".aux.xml"
+        path + ".aux.xml",
+        path + ".ovr",
+        path + ".rrd",
+        Path.Combine(dir, name + ".tif.pox"),
+        Path.Combine(dir, name + ".tif.points")
     };
     return candidates.Where(File.Exists).ToArray();
  }
 
-  private static string? FormatearSpatialReferenceId(SpatialReference? sr)
+ private static string? FormatearSpatialReferenceId(SpatialReference? sr)
   {
      if (sr == null) return null;
      if (sr.Wkid > 0) return $"WKID:{sr.Wkid}";
@@ -385,6 +434,81 @@ namespace Geomatica.Desktop.ViewModels
     {
         RasterDiagnostics.LogException($"Zoom layer failed origin={origen}; layer={layer.Name}", ex);
         MessageBox.Show($"No se pudo centrar la capa.\n\nDetalle: {ex.Message}", "Zoom a Capa", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+ }
+
+ private async Task ActivarMapaRasterLocalAsync(string path, RasterLayer rasterLayer, string validationError)
+ {
+    RasterDiagnostics.Log($"Activating raster-local map path={path}; extent={rasterLayer.FullExtent}");
+
+    var rasterMap = new Map();
+    Map = rasterMap;
+
+    await Application.Current.Dispatcher.InvokeAsync(() =>
+    {
+        rasterMap.OperationalLayers.Add(rasterLayer);
+        if (_ownerMapView != null)
+            _ownerMapView.Map = rasterMap;
+    });
+
+    if (rasterLayer.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
+        await rasterLayer.LoadAsync();
+
+    await ZoomRasterLocalAsync(rasterLayer, 20, "raster local sin SpatialReference");
+
+    var item = new CapaUsuarioItem
+    {
+        Nombre = Path.GetFileName(path),
+        Capa = rasterLayer,
+        PermiteZoomSinReferencia = true
+    };
+    item.QuitarCommand = new RelayCommand(() =>
+    {
+        if (item.Capa != null) Map?.OperationalLayers.Remove(item.Capa);
+        CapasAdicionales.Remove(item);
+    });
+    item.ZoomCommand = new RelayCommand(async () =>
+    {
+        if (item.Capa != null)
+            await ZoomRasterLocalAsync(item.Capa, 50, "manual");
+    });
+
+    Application.Current.Dispatcher.Invoke(() => CapasAdicionales.Add(item));
+    MessageBox.Show(
+        validationError + "\n\nSe abrió en modo raster local autocontenido para visualizar la imagen. Este modo no superpone la capa sobre el basemap ni sobre proyectos geográficos porque ArcGIS Runtime no reportó un sistema de coordenadas para el TIFF.",
+        "Raster abierto en modo local",
+        MessageBoxButton.OK,
+        MessageBoxImage.Information);
+ }
+
+ private async Task ZoomRasterLocalAsync(Layer layer, double padding, string origen)
+ {
+    if (_ownerMapView == null)
+    {
+        MessageBox.Show("La vista de mapa todavía no está lista para centrar la capa.", "Zoom a Raster", MessageBoxButton.OK, MessageBoxImage.Information);
+        return;
+    }
+
+    var extent = layer.FullExtent;
+    if (extent == null || !EsEnvelopeFinito(extent))
+    {
+        RasterDiagnostics.Log($"Local raster zoom rejected origin={origen}; layer={layer.Name}; extent={extent}");
+        MessageBox.Show("El raster no tiene un extent local válido para hacer zoom.", "Zoom a Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
+        return;
+    }
+
+    try
+    {
+        await Application.Current.Dispatcher.InvokeAsync(async () =>
+        {
+            RasterDiagnostics.Log($"Zoom local raster origin={origen}; layer={layer.Name}; extent={extent}");
+            await _ownerMapView.SetViewpointGeometryAsync(extent, padding);
+        });
+    }
+    catch (Exception ex)
+    {
+        RasterDiagnostics.LogException($"Local raster zoom failed origin={origen}; layer={layer.Name}", ex);
+        MessageBox.Show($"No se pudo centrar el raster.\n\nDetalle: {ex.Message}", "Zoom a Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
  }
 
@@ -718,7 +842,10 @@ namespace Geomatica.Desktop.ViewModels
  table.Renderer = new SimpleRenderer(marker);
 
  var collection = new FeatureCollection(new[] { table });
- var layer = new FeatureCollectionLayer(collection);
+ var layer = new FeatureCollectionLayer(collection)
+ {
+  Name = "Proyectos"
+ };
  return layer;
  }
 
@@ -757,7 +884,11 @@ namespace Geomatica.Desktop.ViewModels
      System.Drawing.Color.FromArgb(180, 33, 150, 243), 1.5f)));
 
   var collection = new FeatureCollection(new[] { table });
-  return new FeatureCollectionLayer(collection);
+  var layer = new FeatureCollectionLayer(collection)
+  {
+   Name = "Municipios"
+  };
+  return layer;
  }
 
  /// <summary>

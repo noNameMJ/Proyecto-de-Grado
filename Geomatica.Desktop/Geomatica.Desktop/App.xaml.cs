@@ -197,53 +197,29 @@ namespace Geomatica.Desktop
 
             // HACK: Autenticar el portal luego de que la ventana de la App está cargada, 
             // sino Webview2 no tendrá un owner visual y podría ocultarse en background
-            main.Loaded += async (s, args) =>
+            main.Loaded += (s, args) =>
             {
-                // Autenticación por Usuario Nombrado - Configurar Oauth 2.0 y obtener licencia
-                var clientId = config["ArcGIS:ClientId"];
-
-                // Si tienes un portal on-premise, puedes configurarlo, de lo contrario arcgis.com
-                string portalUrl = "https://www.arcgis.com/sharing/rest";
+                // Autenticación con API Key para basemaps y servicios de ArcGIS
+                var apiKey = config["ArcGIS:ApiKey"];
 
                 try
                 {
-                    // Configuramos SIEMPRE el handler visual para interceptar challenges, haya client id o no
-                    Esri.ArcGISRuntime.Security.AuthenticationManager.Current.ChallengeHandler = new Esri.ArcGISRuntime.Security.DefaultChallengeHandler();
-                    Esri.ArcGISRuntime.Security.AuthenticationManager.Current.OAuthHandler = new Geomatica.Desktop.OAuthAuthorizeHandler();
-
-                    if (!string.IsNullOrEmpty(clientId))
+                    if (!string.IsNullOrWhiteSpace(apiKey))
                     {
-                        var redirectUrl = config["ArcGIS:RedirectUri"] ?? "my-geomatica-app://auth";
-
-                        var userConfig = new Esri.ArcGISRuntime.Security.OAuthUserConfiguration(new Uri(portalUrl), clientId, new Uri(redirectUrl));
-                        Esri.ArcGISRuntime.Security.AuthenticationManager.Current.OAuthUserConfigurations.Add(userConfig);
-
-                        // Esri previene hacer el login directamente en OnStartup o constructores sin UI visible en versiones modernas de WPF
-                        // 1. Realizar explícitamente el Challenge/Autenticación de OAuth para el usuario actual
-                        var cred = await Esri.ArcGISRuntime.Security.OAuthUserCredential.CreateAsync(userConfig);
-
-                        Esri.ArcGISRuntime.Security.AuthenticationManager.Current.AddCredential(cred);
-
-                        var portal = await Esri.ArcGISRuntime.Portal.ArcGISPortal.CreateAsync(new Uri("https://www.arcgis.com/"), true);
-
-                        // 3. Obtener la licencia vinculada a ese usuario y aplicarla a la app
-                        var licenseInfo = await portal.GetLicenseInfoAsync();
-                        Esri.ArcGISRuntime.ArcGISRuntimeEnvironment.SetLicense(licenseInfo);
+                        Esri.ArcGISRuntime.ArcGISRuntimeEnvironment.ApiKey = apiKey;
+                        Debug.WriteLine("[App] API Key de ArcGIS configurada.");
                     }
                     else
                     {
-                        // Flujo directo sin OAuth Client ID, forzar ventana de login estilo "TokenSecuredChallenge" en recursos que no sean OAuth
-                        // Nota: el mapa lanzará un Challenge por el mapa default topográfico, así entra el handler automáticamente
-                        Debug.WriteLine("[App] Aviso: ArcGIS:ClientId no está configurado. La autenticación dependerá del mapa cargando para lanzar la ventana gráfica si requiere token.");
+                        Debug.WriteLine("[App] Aviso: ArcGIS:ApiKey no está configurada. El basemap podría no cargarse o solicitar autenticación.");
                     }
-                }
-                catch (OperationCanceledException)
-                {
-                    Debug.WriteLine("[App] El usuario canceló la autenticación. Se empleará la versión Developer de ArcGIS.");
+
+                    // Configuramos el handler visual como fallback para servicios que aún requieran credenciales
+                    Esri.ArcGISRuntime.Security.AuthenticationManager.Current.ChallengeHandler = new Esri.ArcGISRuntime.Security.DefaultChallengeHandler();
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[App] Error de autenticación ArcGIS: {ex.Message}");
+                    Debug.WriteLine($"[App] Error al configurar API Key de ArcGIS: {ex.Message}");
                 }
 
                 // Show the initial map view only AFTER authentication has been attempted/resolved, 

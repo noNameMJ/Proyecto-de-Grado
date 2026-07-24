@@ -219,8 +219,17 @@ namespace Geomatica.Desktop.Views
 
         private void ControlMapView_LayerViewStateChanged(object? sender, LayerViewStateChangedEventArgs e)
         {
-            RasterDiagnostics.Log($"MapView.LayerViewStateChanged: layerType={e.Layer?.GetType().FullName}; status={e.LayerViewState?.Status}; senderType={sender?.GetType().FullName}");
+            var layerName = e.Layer?.Name ?? "<unknown>";
+            var layerType = e.Layer?.GetType().FullName ?? "<unknown>";
+            var status = e.LayerViewState?.Status.ToString() ?? "<null>";
+            RasterDiagnostics.Log($"MapView.LayerViewStateChanged: name={layerName}; layerType={layerType}; status={status}; senderType={sender?.GetType().FullName}");
             RasterDiagnostics.LogException("MapView.LayerViewStateChanged.LayerViewState.Error", e.LayerViewState?.Error);
+
+            if (e.Layer is RasterLayer rasterLayer)
+            {
+                RasterDiagnostics.Log($"RasterLayer view state: name={rasterLayer.Name}; visible={rasterLayer.IsVisible}; opacity={rasterLayer.Opacity}; loadStatus={rasterLayer.LoadStatus}");
+            }
+
             if (e.LayerViewState?.Status != LayerViewStatus.Error) return;
             if (e.Layer is not RasterLayer) return;
 
@@ -231,7 +240,7 @@ namespace Geomatica.Desktop.Views
                 var extra = string.Empty;
                 if (err.Contains("spatial reference", StringComparison.OrdinalIgnoreCase))
                 {
-                    extra = "\n\nEl TIFF no tiene SpatialReference. Exporta un GeoTIFF con CRS embebido (no solo sidecars .prj/.tfw).";
+                    extra = "\n\nEl ortomosaico no tiene SpatialReference reconocido. Exporta un GeoTIFF con CRS embebido (no solo sidecars .prj/.tfw).";
                     if (!string.IsNullOrWhiteSpace(sidecars))
                         extra += $"\nSidecars detectados: {sidecars}.";
                 }

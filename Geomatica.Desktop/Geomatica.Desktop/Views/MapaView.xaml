@@ -3,7 +3,8 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:esri="http://schemas.esri.com/arcgis/runtime/2013"
              xmlns:vm="clr-namespace:Geomatica.Desktop.ViewModels"
-             xmlns:views="clr-namespace:Geomatica.Desktop.Views">
+             xmlns:views="clr-namespace:Geomatica.Desktop.Views"
+             xmlns:esriTK="clr-namespace:Esri.ArcGISRuntime.Toolkit.UI.Controls;assembly=Esri.ArcGISRuntime.Toolkit.WPF">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
 
@@ -39,33 +40,20 @@
             <Grid Grid.Row="0">
                 <esri:MapView x:Name="controlMapView" Map="{Binding Map}" />
 
-                <!-- Leyenda — estilo ArcGIS Pro -->
+                <!-- Leyenda — ArcGIS Runtime Toolkit (Agregando estilo ArcGIS Online) -->
                 <Border Background="#E8FFFFFF" CornerRadius="6" Padding="12,10"
                         HorizontalAlignment="Left" VerticalAlignment="Bottom" Margin="16"
                         BorderBrush="#20000000" BorderThickness="1"
+                        MaxHeight="350" MaxWidth="250"
                         Effect="{StaticResource CardShadow}">
-                    <StackPanel>
-                        <TextBlock Text="Leyenda" FontWeight="SemiBold" FontSize="12" 
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}" Margin="0,0,0,6"/>
-                        <StackPanel Orientation="Horizontal" Margin="0,3">
-                            <Ellipse Width="10" Height="10" Fill="{StaticResource UisGreenBrush}"
-                                     Stroke="White" StrokeThickness="1.5"
-                                     VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <TextBlock Text="Proyecto geomático" FontSize="11" 
-                                       VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"
-                                       FontFamily="{StaticResource AppFont}"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto">
+                        <StackPanel>
+                            <TextBlock Text="Leyenda" FontWeight="SemiBold" FontSize="12" 
+                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                       FontFamily="{StaticResource AppFont}" Margin="0,0,0,6"/>
+                            <esriTK:Legend GeoView="{Binding ElementName=controlMapView}" />
                         </StackPanel>
-                        <StackPanel Orientation="Horizontal" Margin="0,3">
-                            <Rectangle Width="14" Height="10"
-                                       Fill="#28006633" Stroke="#B4006633" StrokeThickness="1"
-                                       RadiusX="2" RadiusY="2"
-                                       VerticalAlignment="Center" Margin="0,0,8,0"/>
-                            <TextBlock Text="Municipio con proyecto" FontSize="11" 
-                                       VerticalAlignment="Center" Foreground="{StaticResource TextPrimaryBrush}"
-                                       FontFamily="{StaticResource AppFont}"/>
-                        </StackPanel>
-                    </StackPanel>
+                    </ScrollViewer>
                 </Border>
 
                 <!-- Panel de Capas Añadidas Recientemente -->

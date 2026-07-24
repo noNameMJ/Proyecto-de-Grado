@@ -94,5 +94,21 @@ namespace Geomatica.Desktop.Services
         {
             Log($"{context}: layer={layerName ?? "<unknown>"}; status={status ?? "<unknown>"}; error={(error?.ToString() ?? "<null>")}");
         }
+
+        public static void LogPix4DProduct(string path, string? productType, IReadOnlyList<string> sidecars)
+        {
+            var isPix4D = !string.IsNullOrWhiteSpace(path)
+                && (path.Contains("pix4d", StringComparison.OrdinalIgnoreCase)
+                    || path.Contains("orthomosaic", StringComparison.OrdinalIgnoreCase)
+                    || sidecars.Any(s => s.EndsWith(".pox", StringComparison.OrdinalIgnoreCase)
+                                      || s.EndsWith(".points", StringComparison.OrdinalIgnoreCase)));
+
+            Log($"Pix4D product hint path={path}; detected={isPix4D}; productType={productType ?? "<unknown>"}; sidecars={string.Join(",", sidecars.Select(Path.GetFileName))}");
+        }
+
+        public static void LogRasterInfo(string path, string? rasterInfoName, string? extent, string? spatialReference)
+        {
+            Log($"RasterInfo path={path}; name={rasterInfoName ?? "<unknown>"}; extent={extent ?? "<null>"}; spatialReference={spatialReference ?? "<null>"}");
+        }
     }
 }
