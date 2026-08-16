@@ -12,6 +12,8 @@ namespace Geomatica.Data.Repositories
  Task<IReadOnlyList<DepartamentoDto>> ListarDepartamentosAsync();
  Task<IReadOnlyList<MunicipioDto>> ListarTodosMunicipiosAsync();
  Task<IReadOnlyList<MunicipioDto>> ListarMunicipiosPorDepartamentoAsync(string dptoCodigo);
+ Task<EnvelopeDto?> ExtentPorDepartamentoAsync(string dptoCcdgo);
+ Task<EnvelopeDto?> ExtentPorMunicipiosAsync(IReadOnlyList<string> codigos);
  }
 
  public sealed record MunicipioGeoJsonDto(string Codigo, string Nombre, string? GeoJson);

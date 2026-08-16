@@ -4,6 +4,9 @@ using Esri.ArcGISRuntime.Mapping;
 using Esri.ArcGISRuntime.Symbology;
 using Esri.ArcGISRuntime.Rasters;
 using Geomatica.Data.Repositories;
+using Geomatica.AppCore.UseCases;
+using Geomatica.Domain.Entities;
+using Geomatica.Domain.Interfaces.Repositories;
 using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using System.Text.Json;
@@ -28,6 +31,7 @@ namespace Geomatica.Desktop.ViewModels
  public class MapaViewModel : INotifyPropertyChanged
  {
  private readonly IProyectoRepository _proyectos;
+ private readonly BuscarProyectosUseCase _buscarProyectos;
  private readonly IMunicipioRepository _municipios;
 
  // Referencia opcional a los filtros compartidos
@@ -55,8 +59,9 @@ namespace Geomatica.Desktop.ViewModels
  public event EventHandler<ProyectoDetalleDto>? FichaProyectoSolicitada;
 
  // Nuevo constructor: recibe los filtros (opción B)
- public MapaViewModel(IProyectoRepository proyectos, IMunicipioRepository municipios, FiltrosViewModel filtros, ArchivosViewModel archivosVM)
+ public MapaViewModel(BuscarProyectosUseCase buscarProyectos, IProyectoRepository proyectos, IMunicipioRepository municipios, FiltrosViewModel filtros, ArchivosViewModel archivosVM)
  {
+ _buscarProyectos = buscarProyectos;
  _proyectos = proyectos;
  _municipios = municipios;
  Filtros = filtros;
@@ -689,7 +694,22 @@ namespace Geomatica.Desktop.ViewModels
  /// Actualiza las capas del mapa con los proyectos filtrados.
  /// Llamar desde MapaView después de obtener los resultados filtrados.
  /// </summary>
- public async Task ActualizarCapasConFiltroAsync(IReadOnlyList<ProyectoDto> proyectosFiltrados)
+ public async Task<IReadOnlyList<ProyectoGeomatico>> BuscarYActualizarCapasAsync(
+     string? texto,
+     DateTime? desde,
+     DateTime? hasta,
+     double? minX,
+     double? minY,
+     double? maxX,
+     double? maxY,
+     CancellationToken ct = default)
+ {
+  var proyectos = await _buscarProyectos.EjecutarAsync(texto, desde, hasta, minX, minY, maxX, maxY, ct);
+  await ActualizarCapasConFiltroAsync(proyectos);
+  return proyectos;
+ }
+
+ public async Task ActualizarCapasConFiltroAsync(IReadOnlyList<ProyectoGeomatico> proyectosFiltrados)
  {
   if (Map == null) return;
 
@@ -802,7 +822,7 @@ namespace Geomatica.Desktop.ViewModels
   return any ? new Envelope(xmin, ymin, xmax, ymax, SpatialReferences.Wgs84) : null;
  }
 
- private async Task<Layer?> CrearCapaProyectosDesdeListaAsync(IReadOnlyList<ProyectoDto> items)
+ private async Task<Layer?> CrearCapaProyectosDesdeListaAsync(IReadOnlyList<ProyectoGeomatico> items)
  {
  var fields = new List<Field>
  {
@@ -818,7 +838,7 @@ namespace Geomatica.Desktop.ViewModels
  int oid = 1;
  foreach (var p in items)
  {
-  if (p.Lon == 0 && p.Lat == 0) continue;
+  if (p.Longitud == 0 && p.Latitud == 0) continue;
   var currentOid = oid++;
   _oidToProjectId[currentOid] = p.Id;
   var attrs = new Dictionary<string, object?>
@@ -826,9 +846,9 @@ namespace Geomatica.Desktop.ViewModels
   ["oid"] = currentOid,
   ["id_proyecto"] = p.Id,
   ["titulo"] = p.Titulo,
-  ["ruta_archivos"] = p.RutaArchivos
+  ["ruta_archivos"] = string.IsNullOrWhiteSpace(p.RutaArchivos) ? null : p.RutaArchivos
   };
-  var geom = new MapPoint(p.Lon, p.Lat, SpatialReferences.Wgs84);
+  var geom = new MapPoint(p.Longitud, p.Latitud, SpatialReferences.Wgs84);
   features.Add(table.CreateFeature(attrs, geom));
  }
 

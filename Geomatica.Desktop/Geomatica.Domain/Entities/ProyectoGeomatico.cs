@@ -8,7 +8,7 @@ namespace Geomatica.Domain.Entities
 {
     public class ProyectoGeomatico
     {
-        public Guid Id { get; set; }
+        public int Id { get; set; }
         public string Titulo { get; set; } = "";
         public DateTime Fecha { get; set; }
         public string PalabrasClave { get; set; } = "";
@@ -19,6 +19,8 @@ namespace Geomatica.Domain.Entities
         public double MinY { get; set; }
         public double MaxX { get; set; }
         public double MaxY { get; set; }
+        public double Longitud { get; set; }
+        public double Latitud { get; set; }
     }
 
 }

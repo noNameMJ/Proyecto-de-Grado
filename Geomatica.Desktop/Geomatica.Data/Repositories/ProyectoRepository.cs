@@ -1,24 +1,12 @@
 ﻿using Npgsql;
 using NpgsqlTypes;
 using System.Diagnostics;
+using System.Globalization;
+using Geomatica.Domain.Entities;
+using Geomatica.Domain.Interfaces.Repositories;
 
 namespace Geomatica.Data.Repositories
 {
-    public interface IProyectoRepository
-    {
-        Task<IReadOnlyList<ProyectoDto>> ListarAsync(DateTime? desde = null, DateTime? hasta = null, string? keyword = null, string? areaJson = null);
-        Task<IReadOnlyList<string>> ObtenerCodigosMunicipioAsync(IReadOnlyList<int> idsProyecto);
-        Task<IReadOnlyList<string>> ObtenerTodosCodigosMunicipioAsync();
-        Task<IReadOnlyList<ProyectoDto>> ListarPorDepartamentoAsync(string dptoCcdgo, DateTime? desde = null, DateTime? hasta = null, string? keyword = null);
-        Task<IReadOnlyList<ProyectoDto>> ListarPorMunicipioAsync(string mpioCcdgo, DateTime? desde = null, DateTime? hasta = null, string? keyword = null);
-        Task InsertarAsync(string titulo, string? descripcion, DateTime fecha, string? palabraClave, string? ruta, string? geom, string? municipioCodigo);
-        Task<ProyectoDetalleDto?> ObtenerPorIdAsync(int idProyecto);
-        Task ActualizarAsync(int idProyecto, string titulo, string? descripcion, DateTime fecha, string? palabraClave, string? ruta, string? geom, string? municipioCodigo);
-    }
-
-    public sealed record ProyectoDto(int Id, string Titulo, double Lon, double Lat, string? RutaArchivos);
-    public sealed record ProyectoDetalleDto(int Id, string Titulo, string? Descripcion, DateTime? Fecha, string? PalabraClave, string? RutaArchivos, double Lon, double Lat, string? MunicipioCodigo, string? MunicipioNombre);
-
     public sealed class ProyectoRepository : IProyectoRepository
     {
         private readonly string _cn;
@@ -28,6 +16,89 @@ namespace Geomatica.Data.Repositories
             _cn = connectionString;
             var builder = new NpgsqlConnectionStringBuilder(connectionString);
             _debugInfo = $"Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}";
+        }
+
+        public async Task<IReadOnlyList<ProyectoGeomatico>> BuscarAsync(
+            string? texto,
+            DateTime? desde,
+            DateTime? hasta,
+            double? minX,
+            double? minY,
+            double? maxX,
+            double? maxY,
+            CancellationToken ct = default)
+        {
+            if (minX.HasValue || minY.HasValue || maxX.HasValue || maxY.HasValue)
+            {
+                if (!minX.HasValue || !minY.HasValue || !maxX.HasValue || !maxY.HasValue)
+                    throw new ArgumentException("El filtro espacial requiere los cuatro límites del envelope.");
+            }
+
+            const string sql = @"
+                SELECT p.id_proyecto, p.titulo, p.fecha, p.palabra_clave, p.ruta_archivos,
+                       ST_X(ST_Centroid(ST_Transform(p.geom, 4326))) AS lon,
+                       ST_Y(ST_Centroid(ST_Transform(p.geom, 4326))) AS lat,
+                       ST_XMin(Box3D(ST_Transform(p.geom, 4326))) AS min_x,
+                       ST_YMin(Box3D(ST_Transform(p.geom, 4326))) AS min_y,
+                       ST_XMax(Box3D(ST_Transform(p.geom, 4326))) AS max_x,
+                       ST_YMax(Box3D(ST_Transform(p.geom, 4326))) AS max_y
+                FROM geovisor.proyecto p
+                LEFT JOIN geovisor.proyecto_municipio pm ON pm.id_proyecto = p.id_proyecto
+                LEFT JOIN geovisor.municipio m ON m.mpio_cdpmp = pm.mpio_cdpmp
+                WHERE p.geom IS NOT NULL
+                  AND (@desde IS NULL OR p.fecha >= @desde)
+                  AND (@hasta IS NULL OR p.fecha <= @hasta)
+                  AND (@texto IS NULL OR p.palabra_clave ILIKE '%' || @texto || '%')
+                  AND (
+                      @area IS NULL
+                      OR ST_Intersects(
+                          ST_Transform(p.geom, 4326),
+                          ST_SetSRID(ST_GeomFromGeoJSON(CAST(@area AS text)), 4326)
+                      )
+                  )
+                GROUP BY p.id_proyecto, p.titulo, p.fecha, p.palabra_clave, p.ruta_archivos, p.geom
+                ORDER BY p.fecha NULLS LAST, p.id_proyecto;";
+
+            using var con = new NpgsqlConnection(_cn);
+            await con.OpenAsync(ct);
+            using var cmd = new NpgsqlCommand(sql, con);
+            cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Timestamp) { Value = (object?)desde ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Timestamp) { Value = (object?)hasta ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@texto", NpgsqlDbType.Text) { Value = (object?)texto ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@area", NpgsqlDbType.Text) { Value = (object?)CrearEnvelopeGeoJson(minX, minY, maxX, maxY) ?? DBNull.Value });
+
+            var proyectos = new List<ProyectoGeomatico>();
+            using var reader = await cmd.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                proyectos.Add(new ProyectoGeomatico
+                {
+                    Id = reader.GetInt32(0),
+                    Titulo = reader.IsDBNull(1) ? string.Empty : reader.GetString(1),
+                    Fecha = reader.IsDBNull(2) ? DateTime.MinValue : reader.GetDateTime(2),
+                    PalabrasClave = reader.IsDBNull(3) ? string.Empty : reader.GetString(3),
+                    RutaArchivos = reader.IsDBNull(4) ? string.Empty : reader.GetString(4),
+                    Longitud = reader.IsDBNull(5) ? 0d : reader.GetDouble(5),
+                    Latitud = reader.IsDBNull(6) ? 0d : reader.GetDouble(6),
+                    MinX = reader.IsDBNull(7) ? 0d : reader.GetDouble(7),
+                    MinY = reader.IsDBNull(8) ? 0d : reader.GetDouble(8),
+                    MaxX = reader.IsDBNull(9) ? 0d : reader.GetDouble(9),
+                    MaxY = reader.IsDBNull(10) ? 0d : reader.GetDouble(10)
+                });
+            }
+
+            return proyectos;
+        }
+
+        private static string? CrearEnvelopeGeoJson(double? minX, double? minY, double? maxX, double? maxY)
+        {
+            if (!minX.HasValue) return null;
+
+            var x1 = minX.Value.ToString(CultureInfo.InvariantCulture);
+            var y1 = minY!.Value.ToString(CultureInfo.InvariantCulture);
+            var x2 = maxX!.Value.ToString(CultureInfo.InvariantCulture);
+            var y2 = maxY!.Value.ToString(CultureInfo.InvariantCulture);
+            return "{\"type\":\"Polygon\",\"coordinates\":[[[" + x1 + "," + y1 + "],[" + x2 + "," + y1 + "],[" + x2 + "," + y2 + "],[" + x1 + "," + y2 + "],[" + x1 + "," + y1 + "]]]}";
         }
 
         public async Task<IReadOnlyList<ProyectoDto>> ListarAsync(DateTime? desde = null, DateTime? hasta = null, string? keyword = null, string? areaJson = null)

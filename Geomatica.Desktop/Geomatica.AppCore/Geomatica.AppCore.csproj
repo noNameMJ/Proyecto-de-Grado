@@ -9,7 +9,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Geomatica.Data\Geomatica.Data.csproj" />
     <ProjectReference Include="..\Geomatica.Domain\Geomatica.Domain.csproj" />
   </ItemGroup>
 

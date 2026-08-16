@@ -423,40 +423,55 @@ namespace Geomatica.Desktop.Views
                     return;
                 }
 
-                var repo = provider.GetService<IProyectoRepository>();
                 var muniRepo = provider.GetService<IMunicipioRepository>();
-                if (repo == null || muniRepo == null)
+                if (muniRepo == null)
                 {
-                    Debug.WriteLine("[MapaView] IProyectoRepository o IMunicipioRepository no está registrado en DI.");
+                    Debug.WriteLine("[MapaView] IMunicipioRepository no está registrado en DI.");
                     return;
                 }
 
-                IReadOnlyList<Geomatica.Data.Repositories.ProyectoDto> items;
+                double? minX = null;
+                double? minY = null;
+                double? maxX = null;
+                double? maxY = null;
 
-
-                // Check for Municipio selection first (ignore sentinel "— Todos —")
                 if (vm.Filtros.AreaInteres is ViewModels.FiltrosViewModel.MunicipioItem muni
                     && !string.IsNullOrEmpty(muni.Codigo))
                 {
-                    items = await repo.ListarPorMunicipioAsync(muni.Codigo, vm.Filtros.Desde, vm.Filtros.Hasta, vm.Filtros.PalabraClave);
+                    var extent = await muniRepo.ExtentPorMunicipiosAsync(new[] { muni.Codigo });
+                    if (extent != null)
+                    {
+                        minX = extent.West;
+                        minY = extent.South;
+                        maxX = extent.East;
+                        maxY = extent.North;
+                    }
                 }
-                // Then check for Department selection (ignore sentinel "— Todos —")
                 else if (vm.Filtros.SelectedDepartamento is ViewModels.FiltrosViewModel.DepartamentoItem dept
                          && !string.IsNullOrEmpty(dept.Codigo))
                 {
-                    items = await repo.ListarPorDepartamentoAsync(dept.Codigo, vm.Filtros.Desde, vm.Filtros.Hasta, vm.Filtros.PalabraClave);
+                    var extent = await muniRepo.ExtentPorDepartamentoAsync(dept.Codigo);
+                    if (extent != null)
+                    {
+                        minX = extent.West;
+                        minY = extent.South;
+                        maxX = extent.East;
+                        maxY = extent.North;
+                    }
                 }
-                else
-                {
-                    // No geo filter: list all projects
-                    items = await repo.ListarAsync(vm.Filtros.Desde, vm.Filtros.Hasta, vm.Filtros.PalabraClave, null);
-                }
+
+                var items = await vm.BuscarYActualizarCapasAsync(
+                    vm.Filtros.PalabraClave,
+                    vm.Filtros.Desde,
+                    vm.Filtros.Hasta,
+                    minX,
+                    minY,
+                    maxX,
+                    maxY,
+                    ct);
 
                 // Si llegó una búsqueda más reciente, descartar estos resultados
                 if (ct.IsCancellationRequested) return;
-
-                // Actualizar capas del mapa con los proyectos filtrados
-                await vm.ActualizarCapasConFiltroAsync(items);
 
                 if (ct.IsCancellationRequested) return;
 
@@ -500,7 +515,7 @@ namespace Geomatica.Desktop.Views
 
                     foreach (var p in items)
                     {
-                        vm.Filtros.ResultadosLista.Add(new ViewModels.FiltrosViewModel.ProyectoItem(p.Id, p.Titulo, p.Lon, p.Lat, p.RutaArchivos));
+                        vm.Filtros.ResultadosLista.Add(new ViewModels.FiltrosViewModel.ProyectoItem(p.Id, p.Titulo, p.Longitud, p.Latitud, p.RutaArchivos));
                     }
 
                     vm.Filtros.ResultadosResumen.Add($"{items.Count} proyectos");

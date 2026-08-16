@@ -3,6 +3,9 @@ using Microsoft.Extensions.Configuration;
 using System.Windows;
 using Esri.ArcGISRuntime;
 using Geomatica.Data.Repositories;
+using Geomatica.AppCore.UseCases;
+using Geomatica.Domain.Entities;
+using Geomatica.Domain.Interfaces.Repositories;
 using Geomatica.Desktop.ViewModels;
 using Npgsql;
 using System.Diagnostics;
@@ -125,12 +128,14 @@ namespace Geomatica.Desktop
 
             services.AddSingleton<IProyectoRepository>(sp => new ProyectoRepository(cs));
             services.AddSingleton<IMunicipioRepository>(sp => new MunicipioRepository(cs));
+            services.AddSingleton<BuscarProyectosUseCase>();
             services.AddSingleton<Geomatica.Desktop.Services.ProyectoArchivosService>();
 
             // ViewModels
             services.AddSingleton<FiltrosViewModel>();
             // Keep a single MapaViewModel so its Map and layers are reused and not re-created on each view switch
             services.AddSingleton<MapaViewModel>(sp => new MapaViewModel(
+                sp.GetRequiredService<BuscarProyectosUseCase>(),
                 sp.GetRequiredService<IProyectoRepository>(),
                 sp.GetRequiredService<IMunicipioRepository>(),
                 sp.GetRequiredService<FiltrosViewModel>(),
