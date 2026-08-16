@@ -23,7 +23,7 @@ namespace Geomatica.Desktop.ViewModels
     {
         public string Nombre { get; set; } = "";
         public Layer? Capa { get; set; }
-        public bool PermiteZoomSinReferencia { get; set; }
+        public Envelope? ExtentParaZoom { get; set; }
         public IRelayCommand? QuitarCommand { get; set; }
         public IRelayCommand? ZoomCommand { get; set; }
     }
@@ -48,6 +48,7 @@ namespace Geomatica.Desktop.ViewModels
 
  // Track the MapView that currently displays this Map to release ownership when re-attaching
  private MapView? _ownerMapView;
+ private readonly Dictionary<Layer, Envelope> _rasterExtentsSeguros = new();
 
  public ObservableCollection<CapaUsuarioItem> CapasAdicionales { get; } = new();
 
@@ -55,6 +56,7 @@ namespace Geomatica.Desktop.ViewModels
 
  // Comando y evento para Home (MVVM)
  public IRelayCommand HomeCommand { get; }
+ public IAsyncRelayCommand RestablecerVistaMapaCommand { get; }
  public event EventHandler? HomeRequested;
  public event EventHandler<ProyectoDetalleDto>? FichaProyectoSolicitada;
 
@@ -68,6 +70,7 @@ namespace Geomatica.Desktop.ViewModels
  ArchivosVM = archivosVM;
 
  HomeCommand = new RelayCommand(() => HomeRequested?.Invoke(this, EventArgs.Empty));
+ RestablecerVistaMapaCommand = new AsyncRelayCommand(RestablecerVistaMapaAsync);
 
  ArchivosVM.AbrirEnMapaSolicitado += async (s, path) => await CargarCapaAdicionalAsync(path);
  Filtros.PropertyChanged += Filtros_PropertyChanged;
@@ -154,7 +157,7 @@ namespace Geomatica.Desktop.ViewModels
                 {
                     // Darle un instante al MapView para que active la capa antes de hacer zoom
                     await Task.Delay(250);
-                    await ZoomCapaAsync(layer, 20, "carga inicial");
+                    await ZoomCapaSeguraAsync(layer, 20, "carga inicial");
                 }
                 else if (e.Status == Esri.ArcGISRuntime.LoadStatus.FailedToLoad) 
                 {
@@ -176,22 +179,29 @@ namespace Geomatica.Desktop.ViewModels
             if (layer.LoadStatus == Esri.ArcGISRuntime.LoadStatus.Loaded && _ownerMapView != null)
             {
                 await Task.Delay(250);
-                await ZoomCapaAsync(layer, 20, "post-add");
+                await ZoomCapaSeguraAsync(layer, 20, "post-add");
             }
 
-            var item = new CapaUsuarioItem { Nombre = Path.GetFileName(path), Capa = layer };
+            var item = new CapaUsuarioItem
+            {
+                Nombre = Path.GetFileName(path),
+                Capa = layer,
+                ExtentParaZoom = _rasterExtentsSeguros.GetValueOrDefault(layer)
+            };
             item.QuitarCommand = new RelayCommand(() => 
             {
-                if (item.Capa != null) Map.OperationalLayers.Remove(item.Capa);
+                if (item.Capa != null)
+                {
+                    Map.OperationalLayers.Remove(item.Capa);
+                    _rasterExtentsSeguros.Remove(item.Capa);
+                }
                 CapasAdicionales.Remove(item);
             });
             
             item.ZoomCommand = new RelayCommand(async () =>
             {
-                if (item.Capa != null && item.PermiteZoomSinReferencia)
-                    await ZoomRasterLocalAsync(item.Capa, 50, "manual");
-                else if (item.Capa != null)
-                    await ZoomCapaAsync(item.Capa, 50, "manual");
+                if (item.Capa != null)
+                    await ZoomCapaSeguraAsync(item.Capa, 50, "manual");
             });
 
             Application.Current.Dispatcher.Invoke(() => CapasAdicionales.Add(item));
@@ -226,8 +236,38 @@ namespace Geomatica.Desktop.ViewModels
         RasterDiagnostics.LogPix4DProduct(path, "orthomosaic", sidecars);
         RasterDiagnostics.Log($"TIFF selected path={path}; sidecars={string.Join(", ", sidecars.Select(s => Path.GetFileName(s)))}");
 
-        var raster = new Raster(path);
-        await raster.LoadAsync();
+        try
+        {
+            await GeoTiffSidecarResolver.AsegurarAuxXmlGeorreferenciadoAsync(path);
+        }
+        catch (Exception ex)
+        {
+            RasterDiagnostics.LogException("GeoTIFF aux.xml synchronization failed", ex);
+            MessageBox.Show(
+                $"No se pudo preparar el archivo .aux.xml para el TIFF.\n\nRuta: {path}\nDetalle: {ex.Message}\n\nLa capa no se agregará al mapa.",
+                "Sidecars no válidos",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return null;
+        }
+
+        Raster raster;
+        try
+        {
+            raster = new Raster(path);
+            await raster.LoadAsync();
+        }
+        catch (Exception ex)
+        {
+            RasterDiagnostics.LogException("Raster.LoadAsync exception", ex);
+            MessageBox.Show(
+                $"ArcGIS Runtime no pudo abrir el TIFF/BigTIFF.\n\nRuta: {path}\nDetalle: {ex.Message}\n\nVerifica que el formato y la compresión sean compatibles y genera pirámides si el ortomosaico es muy grande.",
+                "Formato raster no compatible",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return null;
+        }
+
         if (raster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
         {
             RasterDiagnostics.LogException("Raster.LoadAsync failed", raster.LoadError);
@@ -306,12 +346,62 @@ namespace Geomatica.Desktop.ViewModels
         }
 
         var validationError = ValidarRasterGeorreferenciado(path, rasterInfo, rasterLayer, sidecars);
-        if (validationError != null)
+        GeoTiffSidecarResolution sidecar;
+        try
         {
-            RasterDiagnostics.Log($"Raster rejected path={path}; reason={validationError.Replace(Environment.NewLine, " | ")}");
-            await ActivarMapaRasterLocalAsync(path, rasterLayer, validationError);
+            sidecar = GeoTiffSidecarResolver.Resolve(path, rasterInfo);
+        }
+        catch (Exception ex)
+        {
+            RasterDiagnostics.LogException("GeoTIFF sidecar resolution failed", ex);
+            MessageBox.Show(
+                $"No se pudieron resolver los sidecars del TIFF.\n\nRuta: {path}\nDetalle: {ex.Message}\n\nLa capa no se agregará al mapa.",
+                "Sidecars no válidos",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
             return null;
         }
+
+        if (rasterInfo.SpatialReference == null)
+        {
+            RasterDiagnostics.Log($"Raster rejected without spatial reference after aux.xml sync: {path}");
+            MessageBox.Show(
+                "ArcGIS Runtime cargó el TIFF, pero no obtuvo una referencia espacial después de sincronizar los sidecars.\n\nLa capa no se agregará para evitar el error interno del MapView.",
+                "Raster sin referencia espacial",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return null;
+        }
+        var extentSeguro = sidecar.IsValid
+            ? sidecar.Envelope
+            : rasterLayer.FullExtent ?? rasterInfo.Extent;
+        var spatialReferenceSegura = sidecar.IsValid
+            ? sidecar.SpatialReference
+            : rasterLayer.SpatialReference ?? rasterInfo.SpatialReference;
+
+        if (validationError != null && !sidecar.IsValid)
+        {
+            var reason = sidecar.Error ?? validationError;
+            RasterDiagnostics.Log($"Raster rejected path={path}; reason={reason.Replace(Environment.NewLine, " | ")}");
+            MessageBox.Show(
+                $"El TIFF no tiene georreferenciación utilizable.\n\nRuta: {path}\nDetalle: {reason}\n\nNo se agregará la capa ni se modificará la vista del mapa.",
+                "Raster sin georreferenciación válida",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return null;
+        }
+
+        if (extentSeguro == null || spatialReferenceSegura == null || !EsEnvelopeFinito(extentSeguro))
+        {
+            MessageBox.Show(
+                "El TIFF no tiene un extent geográfico válido; la carga fue cancelada para proteger la vista del mapa.",
+                "Raster sin georreferenciación válida",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return null;
+        }
+
+        _rasterExtentsSeguros[rasterLayer] = extentSeguro;
 
         if (fileInfo.Length > 700_000_000)
         {
@@ -411,6 +501,51 @@ namespace Geomatica.Desktop.ViewModels
     return string.Join(" | ", messages);
  }
 
+ private async Task ZoomCapaSeguraAsync(Layer layer, double padding, string origen)
+ {
+    if (_rasterExtentsSeguros.TryGetValue(layer, out var extent))
+    {
+        await ZoomEnvelopeAsync(extent, padding, origen);
+        return;
+    }
+
+    await ZoomCapaAsync(layer, padding, origen);
+ }
+
+ private async Task ZoomEnvelopeAsync(Envelope extent, double padding, string origen)
+ {
+    if (_ownerMapView == null || !EsEnvelopeFinito(extent) || extent.SpatialReference == null)
+        return;
+
+    try
+    {
+        var targetSpatialReference = _ownerMapView.SpatialReference ?? Map?.SpatialReference;
+        var extentParaVista = targetSpatialReference == null || extent.SpatialReference.Wkid == targetSpatialReference.Wkid
+            ? extent
+            : GeometryEngine.Project(extent, targetSpatialReference) as Envelope;
+
+        if (extentParaVista == null || !EsEnvelopeFinito(extentParaVista))
+            throw new InvalidOperationException("No se pudo proyectar el extent del raster al sistema de referencia del mapa.");
+
+        await Application.Current.Dispatcher.InvokeAsync(async () =>
+        {
+            RasterDiagnostics.Log($"Zoom sidecar extent origin={origen}; extent={extentParaVista}");
+            await _ownerMapView.SetViewpointGeometryAsync(extentParaVista, padding);
+        });
+    }
+    catch (Exception ex)
+    {
+        RasterDiagnostics.LogException($"Zoom sidecar extent failed origin={origen}", ex);
+        MessageBox.Show($"No se pudo centrar el raster georreferenciado.\n\nDetalle: {ex.Message}", "Zoom a Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+ }
+
+ public async Task RestablecerVistaMapaAsync()
+ {
+    var colombia = new Envelope(-79.0, -4.5, -66.8, 12.5, SpatialReferences.Wgs84);
+    await ZoomEnvelopeAsync(colombia, 40, "restablecer Colombia");
+ }
+
  private async Task ZoomCapaAsync(Layer layer, double padding, string origen)
  {
     if (_ownerMapView == null)
@@ -439,81 +574,6 @@ namespace Geomatica.Desktop.ViewModels
     {
         RasterDiagnostics.LogException($"Zoom layer failed origin={origen}; layer={layer.Name}", ex);
         MessageBox.Show($"No se pudo centrar la capa.\n\nDetalle: {ex.Message}", "Zoom a Capa", MessageBoxButton.OK, MessageBoxImage.Warning);
-    }
- }
-
- private async Task ActivarMapaRasterLocalAsync(string path, RasterLayer rasterLayer, string validationError)
- {
-    RasterDiagnostics.Log($"Activating raster-local map path={path}; extent={rasterLayer.FullExtent}");
-
-    var rasterMap = new Map();
-    Map = rasterMap;
-
-    await Application.Current.Dispatcher.InvokeAsync(() =>
-    {
-        rasterMap.OperationalLayers.Add(rasterLayer);
-        if (_ownerMapView != null)
-            _ownerMapView.Map = rasterMap;
-    });
-
-    if (rasterLayer.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
-        await rasterLayer.LoadAsync();
-
-    await ZoomRasterLocalAsync(rasterLayer, 20, "raster local sin SpatialReference");
-
-    var item = new CapaUsuarioItem
-    {
-        Nombre = Path.GetFileName(path),
-        Capa = rasterLayer,
-        PermiteZoomSinReferencia = true
-    };
-    item.QuitarCommand = new RelayCommand(() =>
-    {
-        if (item.Capa != null) Map?.OperationalLayers.Remove(item.Capa);
-        CapasAdicionales.Remove(item);
-    });
-    item.ZoomCommand = new RelayCommand(async () =>
-    {
-        if (item.Capa != null)
-            await ZoomRasterLocalAsync(item.Capa, 50, "manual");
-    });
-
-    Application.Current.Dispatcher.Invoke(() => CapasAdicionales.Add(item));
-    MessageBox.Show(
-        validationError + "\n\nSe abrió en modo raster local autocontenido para visualizar la imagen. Este modo no superpone la capa sobre el basemap ni sobre proyectos geográficos porque ArcGIS Runtime no reportó un sistema de coordenadas para el TIFF.",
-        "Raster abierto en modo local",
-        MessageBoxButton.OK,
-        MessageBoxImage.Information);
- }
-
- private async Task ZoomRasterLocalAsync(Layer layer, double padding, string origen)
- {
-    if (_ownerMapView == null)
-    {
-        MessageBox.Show("La vista de mapa todavía no está lista para centrar la capa.", "Zoom a Raster", MessageBoxButton.OK, MessageBoxImage.Information);
-        return;
-    }
-
-    var extent = layer.FullExtent;
-    if (extent == null || !EsEnvelopeFinito(extent))
-    {
-        RasterDiagnostics.Log($"Local raster zoom rejected origin={origen}; layer={layer.Name}; extent={extent}");
-        MessageBox.Show("El raster no tiene un extent local válido para hacer zoom.", "Zoom a Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
-        return;
-    }
-
-    try
-    {
-        await Application.Current.Dispatcher.InvokeAsync(async () =>
-        {
-            RasterDiagnostics.Log($"Zoom local raster origin={origen}; layer={layer.Name}; extent={extent}");
-            await _ownerMapView.SetViewpointGeometryAsync(extent, padding);
-        });
-    }
-    catch (Exception ex)
-    {
-        RasterDiagnostics.LogException($"Local raster zoom failed origin={origen}; layer={layer.Name}", ex);
-        MessageBox.Show($"No se pudo centrar el raster.\n\nDetalle: {ex.Message}", "Zoom a Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
  }
 

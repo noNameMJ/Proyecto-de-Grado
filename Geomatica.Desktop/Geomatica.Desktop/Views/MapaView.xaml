@@ -94,6 +94,11 @@
                         HorizontalAlignment="Right" VerticalAlignment="Bottom"
                         Margin="16"
                         Command="{Binding HomeCommand}"/>
+                <Button Content="↺" ToolTip="Restablecer vista de Colombia"
+                        Style="{StaticResource MapToolButton}"
+                        HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                        Margin="64,16,16,16"
+                        Command="{Binding RestablecerVistaMapaCommand}"/>
             </Grid>
 
             <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" Background="{StaticResource SeparatorBrush}" 
