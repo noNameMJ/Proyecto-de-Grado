@@ -2,6 +2,9 @@ using Esri.ArcGISRuntime.Geometry;
 using Esri.ArcGISRuntime.Rasters;
 using System.Globalization;
 using System.IO;
+using System.Security;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Xml.Linq;
 
@@ -18,6 +21,9 @@ public static class GeoTiffSidecarResolver
         "(?:AUTHORITY|ID)\\s*\\[\\s*[\\\"']EPSG[\\\"']\\s*,\\s*[\\\"']?(?<wkid>\\d+)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
+    public static string ObtenerRutaRasterCache(string tifPath)
+        => Path.Combine(ObtenerDirectorioCacheRaster(tifPath), Path.GetFileName(tifPath));
+
     public static async Task AsegurarAuxXmlGeorreferenciadoAsync(string tifPath)
     {
         var directory = Path.GetDirectoryName(tifPath);
@@ -30,37 +36,87 @@ public static class GeoTiffSidecarResolver
 
         var wkt = await File.ReadAllTextAsync(prjPath);
         var values = await LeerCoeficientesAsync(tfwPath);
+        var a = values[0];
+        var d = values[1];
+        var b = values[2];
+        var e = values[3];
+        var c = values[4];
+        var f = values[5];
+
+        var cacheRasterPath = ObtenerRutaRasterCache(tifPath);
+        MaterializarCacheRaster(tifPath, cacheRasterPath, prjPath, tfwPath);
+
+        var cacheAuxXmlPath = cacheRasterPath + ".aux.xml";
+        var escapedWkt = SecurityElement.Escape(wkt) ?? string.Empty;
         var geoTransform = string.Join(", ", new[]
         {
-            values[4], values[0], values[2], values[5], values[1], values[3]
+            c, a, b, f, d, e
         }.Select(value => value.ToString("G17", CultureInfo.InvariantCulture)));
+        var auxXml = $"<PAMDataset>\r\n  <SRS>{escapedWkt}</SRS>\r\n  <GeoTransform>{geoTransform}</GeoTransform>\r\n</PAMDataset>\r\n";
 
-        var auxXmlPath = tifPath + ".aux.xml";
-        XDocument document;
-        if (File.Exists(auxXmlPath))
+        await File.WriteAllTextAsync(cacheAuxXmlPath, auxXml);
+    }
+
+    private static void MaterializarCacheRaster(string tifPath, string cacheRasterPath, string prjPath, string tfwPath)
+    {
+        var cacheDirectory = Path.GetDirectoryName(cacheRasterPath);
+        if (string.IsNullOrWhiteSpace(cacheDirectory))
+            throw new InvalidOperationException("No se pudo determinar el directorio de caché del raster.");
+
+        Directory.CreateDirectory(cacheDirectory);
+
+        if (!File.Exists(cacheRasterPath) || NecesitaActualizarCache(tifPath, cacheRasterPath))
+            File.Copy(tifPath, cacheRasterPath, true);
+
+        CopiarArchivoSiExiste(prjPath, Path.Combine(cacheDirectory, Path.GetFileName(prjPath)));
+        CopiarArchivoSiExiste(tfwPath, Path.Combine(cacheDirectory, Path.GetFileName(tfwPath)));
+    }
+
+    private static bool NecesitaActualizarCache(string sourcePath, string cacheRasterPath)
+    {
+        if (!File.Exists(cacheRasterPath))
+            return true;
+
+        var sourceInfo = new FileInfo(sourcePath);
+        var cacheInfo = new FileInfo(cacheRasterPath);
+        return sourceInfo.Length != cacheInfo.Length || sourceInfo.LastWriteTimeUtc > cacheInfo.LastWriteTimeUtc;
+    }
+
+    private static void CopiarArchivoSiExiste(string sourcePath, string destinationPath)
+    {
+        if (!File.Exists(sourcePath))
+            return;
+
+        if (!File.Exists(destinationPath))
         {
-            document = XDocument.Parse(await File.ReadAllTextAsync(auxXmlPath));
-            if (document.Root?.Name != "PAMDataset") document = new XDocument(new XElement("PAMDataset"));
-        }
-        else
-        {
-            document = new XDocument(new XElement("PAMDataset"));
+            File.Copy(sourcePath, destinationPath, true);
+            return;
         }
 
-        var root = document.Root!;
-        root.Elements("SRS").Remove();
-        root.Elements("GeoTransform").Remove();
-        root.AddFirst(new XElement("GeoTransform", geoTransform));
-        root.AddFirst(new XElement("SRS", wkt));
+        var sourceInfo = new FileInfo(sourcePath);
+        var destinationInfo = new FileInfo(destinationPath);
+        if (sourceInfo.Length != destinationInfo.Length || sourceInfo.LastWriteTimeUtc > destinationInfo.LastWriteTimeUtc)
+            File.Copy(sourcePath, destinationPath, true);
+    }
 
-        await using var stream = File.Create(auxXmlPath);
-        await document.SaveAsync(stream, SaveOptions.None, CancellationToken.None);
+    private static string ObtenerDirectorioCacheRaster(string tifPath)
+    {
+        var cacheRoot = Path.Combine(Path.GetTempPath(), "Geomatica", "RasterCache");
+        return Path.Combine(cacheRoot, ObtenerCacheKey(tifPath));
+    }
+
+    private static string ObtenerCacheKey(string tifPath)
+    {
+        var normalizedPath = Path.GetFullPath(tifPath).Trim().ToUpperInvariant();
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedPath));
+        return Convert.ToHexString(hash).Substring(0, 16);
     }
 
     public static GeoTiffSidecarResolution Resolve(string tiffPath, RasterInfo rasterInfo)
     {
-        var directory = Path.GetDirectoryName(tiffPath);
-        var name = Path.GetFileNameWithoutExtension(tiffPath);
+        var cacheRasterPath = ObtenerRutaRasterCache(tiffPath);
+        var directory = Path.GetDirectoryName(cacheRasterPath);
+        var name = Path.GetFileNameWithoutExtension(cacheRasterPath);
         if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(name))
             return new(null, null, "No se pudo determinar el directorio del raster.");
 
@@ -71,7 +127,7 @@ public static class GeoTiffSidecarResolver
 
         try
         {
-            if (!TryGetDimensions(rasterInfo, Path.Combine(directory, name + ".aux.xml"), out var width, out var height))
+            if (!TryGetDimensions(rasterInfo, cacheRasterPath + ".aux.xml", out var width, out var height))
                 return new(null, null, "ArcGIS Runtime no informó dimensiones de píxel y el archivo .aux.xml no las contiene.");
 
             var wkt = File.ReadAllText(prjPath);

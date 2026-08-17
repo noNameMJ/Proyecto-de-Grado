@@ -251,10 +251,12 @@ namespace Geomatica.Desktop.ViewModels
             return null;
         }
 
+        var rasterPath = GeoTiffSidecarResolver.ObtenerRutaRasterCache(path);
+
         Raster raster;
         try
         {
-            raster = new Raster(path);
+            raster = new Raster(rasterPath);
             await raster.LoadAsync();
         }
         catch (Exception ex)
@@ -296,6 +298,17 @@ namespace Geomatica.Desktop.ViewModels
             return null;
         }
 
+        if (rasterInfo.SpatialReference == null)
+        {
+            RasterDiagnostics.Log($"Raster rejected without spatial reference after aux.xml sync: {path}");
+            MessageBox.Show(
+                "ArcGIS Runtime cargó el TIFF, pero no obtuvo una referencia espacial después de sincronizar los sidecars.\n\nLa capa no se agregará al mapa.",
+                "Raster sin referencia espacial",
+                MessageBoxButton.OK,
+                MessageBoxImage.Warning);
+            return null;
+        }
+
         // Diagnóstico técnico del ortomosaico (RasterInfo en ArcGIS Runtime WPF
         // solo expone propiedades básicas; evitamos miembros no disponibles).
         try
@@ -313,6 +326,7 @@ namespace Geomatica.Desktop.ViewModels
 
         var rasterLayer = new RasterLayer(raster)
         {
+            Name = Path.GetFileName(path),
             IsVisible = true,
             Opacity = 1.0
         };
@@ -349,7 +363,7 @@ namespace Geomatica.Desktop.ViewModels
         GeoTiffSidecarResolution sidecar;
         try
         {
-            sidecar = GeoTiffSidecarResolver.Resolve(path, rasterInfo);
+            sidecar = GeoTiffSidecarResolver.Resolve(rasterPath, rasterInfo);
         }
         catch (Exception ex)
         {
@@ -362,16 +376,6 @@ namespace Geomatica.Desktop.ViewModels
             return null;
         }
 
-        if (rasterInfo.SpatialReference == null)
-        {
-            RasterDiagnostics.Log($"Raster rejected without spatial reference after aux.xml sync: {path}");
-            MessageBox.Show(
-                "ArcGIS Runtime cargó el TIFF, pero no obtuvo una referencia espacial después de sincronizar los sidecars.\n\nLa capa no se agregará para evitar el error interno del MapView.",
-                "Raster sin referencia espacial",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            return null;
-        }
         var extentSeguro = sidecar.IsValid
             ? sidecar.Envelope
             : rasterLayer.FullExtent ?? rasterInfo.Extent;
