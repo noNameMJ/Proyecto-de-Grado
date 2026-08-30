@@ -6,7 +6,11 @@
              xmlns:esri="http://schemas.esri.com/arcgis/runtime/2013"
              mc:Ignorable="d"
              d:DesignHeight="600" d:DesignWidth="800">
-    <Grid Background="{StaticResource SurfaceBrush}">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    </UserControl.Resources>
+
+    <Grid Background="{StaticResource SurfaceBrush}" FocusManager.FocusedElement="{Binding ElementName=txtTitulo}">
         <ScrollViewer VerticalScrollBarVisibility="Auto">
             <StackPanel Margin="32,24" MaxWidth="800" HorizontalAlignment="Stretch">
 
@@ -19,7 +23,9 @@
                     <StackPanel>
 
                         <TextBlock Text="Título" Style="{StaticResource FieldLabel}"/>
-                        <TextBox Text="{Binding Titulo}" Style="{StaticResource ModernTextBox}" Margin="0,0,0,14"/>
+                        <TextBox x:Name="txtTitulo" Text="{Binding Titulo, UpdateSourceTrigger=PropertyChanged}" Style="{StaticResource ModernTextBox}" Margin="0,0,0,2"/>
+                        <TextBlock Text="El título es obligatorio" Style="{StaticResource ValidationErrorText}"
+                                   Visibility="{Binding TituloInvalido, Converter={StaticResource BoolToVis}}" Margin="0,0,0,10"/>
 
                         <TextBlock Text="Descripción (Opcional)" Style="{StaticResource FieldLabel}"/>
                         <TextBox Text="{Binding Descripcion}" Height="70" AcceptsReturn="True" 
@@ -77,7 +83,12 @@
                         <Separator Style="{StaticResource ModernSeparator}"/>
 
                         <TextBlock Text="Ruta Archivos (Carpeta)" Style="{StaticResource FieldLabel}"/>
-                        <TextBox Text="{Binding Ruta}" Style="{StaticResource ModernTextBox}" Margin="0,0,0,4"/>
+                        <DockPanel Margin="0,0,0,4">
+                            <Button Content="📂 Seleccionar" Command="{Binding SeleccionarCarpetaCommand}" 
+                                    Style="{StaticResource OutlineButton}" DockPanel.Dock="Right" 
+                                    Margin="8,0,0,0" Padding="12,6" FontSize="12"/>
+                            <TextBox Text="{Binding Ruta}" Style="{StaticResource ModernTextBox}"/>
+                        </DockPanel>
                         <TextBlock Text="Ej: C:\Proyectos\Proyecto1" Style="{StaticResource HintText}" Margin="0,0,0,14"/>
 
                         <!-- Acciones -->

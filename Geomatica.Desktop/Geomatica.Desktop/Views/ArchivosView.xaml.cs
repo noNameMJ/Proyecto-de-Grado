@@ -1,4 +1,4 @@
-﻿using System.Windows;
+using System.Windows;
 using System.Windows.Controls;
 using System.ComponentModel;
 
@@ -55,17 +55,17 @@ namespace Geomatica.Desktop.Views
             if (DataContext is ViewModels.ArchivosViewModel vm && ((FrameworkElement)e.OriginalSource).DataContext != null)
             {
                 var item = ((FrameworkElement)e.OriginalSource).DataContext;
-                if (item is Models.CarpetaVirtual carpeta)
+                if (item is Models.NodoArchivoVirtual nodo)
                 {
-                    // navigate into folder
-                    vm.Seleccionado = carpeta;
-                    vm.AbrirCommand.Execute(null);
-                }
-                else if (item is Models.ArchivoVirtual archivo)
-                {
-                    // open file
-                    vm.Seleccionado = archivo;
-                    vm.AbrirCommand.Execute(null);
+                    vm.Seleccionado = nodo;
+                    if (ViewModels.ArchivosViewModel.EsFormatoSoportadoMapa(nodo))
+                    {
+                        vm.AbrirEnMapaCommand.Execute(null);
+                    }
+                    else
+                    {
+                        vm.AbrirCommand.Execute(null);
+                    }
                 }
             }
         }

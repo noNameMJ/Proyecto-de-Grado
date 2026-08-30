@@ -1,4 +1,4 @@
-﻿using Esri.ArcGISRuntime.Data;
+using Esri.ArcGISRuntime.Data;
 using Esri.ArcGISRuntime.Mapping;
 using Esri.ArcGISRuntime.UI;
 using Esri.ArcGISRuntime.UI.Controls;
@@ -7,8 +7,6 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
-using Microsoft.Extensions.DependencyInjection;
-using Geomatica.Data.Repositories;
 using Geomatica.Desktop.Services;
 
 namespace Geomatica.Desktop.Views
@@ -34,6 +32,8 @@ namespace Geomatica.Desktop.Views
             _controlMapView.LayerViewStateChanged += ControlMapView_LayerViewStateChanged;
         }
 
+        private double _lastArchivosHeight = 260.0;
+
         private void MapaView_DataContextChanged(object? sender, DependencyPropertyChangedEventArgs e)
         {
             var mv = _controlMapView;
@@ -46,6 +46,10 @@ namespace Geomatica.Desktop.Views
                 {
                     oldVm.Filtros.BuscarSolicitado -= Filtros_BuscarSolicitado;
                     oldVm.Filtros.ProyectoSeleccionadoEnMapa -= Filtros_ProyectoSeleccionadoEnMapa;
+                }
+                if (oldVm.ArchivosVM != null)
+                {
+                    oldVm.ArchivosVM.PropertyChanged -= ArchivosVM_PropertyChanged;
                 }
 
                 // Save current viewpoint if possible
@@ -80,6 +84,11 @@ namespace Geomatica.Desktop.Views
                 {
                     newVm.Filtros.BuscarSolicitado += Filtros_BuscarSolicitado;
                     newVm.Filtros.ProyectoSeleccionadoEnMapa += Filtros_ProyectoSeleccionadoEnMapa;
+                }
+                if (newVm.ArchivosVM != null)
+                {
+                    newVm.ArchivosVM.PropertyChanged += ArchivosVM_PropertyChanged;
+                    ActualizarLayoutArchivos(newVm.ArchivosVM.HasProyectoDetalle, newVm.ArchivosVM.IsExtendido);
                 }
 
                 // Use the ViewModel to attach the MapView safely (it will detach any previous owner)
@@ -178,6 +187,10 @@ namespace Geomatica.Desktop.Views
                     vm.Filtros.BuscarSolicitado -= Filtros_BuscarSolicitado;
                     vm.Filtros.ProyectoSeleccionadoEnMapa -= Filtros_ProyectoSeleccionadoEnMapa;
                 }
+                if (vm.ArchivosVM != null)
+                {
+                    vm.ArchivosVM.PropertyChanged -= ArchivosVM_PropertyChanged;
+                }
 
                 if (mv != null && vm.Map != null)
                 {
@@ -215,6 +228,62 @@ namespace Geomatica.Desktop.Views
             }
 
             _currentVm = null;
+        }
+
+        private void ArchivosVM_PropertyChanged(object? sender, PropertyChangedEventArgs e)
+        {
+            if (sender is ViewModels.ArchivosViewModel archivosVm &&
+                (e.PropertyName == nameof(ViewModels.ArchivosViewModel.HasProyectoDetalle) ||
+                 e.PropertyName == nameof(ViewModels.ArchivosViewModel.IsExtendido)))
+            {
+                ActualizarLayoutArchivos(archivosVm.HasProyectoDetalle, archivosVm.IsExtendido);
+            }
+        }
+
+        private void ActualizarLayoutArchivos(bool hasProyectoDetalle, bool isExtendido)
+        {
+            Dispatcher.InvokeAsync(() =>
+            {
+                if (!hasProyectoDetalle)
+                {
+                    panelArchivos.Visibility = Visibility.Collapsed;
+                    gridSplitterArchivos.Visibility = Visibility.Collapsed;
+                    panelDetalle.Visibility = Visibility.Collapsed;
+
+                    RowMapa.Height = new GridLength(1, GridUnitType.Star);
+                    RowMapa.MinHeight = 60;
+                    RowArchivos.Height = new GridLength(0, GridUnitType.Pixel);
+                    RowArchivos.MinHeight = 0;
+                }
+                else if (isExtendido)
+                {
+                    if (RowArchivos.Height.IsAbsolute && RowArchivos.Height.Value > 50)
+                    {
+                        _lastArchivosHeight = RowArchivos.Height.Value;
+                    }
+
+                    panelArchivos.Visibility = Visibility.Visible;
+                    gridSplitterArchivos.Visibility = Visibility.Collapsed;
+                    panelDetalle.Visibility = Visibility.Collapsed;
+
+                    RowMapa.Height = new GridLength(0, GridUnitType.Pixel);
+                    RowMapa.MinHeight = 0;
+                    RowArchivos.Height = new GridLength(1, GridUnitType.Star);
+                    RowArchivos.MinHeight = 120;
+                }
+                else
+                {
+                    panelArchivos.Visibility = Visibility.Visible;
+                    gridSplitterArchivos.Visibility = Visibility.Visible;
+                    panelDetalle.Visibility = Visibility.Visible;
+
+                    RowMapa.Height = new GridLength(1, GridUnitType.Star);
+                    RowMapa.MinHeight = 60;
+                    double h = _lastArchivosHeight > 50 ? _lastArchivosHeight : 260.0;
+                    RowArchivos.Height = new GridLength(h, GridUnitType.Pixel);
+                    RowArchivos.MinHeight = 120;
+                }
+            });
         }
 
         private void ControlMapView_LayerViewStateChanged(object? sender, LayerViewStateChangedEventArgs e)
@@ -413,62 +482,7 @@ namespace Geomatica.Desktop.Views
         {
             try
             {
-                IServiceProvider? provider = null;
-                if (Application.Current.Properties.Contains("ServiceProvider"))
-                    provider = Application.Current.Properties["ServiceProvider"] as IServiceProvider;
-
-                if (provider == null)
-                {
-                    Debug.WriteLine("[MapaView] No se encontró ServiceProvider para cargar proyectos.");
-                    return;
-                }
-
-                var muniRepo = provider.GetService<IMunicipioRepository>();
-                if (muniRepo == null)
-                {
-                    Debug.WriteLine("[MapaView] IMunicipioRepository no está registrado en DI.");
-                    return;
-                }
-
-                double? minX = null;
-                double? minY = null;
-                double? maxX = null;
-                double? maxY = null;
-
-                if (vm.Filtros.AreaInteres is ViewModels.FiltrosViewModel.MunicipioItem muni
-                    && !string.IsNullOrEmpty(muni.Codigo))
-                {
-                    var extent = await muniRepo.ExtentPorMunicipiosAsync(new[] { muni.Codigo });
-                    if (extent != null)
-                    {
-                        minX = extent.West;
-                        minY = extent.South;
-                        maxX = extent.East;
-                        maxY = extent.North;
-                    }
-                }
-                else if (vm.Filtros.SelectedDepartamento is ViewModels.FiltrosViewModel.DepartamentoItem dept
-                         && !string.IsNullOrEmpty(dept.Codigo))
-                {
-                    var extent = await muniRepo.ExtentPorDepartamentoAsync(dept.Codigo);
-                    if (extent != null)
-                    {
-                        minX = extent.West;
-                        minY = extent.South;
-                        maxX = extent.East;
-                        maxY = extent.North;
-                    }
-                }
-
-                var items = await vm.BuscarYActualizarCapasAsync(
-                    vm.Filtros.PalabraClave,
-                    vm.Filtros.Desde,
-                    vm.Filtros.Hasta,
-                    minX,
-                    minY,
-                    maxX,
-                    maxY,
-                    ct);
+                var items = await vm.BuscarConFiltrosGeograficosAsync(ct);
 
                 // Si llegó una búsqueda más reciente, descartar estos resultados
                 if (ct.IsCancellationRequested) return;
@@ -518,16 +532,15 @@ namespace Geomatica.Desktop.Views
                         vm.Filtros.ResultadosLista.Add(new ViewModels.FiltrosViewModel.ProyectoItem(p.Id, p.Titulo, p.Longitud, p.Latitud, p.RutaArchivos));
                     }
 
-                    vm.Filtros.ResultadosResumen.Add($"{items.Count} proyectos");
-                    for (int i = 0; i < Math.Min(5, items.Count); i++)
-                    {
-                        vm.Filtros.ResultadosResumen.Add(items[i].Titulo);
-                    }
+                    string textoConteo = items.Count == 1 ? "1 proyecto encontrado" : $"{items.Count} proyectos encontrados";
+                    vm.Filtros.ResultadosResumen.Add(textoConteo);
 
                     if (items.Count == 0)
                     {
                         Debug.WriteLine("[MapaView] No se encontraron proyectos en la consulta.");
                     }
+
+                    vm.Filtros.NotificarResultadosCargados();
                 });
             }
             catch (OperationCanceledException)
@@ -537,6 +550,7 @@ namespace Geomatica.Desktop.Views
             catch (Exception ex)
             {
                 Debug.WriteLine($"[MapaView] Error cargando proyectos: {ex}");
+                await Dispatcher.InvokeAsync(() => vm.Filtros.NotificarResultadosCargados());
             }
         }
     }

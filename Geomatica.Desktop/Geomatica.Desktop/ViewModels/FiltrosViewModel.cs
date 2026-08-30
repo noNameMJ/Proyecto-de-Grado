@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Geomatica.Data.Repositories;
 using System.Collections.ObjectModel;
@@ -18,7 +18,9 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty] private ProyectoItem? selectedProyecto;
 
         [ObservableProperty] private DepartamentoItem? selectedDepartamento;
+        [ObservableProperty] private bool isBuscando;
 
+        public bool NoHayResultados => !IsBuscando && ResultadosLista.Count == 0;
         public ObservableCollection<DepartamentoItem> Departamentos { get; } = new();
         public ObservableCollection<object> Areas { get; } = new();
 
@@ -75,11 +77,20 @@ namespace Geomatica.Desktop.ViewModels
             _debounceCts = new CancellationTokenSource();
             var token = _debounceCts.Token;
 
+            IsBuscando = true;
+            OnPropertyChanged(nameof(NoHayResultados));
+
             _ = Task.Delay(DebounceMs).ContinueWith(t =>
             {
                 if (!token.IsCancellationRequested)
                     BuscarSolicitado?.Invoke(this, EventArgs.Empty);
             }, TaskScheduler.FromCurrentSynchronizationContext());
+        }
+
+        public void NotificarResultadosCargados()
+        {
+            IsBuscando = false;
+            OnPropertyChanged(nameof(NoHayResultados));
         }
 
         private async Task CargarDepartamentosAsync()

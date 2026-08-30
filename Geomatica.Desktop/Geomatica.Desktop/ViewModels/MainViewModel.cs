@@ -1,6 +1,7 @@
 ﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Geomatica.Data.Repositories;
+using Geomatica.Desktop.Services;
 
 namespace Geomatica.Desktop.ViewModels
 {
@@ -17,6 +18,7 @@ namespace Geomatica.Desktop.ViewModels
         };
 
         public FiltrosViewModel Filtros { get; }
+        public INotificationService Notifications { get; }
 
         private readonly Func<MapaViewModel> _mapFactory;
         private readonly Func<ArchivosViewModel> _filesFactory;
@@ -29,12 +31,14 @@ namespace Geomatica.Desktop.ViewModels
 
         public MainViewModel(
             FiltrosViewModel filtros,
+            INotificationService notifications,
             Func<MapaViewModel> mapFactory,
             Func<ArchivosViewModel> filesFactory,
             Func<Action, Action?, CrearProyectoViewModel> createFactory,
             Func<ProyectoDetalleDto, Action, Action?, EditarProyectoViewModel> editFactory)
         {
             Filtros = filtros;
+            Notifications = notifications;
             _mapFactory = mapFactory;
             _filesFactory = filesFactory;
             _createFactory = createFactory;

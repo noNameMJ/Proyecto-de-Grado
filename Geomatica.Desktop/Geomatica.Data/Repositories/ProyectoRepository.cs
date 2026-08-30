@@ -1,4 +1,4 @@
-﻿using Npgsql;
+using Npgsql;
 using NpgsqlTypes;
 using System.Diagnostics;
 using System.Globalization;
@@ -22,10 +22,12 @@ namespace Geomatica.Data.Repositories
             string? texto,
             DateTime? desde,
             DateTime? hasta,
-            double? minX,
-            double? minY,
-            double? maxX,
-            double? maxY,
+            string? dptoCodigo = null,
+            string? mpioCodigo = null,
+            double? minX = null,
+            double? minY = null,
+            double? maxX = null,
+            double? maxY = null,
             CancellationToken ct = default)
         {
             if (minX.HasValue || minY.HasValue || maxX.HasValue || maxY.HasValue)
@@ -49,6 +51,8 @@ namespace Geomatica.Data.Repositories
                   AND (@desde IS NULL OR p.fecha >= @desde)
                   AND (@hasta IS NULL OR p.fecha <= @hasta)
                   AND (@texto IS NULL OR p.palabra_clave ILIKE '%' || @texto || '%')
+                  AND (@dpto IS NULL OR m.dpto_ccdgo = @dpto)
+                  AND (@mpio IS NULL OR pm.mpio_cdpmp = @mpio)
                   AND (
                       @area IS NULL
                       OR ST_Intersects(
@@ -65,6 +69,8 @@ namespace Geomatica.Data.Repositories
             cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Timestamp) { Value = (object?)desde ?? DBNull.Value });
             cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Timestamp) { Value = (object?)hasta ?? DBNull.Value });
             cmd.Parameters.Add(new NpgsqlParameter("@texto", NpgsqlDbType.Text) { Value = (object?)texto ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@dpto", NpgsqlDbType.Text) { Value = string.IsNullOrWhiteSpace(dptoCodigo) ? DBNull.Value : (object)dptoCodigo });
+            cmd.Parameters.Add(new NpgsqlParameter("@mpio", NpgsqlDbType.Text) { Value = string.IsNullOrWhiteSpace(mpioCodigo) ? DBNull.Value : (object)mpioCodigo });
             cmd.Parameters.Add(new NpgsqlParameter("@area", NpgsqlDbType.Text) { Value = (object?)CrearEnvelopeGeoJson(minX, minY, maxX, maxY) ?? DBNull.Value });
 
             var proyectos = new List<ProyectoGeomatico>();

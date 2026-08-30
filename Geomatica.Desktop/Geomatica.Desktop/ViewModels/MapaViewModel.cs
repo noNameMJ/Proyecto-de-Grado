@@ -1,4 +1,4 @@
-﻿using Esri.ArcGISRuntime.Data;
+using Esri.ArcGISRuntime.Data;
 using Esri.ArcGISRuntime.Geometry;
 using Esri.ArcGISRuntime.Mapping;
 using Esri.ArcGISRuntime.Symbology;
@@ -28,100 +28,108 @@ namespace Geomatica.Desktop.ViewModels
         public IRelayCommand? ZoomCommand { get; set; }
     }
 
- public class MapaViewModel : INotifyPropertyChanged
- {
- private readonly IProyectoRepository _proyectos;
- private readonly BuscarProyectosUseCase _buscarProyectos;
- private readonly IMunicipioRepository _municipios;
-
- // Referencia opcional a los filtros compartidos
- public FiltrosViewModel Filtros { get; }
- public ArchivosViewModel ArchivosVM { get; }
- private Layer? _layerMunicipios;
- private Layer? _layerProyectos;
- public Layer? LayerProyectos => _layerProyectos;
- private IReadOnlyList<MunicipioGeoJsonDto>? _cachedMunicipios;
- private Dictionary<string, Geometry>? _cachedGeometries;
- private IReadOnlyList<string>? _ultimosCodigosMunicipio;
- private Dictionary<long, int> _oidToProjectId = new();
- private int _updateGeneration;
-
- // Track the MapView that currently displays this Map to release ownership when re-attaching
- private MapView? _ownerMapView;
- private readonly Dictionary<Layer, Envelope> _rasterExtentsSeguros = new();
-
- public ObservableCollection<CapaUsuarioItem> CapasAdicionales { get; } = new();
-
- public string? UltimosSidecarsRaster { get; private set; }
-
- // Comando y evento para Home (MVVM)
- public IRelayCommand HomeCommand { get; }
- public IAsyncRelayCommand RestablecerVistaMapaCommand { get; }
- public event EventHandler? HomeRequested;
- public event EventHandler<ProyectoDetalleDto>? FichaProyectoSolicitada;
-
- // Nuevo constructor: recibe los filtros (opción B)
- public MapaViewModel(BuscarProyectosUseCase buscarProyectos, IProyectoRepository proyectos, IMunicipioRepository municipios, FiltrosViewModel filtros, ArchivosViewModel archivosVM)
- {
- _buscarProyectos = buscarProyectos;
- _proyectos = proyectos;
- _municipios = municipios;
- Filtros = filtros;
- ArchivosVM = archivosVM;
-
- HomeCommand = new RelayCommand(() => HomeRequested?.Invoke(this, EventArgs.Empty));
- RestablecerVistaMapaCommand = new AsyncRelayCommand(RestablecerVistaMapaAsync);
-
- ArchivosVM.AbrirEnMapaSolicitado += async (s, path) => await CargarCapaAdicionalAsync(path);
- Filtros.PropertyChanged += Filtros_PropertyChanged;
-
- SetupMap();
- }
-
- private async void Filtros_PropertyChanged(object? sender, PropertyChangedEventArgs e)
- {
-     if (e.PropertyName == nameof(FiltrosViewModel.SelectedProyecto))
-     {
-         if (Filtros.SelectedProyecto != null)
-         {
-             await AbrirFichaProyectoAsync(Filtros.SelectedProyecto.Id);
-         }
-     }
- }
-
- private async Task CargarCapaAdicionalAsync(string path)
- {
-    if (Map == null) return;
-    try
+    public class MapaViewModel : INotifyPropertyChanged
     {
-        RasterDiagnostics.Log($"Loading user layer path={path}");
-        RasterDiagnostics.LogDispatcher("MapaViewModel.CargarCapaAdicionalAsync");
-        RasterDiagnostics.LogFile(path);
-        Layer? layer = null;
-        var ext = Path.GetExtension(path).ToLowerInvariant();
+        private readonly IProyectoRepository _proyectos;
+        private readonly BuscarProyectosUseCase _buscarProyectos;
+        private readonly IMunicipioRepository _municipios;
 
-        if (ext == ".shp")
+        // Referencia opcional a los filtros compartidos
+        public FiltrosViewModel Filtros { get; }
+        public ArchivosViewModel ArchivosVM { get; }
+        private Layer? _layerMunicipios;
+        private Layer? _layerProyectos;
+        public Layer? LayerProyectos => _layerProyectos;
+        private IReadOnlyList<MunicipioGeoJsonDto>? _cachedMunicipios;
+        private Dictionary<string, Geometry>? _cachedGeometries;
+        private IReadOnlyList<string>? _ultimosCodigosMunicipio;
+        private Dictionary<long, int> _oidToProjectId = new();
+        private int _updateGeneration;
+
+        // Track the MapView that currently displays this Map to release ownership when re-attaching
+        private MapView? _ownerMapView;
+        private readonly Dictionary<Layer, Envelope> _rasterExtentsSeguros = new();
+
+        public ObservableCollection<CapaUsuarioItem> CapasAdicionales { get; } = new();
+
+        public string? UltimosSidecarsRaster { get; private set; }
+
+        // Comando y evento para Home (MVVM)
+        public IRelayCommand HomeCommand { get; }
+        public IAsyncRelayCommand RestablecerVistaMapaCommand { get; }
+        public event EventHandler? HomeRequested;
+        public event EventHandler<ProyectoDetalleDto>? FichaProyectoSolicitada;
+
+        // Inyección de notificaciones
+        private readonly Geomatica.Desktop.Services.INotificationService? _notifications;
+
+        public MapaViewModel(
+            BuscarProyectosUseCase buscarProyectos, 
+            IProyectoRepository proyectos, 
+            IMunicipioRepository municipios, 
+            FiltrosViewModel filtros, 
+            ArchivosViewModel archivosVM,
+            Geomatica.Desktop.Services.INotificationService? notifications = null)
         {
-            var shapefile = await ShapefileFeatureTable.OpenAsync(path);
-            layer = new FeatureLayer(shapefile);
+            _buscarProyectos = buscarProyectos;
+            _proyectos = proyectos;
+            _municipios = municipios;
+            Filtros = filtros;
+            ArchivosVM = archivosVM;
+            _notifications = notifications;
+
+            HomeCommand = new RelayCommand(() => HomeRequested?.Invoke(this, EventArgs.Empty));
+            RestablecerVistaMapaCommand = new AsyncRelayCommand(RestablecerVistaMapaAsync);
+
+            ArchivosVM.AbrirEnMapaSolicitado += async (s, path) => await CargarCapaAdicionalAsync(path);
+            Filtros.PropertyChanged += Filtros_PropertyChanged;
+
+            SetupMap();
         }
-        else if (ext == ".kml" || ext == ".kmz")
+
+        private async void Filtros_PropertyChanged(object? sender, PropertyChangedEventArgs e)
         {
-            var dataset = new Esri.ArcGISRuntime.Ogc.KmlDataset(new Uri(path));
-            layer = new KmlLayer(dataset);
+            if (e.PropertyName == nameof(FiltrosViewModel.SelectedProyecto))
+            {
+                if (Filtros.SelectedProyecto != null)
+                {
+                    await AbrirFichaProyectoAsync(Filtros.SelectedProyecto.Id);
+                }
+            }
         }
-        else if (ext == ".geodatabase" || ext == ".gdb")
+
+        private async Task CargarCapaAdicionalAsync(string path)
         {
-            // Maneja bases de datos locales .geodatabase y file geodatabases (.gdb) si el SDK lo soporta como path
-            var gdb = await Geodatabase.OpenAsync(path);
-            var table = gdb.GeodatabaseFeatureTables.FirstOrDefault();
-            if (table != null) layer = new FeatureLayer(table);
-        }
-        else if (ext == ".slpk")
-        {
-            // IntegratedMesh, PointCloud or 3D Objects in a Scene Layer
-            layer = new ArcGISSceneLayer(new Uri(path));
-        }
+            if (Map == null) return;
+            try
+            {
+                RasterDiagnostics.Log($"Loading user layer path={path}");
+                RasterDiagnostics.LogDispatcher("MapaViewModel.CargarCapaAdicionalAsync");
+                RasterDiagnostics.LogFile(path);
+                Layer? layer = null;
+                var ext = Path.GetExtension(path).ToLowerInvariant();
+
+                if (ext == ".shp")
+                {
+                    var shapefile = await ShapefileFeatureTable.OpenAsync(path);
+                    layer = new FeatureLayer(shapefile);
+                }
+                else if (ext == ".kml" || ext == ".kmz")
+                {
+                    var dataset = new Esri.ArcGISRuntime.Ogc.KmlDataset(new Uri(path));
+                    layer = new KmlLayer(dataset);
+                }
+                else if (ext == ".geodatabase" || ext == ".gdb")
+                {
+                    var gdb = await Geodatabase.OpenAsync(path);
+                    var table = gdb.GeodatabaseFeatureTables.FirstOrDefault();
+                    if (table != null) layer = new FeatureLayer(table);
+                }
+                else if (ext == ".slpk")
+                {
+                    layer = new ArcGISSceneLayer(new Uri(path));
+                }
+
         else if (ext == ".las" || ext == ".laz" || ext == ".zlas")
         {
             // Nota: Para visualizar archivos de Nube de Puntos directamente en MapView WPF como dataset
@@ -141,15 +149,14 @@ namespace Geomatica.Desktop.ViewModels
             layer = await CrearRasterLayerValidadoAsync(path);
             if (layer == null) return;
         }
-
         if (layer != null)
         {
+            layer.ShowInLegend = false;
             if (layer is RasterLayer rasterLayer)
             {
                 rasterLayer.IsVisible = true;
                 rasterLayer.Opacity = 1.0;
             }
-
             layer.LoadStatusChanged += async (s, e) =>
             {
                 RasterDiagnostics.LogArcGisLayerError("Layer.LoadStatusChanged", layer.Name, e.Status.ToString(), layer.LoadError);
@@ -204,235 +211,279 @@ namespace Geomatica.Desktop.ViewModels
                     await ZoomCapaSeguraAsync(item.Capa, 50, "manual");
             });
 
-            Application.Current.Dispatcher.Invoke(() => CapasAdicionales.Add(item));
+            Application.Current.Dispatcher.Invoke(() => 
+            {
+                CapasAdicionales.Add(item);
+                _notifications?.ShowSuccess($"Capa '{item.Nombre}' añadida al mapa.", "Capa Añadida");
+            });
         }
         else
         {
-            MessageBox.Show("El formato de archivo no se puede mostrar en el mapa.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+            _notifications?.ShowWarning("El formato de archivo no se puede mostrar en el mapa.", "Formato no compatible");
         }
     }
     catch (Exception ex)
     {
         RasterDiagnostics.LogException("Unexpected user layer load error", ex);
-        MessageBox.Show($"Error al cargar en mapa: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Warning);
+        _notifications?.ShowError($"Error al cargar en mapa: {ex.Message}", "Error al Cargar Capa");
     }
  }
 
     private async Task<Layer?> CrearRasterLayerValidadoAsync(string path)
     {
-    try
-    {
-        if (!File.Exists(path))
-        {
-            MessageBox.Show("El archivo raster no existe en la ruta indicada.", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return null;
-        }
-
-        var fileInfo = new FileInfo(path);
-        var sidecars = BuscarSidecarsRaster(path);
-        UltimosSidecarsRaster = sidecars.Count == 0
-            ? null
-            : string.Join(", ", sidecars.Select(Path.GetFileName));
-        RasterDiagnostics.LogPix4DProduct(path, "orthomosaic", sidecars);
-        RasterDiagnostics.Log($"TIFF selected path={path}; sidecars={string.Join(", ", sidecars.Select(s => Path.GetFileName(s)))}");
-
         try
         {
-            await GeoTiffSidecarResolver.AsegurarAuxXmlGeorreferenciadoAsync(path);
-        }
-        catch (Exception ex)
-        {
-            RasterDiagnostics.LogException("GeoTIFF aux.xml synchronization failed", ex);
-            MessageBox.Show(
-                $"No se pudo preparar el archivo .aux.xml para el TIFF.\n\nRuta: {path}\nDetalle: {ex.Message}\n\nLa capa no se agregará al mapa.",
-                "Sidecars no válidos",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            return null;
-        }
+            if (!File.Exists(path))
+            {
+                MessageBox.Show("El archivo raster no existe en la ruta indicada.", "Aviso de Raster", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return null;
+            }
 
-        var rasterPath = GeoTiffSidecarResolver.ObtenerRutaRasterCache(path);
+            var fileInfo = new FileInfo(path);
+            var sidecars = BuscarSidecarsRaster(path);
+            UltimosSidecarsRaster = sidecars.Count == 0
+                ? null
+                : string.Join(", ", sidecars.Select(Path.GetFileName));
+            RasterDiagnostics.LogPix4DProduct(path, "orthomosaic", sidecars);
+            RasterDiagnostics.Log($"TIFF selected path={path}; sidecars={string.Join(", ", sidecars.Select(s => Path.GetFileName(s)))}");
 
-        Raster raster;
-        try
-        {
-            raster = new Raster(rasterPath);
-            await raster.LoadAsync();
-        }
-        catch (Exception ex)
-        {
-            RasterDiagnostics.LogException("Raster.LoadAsync exception", ex);
-            MessageBox.Show(
-                $"ArcGIS Runtime no pudo abrir el TIFF/BigTIFF.\n\nRuta: {path}\nDetalle: {ex.Message}\n\nVerifica que el formato y la compresión sean compatibles y genera pirámides si el ortomosaico es muy grande.",
-                "Formato raster no compatible",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            return null;
-        }
+            // 1. Intentar carga directa del raster desde su ruta original
+            // Los GeoTIFFs transparentes de Pix4D con CRS embebido cargan de inmediato sin necesidad de sidecars
+            Raster? raster = null;
+            string rasterPath = path;
+            bool isDirectLoad = true;
 
-        if (raster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
-        {
-            RasterDiagnostics.LogException("Raster.LoadAsync failed", raster.LoadError);
-            MessageBox.Show(
-                $"No se pudo cargar el ortomosaico.\n\n" +
-                $"Ruta: {path}\n" +
-                $"Detalle: {ObtenerMensajeErrorArcGis(raster.LoadError)}\n\n" +
-                "Consejo para Pix4D: exporta el ortomosaico como GeoTIFF con el sistema de coordenadas incrustado (por ejemplo EPSG:4326 si trabajas en WGS84, o el CRS proyectado del proyecto). " +
-                "Asegúrate de que el archivo no esté bloqueado por otro proceso y que tenga las pirámides (overviews) generadas.",
-                "Error de ortomosaico",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
-            return null;
-        }
+            try
+            {
+                var directRaster = new Raster(path);
+                await directRaster.LoadAsync();
+                if (directRaster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.Loaded && directRaster.RasterInfo?.SpatialReference != null)
+                {
+                    raster = directRaster;
+                    RasterDiagnostics.Log($"Direct Raster load succeeded with SpatialReference={raster.RasterInfo.SpatialReference}");
+                }
+                else
+                {
+                    RasterDiagnostics.Log($"Direct Raster load did not obtain SpatialReference (LoadStatus={directRaster.LoadStatus}).");
+                }
+            }
+            catch (Exception ex)
+            {
+                RasterDiagnostics.LogException("Direct Raster.LoadAsync exception", ex);
+            }
 
-        var rasterInfo = raster.RasterInfo;
-        if (rasterInfo == null)
-        {
-            RasterDiagnostics.Log($"RasterInfo is null path={path}");
-            MessageBox.Show(
-                "No se pudo leer la información del ortomosaico.\n\n" +
-                "Verifica que el GeoTIFF generado por Pix4D no esté corrupto y que incluya metadatos de georreferenciación.",
-                "Aviso de ortomosaico",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            return null;
-        }
+            // 2. Si la carga directa no obtuvo SpatialReference, intentar el fallback con sidecars (.prj + .tfw)
+            if (raster == null)
+            {
+                RasterDiagnostics.Log($"Attempting sidecar resolution for: {path}");
+                
+                try
+                {
+                    await GeoTiffSidecarResolver.AsegurarAuxXmlGeorreferenciadoAsync(path);
+                }
+                catch (Exception ex)
+                {
+                    RasterDiagnostics.LogException("GeoTIFF aux.xml synchronization failed", ex);
+                }
 
-        if (rasterInfo.SpatialReference == null)
-        {
-            RasterDiagnostics.Log($"Raster rejected without spatial reference after aux.xml sync: {path}");
-            MessageBox.Show(
-                "ArcGIS Runtime cargó el TIFF, pero no obtuvo una referencia espacial después de sincronizar los sidecars.\n\nLa capa no se agregará al mapa.",
-                "Raster sin referencia espacial",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            return null;
-        }
+                var cacheRasterPath = GeoTiffSidecarResolver.ObtenerRutaRasterCache(path);
+                if (File.Exists(cacheRasterPath))
+                {
+                    try
+                    {
+                        var fallbackRaster = new Raster(cacheRasterPath);
+                        await fallbackRaster.LoadAsync();
+                        if (fallbackRaster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.Loaded)
+                        {
+                            raster = fallbackRaster;
+                            rasterPath = cacheRasterPath;
+                            isDirectLoad = false;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        RasterDiagnostics.LogException("Fallback Raster.LoadAsync exception", ex);
+                    }
+                }
+            }
 
-        // Diagnóstico técnico del ortomosaico (RasterInfo en ArcGIS Runtime WPF
-        // solo expone propiedades básicas; evitamos miembros no disponibles).
-        try
-        {
-            RasterDiagnostics.LogRasterInfo(
+            // Si ambos fallaron, intentar una última carga directa para capturar el error de ArcGIS
+            if (raster == null)
+            {
+                try
+                {
+                    raster = new Raster(path);
+                    await raster.LoadAsync();
+                }
+                catch (Exception ex)
+                {
+                    RasterDiagnostics.LogException("Final Raster.LoadAsync exception", ex);
+                }
+            }
+
+            if (raster == null || raster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
+            {
+                RasterDiagnostics.LogException("Raster.LoadAsync failed", raster?.LoadError);
+                MessageBox.Show(
+                    $"No se pudo cargar el ortomosaico.\n\n" +
+                    $"Ruta: {path}\n" +
+                    $"Detalle: {ObtenerMensajeErrorArcGis(raster?.LoadError)}\n\n" +
+                    "Consejo para Pix4D: exporta el ortomosaico como GeoTIFF con el sistema de coordenadas incrustado (por ejemplo EPSG:4326 si trabajas en WGS84, o el CRS proyectado del proyecto). " +
+                    "Asegúrate de que el archivo no esté bloqueado por otro proceso y que tenga las pirámides (overviews) generadas.",
+                    "Error de ortomosaico",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                return null;
+            }
+
+            var rasterInfo = raster.RasterInfo;
+            if (rasterInfo == null)
+            {
+                RasterDiagnostics.Log($"RasterInfo is null path={path}");
+                MessageBox.Show(
+                    "No se pudo leer la información del ortomosaico.\n\n" +
+                    "Verifica que el GeoTIFF generado por Pix4D no esté corrupto y que incluya metadatos de georreferenciación.",
+                    "Aviso de ortomosaico",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return null;
+            }
+
+            // Diagnóstico técnico del ortomosaico
+            try
+            {
+                RasterDiagnostics.LogRasterInfo(
+                    path,
+                    Path.GetFileName(path),
+                    rasterInfo.Extent?.ToString(),
+                    rasterInfo.SpatialReference?.ToString());
+            }
+            catch (Exception ex)
+            {
+                RasterDiagnostics.LogException("RasterInfo diagnostics failed", ex);
+            }
+
+            var rasterLayer = new RasterLayer(raster)
+            {
+                Name = Path.GetFileName(path),
+                IsVisible = true,
+                Opacity = 1.0,
+                ShowInLegend = false
+            };
+            rasterLayer.LoadStatusChanged += (s, e) =>
+            {
+                RasterDiagnostics.LogArcGisLayerError("RasterLayer.LoadStatusChanged", rasterLayer.Name, e.Status.ToString(), rasterLayer.LoadError);
+            };
+
+            await rasterLayer.LoadAsync();
+            RasterDiagnostics.LogRasterMetadata(
                 path,
-                Path.GetFileName(path),
+                fileInfo.Length,
+                raster.LoadStatus.ToString(),
+                rasterLayer.LoadStatus.ToString(),
                 rasterInfo.Extent?.ToString(),
-                rasterInfo.SpatialReference?.ToString());
+                rasterLayer.FullExtent?.ToString(),
+                rasterInfo.SpatialReference?.ToString(),
+                rasterLayer.SpatialReference?.ToString(),
+                FormatearSpatialReferenceId(rasterInfo.SpatialReference),
+                FormatearSpatialReferenceId(rasterLayer.SpatialReference));
+
+            if (rasterLayer.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
+            {
+                RasterDiagnostics.LogException("RasterLayer.LoadAsync failed", rasterLayer.LoadError);
+                MessageBox.Show(
+                    $"ArcGIS Runtime cargó el TIFF, pero no pudo crear la capa raster.\n\nRuta: {path}\nDetalle: {ObtenerMensajeErrorArcGis(rasterLayer.LoadError)}",
+                    "Error de Raster",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Error);
+                return null;
+            }
+
+            // Determinar Envelope y SpatialReference válidos
+            Envelope? extentSeguro = null;
+            SpatialReference? spatialReferenceSegura = null;
+
+            if (isDirectLoad && (rasterLayer.SpatialReference != null || rasterInfo.SpatialReference != null))
+            {
+                extentSeguro = rasterLayer.FullExtent ?? rasterInfo.Extent;
+                spatialReferenceSegura = rasterLayer.SpatialReference ?? rasterInfo.SpatialReference;
+            }
+            else
+            {
+                // Fallback con sidecars
+                GeoTiffSidecarResolution sidecar;
+                try
+                {
+                    sidecar = GeoTiffSidecarResolver.Resolve(rasterPath, rasterInfo);
+                }
+                catch (Exception ex)
+                {
+                    RasterDiagnostics.LogException("GeoTIFF sidecar resolution failed", ex);
+                    sidecar = new(null, null, ex.Message);
+                }
+
+                if (sidecar.IsValid)
+                {
+                    extentSeguro = sidecar.Envelope;
+                    spatialReferenceSegura = sidecar.SpatialReference;
+                }
+                else
+                {
+                    extentSeguro = rasterLayer.FullExtent ?? rasterInfo.Extent;
+                    spatialReferenceSegura = rasterLayer.SpatialReference ?? rasterInfo.SpatialReference;
+                }
+            }
+
+            var validationError = ValidarRasterGeorreferenciado(path, rasterInfo, rasterLayer, sidecars);
+            if (validationError != null && (spatialReferenceSegura == null || extentSeguro == null || !EsEnvelopeFinito(extentSeguro)))
+            {
+                RasterDiagnostics.Log($"Raster rejected path={path}; reason={validationError.Replace(Environment.NewLine, " | ")}");
+                MessageBox.Show(
+                    $"El TIFF no tiene georreferenciación utilizable.\n\nRuta: {path}\nDetalle: {validationError}\n\nNo se agregará la capa ni se modificará la vista del mapa.",
+                    "Raster sin georreferenciación válida",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return null;
+            }
+
+            if (extentSeguro == null || spatialReferenceSegura == null || !EsEnvelopeFinito(extentSeguro))
+            {
+                MessageBox.Show(
+                    "El TIFF no tiene un extent geográfico válido; la carga fue cancelada para proteger la vista del mapa.",
+                    "Raster sin georreferenciación válida",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
+                return null;
+            }
+
+            _rasterExtentsSeguros[rasterLayer] = extentSeguro;
+
+            if (fileInfo.Length > 700_000_000)
+            {
+                MessageBox.Show(
+                    "El ortomosaico se cargó correctamente, pero el archivo es grande. " +
+                    "Si el paneo o zoom se siente lento, genera pirámides internas (overviews) en Pix4D o convierte el GeoTIFF a COG (Cloud Optimized GeoTIFF).",
+                    "Ortomosaico grande",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Information);
+            }
+
+            return rasterLayer;
         }
         catch (Exception ex)
         {
-            RasterDiagnostics.LogException("RasterInfo diagnostics failed", ex);
-        }
-
-        var rasterLayer = new RasterLayer(raster)
-        {
-            Name = Path.GetFileName(path),
-            IsVisible = true,
-            Opacity = 1.0
-        };
-        rasterLayer.LoadStatusChanged += (s, e) =>
-        {
-            RasterDiagnostics.LogArcGisLayerError("RasterLayer.LoadStatusChanged", rasterLayer.Name, e.Status.ToString(), rasterLayer.LoadError);
-        };
-
-        await rasterLayer.LoadAsync();
-        RasterDiagnostics.LogRasterMetadata(
-            path,
-            fileInfo.Length,
-            raster.LoadStatus.ToString(),
-            rasterLayer.LoadStatus.ToString(),
-            rasterInfo.Extent?.ToString(),
-            rasterLayer.FullExtent?.ToString(),
-            rasterInfo.SpatialReference?.ToString(),
-            rasterLayer.SpatialReference?.ToString(),
-            FormatearSpatialReferenceId(rasterInfo.SpatialReference),
-            FormatearSpatialReferenceId(rasterLayer.SpatialReference));
-
-        if (rasterLayer.LoadStatus == Esri.ArcGISRuntime.LoadStatus.FailedToLoad)
-        {
-            RasterDiagnostics.LogException("RasterLayer.LoadAsync failed", rasterLayer.LoadError);
+            RasterDiagnostics.LogException("Exception loading TIFF raster", ex);
             MessageBox.Show(
-                $"ArcGIS Runtime cargó el TIFF, pero no pudo crear la capa raster.\n\nRuta: {path}\nDetalle: {ObtenerMensajeErrorArcGis(rasterLayer.LoadError)}",
+                $"Error al leer el archivo TIFF.\n\nRuta: {path}\nDetalle: {ex.Message}",
                 "Error de Raster",
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             return null;
         }
-
-        var validationError = ValidarRasterGeorreferenciado(path, rasterInfo, rasterLayer, sidecars);
-        GeoTiffSidecarResolution sidecar;
-        try
-        {
-            sidecar = GeoTiffSidecarResolver.Resolve(rasterPath, rasterInfo);
-        }
-        catch (Exception ex)
-        {
-            RasterDiagnostics.LogException("GeoTIFF sidecar resolution failed", ex);
-            MessageBox.Show(
-                $"No se pudieron resolver los sidecars del TIFF.\n\nRuta: {path}\nDetalle: {ex.Message}\n\nLa capa no se agregará al mapa.",
-                "Sidecars no válidos",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            return null;
-        }
-
-        var extentSeguro = sidecar.IsValid
-            ? sidecar.Envelope
-            : rasterLayer.FullExtent ?? rasterInfo.Extent;
-        var spatialReferenceSegura = sidecar.IsValid
-            ? sidecar.SpatialReference
-            : rasterLayer.SpatialReference ?? rasterInfo.SpatialReference;
-
-        if (validationError != null && !sidecar.IsValid)
-        {
-            var reason = sidecar.Error ?? validationError;
-            RasterDiagnostics.Log($"Raster rejected path={path}; reason={reason.Replace(Environment.NewLine, " | ")}");
-            MessageBox.Show(
-                $"El TIFF no tiene georreferenciación utilizable.\n\nRuta: {path}\nDetalle: {reason}\n\nNo se agregará la capa ni se modificará la vista del mapa.",
-                "Raster sin georreferenciación válida",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            return null;
-        }
-
-        if (extentSeguro == null || spatialReferenceSegura == null || !EsEnvelopeFinito(extentSeguro))
-        {
-            MessageBox.Show(
-                "El TIFF no tiene un extent geográfico válido; la carga fue cancelada para proteger la vista del mapa.",
-                "Raster sin georreferenciación válida",
-                MessageBoxButton.OK,
-                MessageBoxImage.Warning);
-            return null;
-        }
-
-        _rasterExtentsSeguros[rasterLayer] = extentSeguro;
-
-        if (fileInfo.Length > 700_000_000)
-        {
-            MessageBox.Show(
-                "El ortomosaico se cargó correctamente, pero el archivo es grande. " +
-                "Si el paneo o zoom se siente lento, genera pirámides internas (overviews) en Pix4D o convierte el GeoTIFF a COG (Cloud Optimized GeoTIFF).",
-                "Ortomosaico grande",
-                MessageBoxButton.OK,
-                MessageBoxImage.Information);
-        }
-
-        return rasterLayer;
-    }
-    catch (Exception ex)
-    {
-        RasterDiagnostics.LogException("Exception loading TIFF raster", ex);
-        MessageBox.Show(
-            $"Error al leer el archivo TIFF.\n\nRuta: {path}\nDetalle: {ex.Message}",
-            "Error de Raster",
-            MessageBoxButton.OK,
-            MessageBoxImage.Error);
-        return null;
-    }
     }
 
   private static string? ValidarRasterGeorreferenciado(string path, RasterInfo rasterInfo, RasterLayer rasterLayer, IReadOnlyList<string> sidecars)
- {
+  {
     var extent = rasterLayer.FullExtent ?? rasterInfo.Extent;
     if (extent == null)
         return $"ArcGIS Runtime cargó el TIFF, pero la capa no reporta un extent espacial.\n\nRuta: {path}";
@@ -458,9 +509,9 @@ namespace Geomatica.Desktop.ViewModels
     }
 
     return null;
- }
+  }
 
- private static bool EsEnvelopeFinito(Envelope extent)
+  private static bool EsEnvelopeFinito(Envelope extent)
     => double.IsFinite(extent.XMin)
        && double.IsFinite(extent.YMin)
        && double.IsFinite(extent.XMax)
@@ -468,8 +519,8 @@ namespace Geomatica.Desktop.ViewModels
        && extent.XMax > extent.XMin
        && extent.YMax > extent.YMin;
 
- private static IReadOnlyList<string> BuscarSidecarsRaster(string path)
- {
+  private static IReadOnlyList<string> BuscarSidecarsRaster(string path)
+  {
     var dir = Path.GetDirectoryName(path);
     var name = Path.GetFileNameWithoutExtension(path);
     if (string.IsNullOrWhiteSpace(dir) || string.IsNullOrWhiteSpace(name)) return Array.Empty<string>();
@@ -487,9 +538,9 @@ namespace Geomatica.Desktop.ViewModels
         Path.Combine(dir, name + ".tif.points")
     };
     return candidates.Where(File.Exists).ToArray();
- }
+  }
 
- private static string? FormatearSpatialReferenceId(SpatialReference? sr)
+  private static string? FormatearSpatialReferenceId(SpatialReference? sr)
   {
      if (sr == null) return null;
      if (sr.Wkid > 0) return $"WKID:{sr.Wkid}";
@@ -498,7 +549,6 @@ namespace Geomatica.Desktop.ViewModels
 
  private static string ObtenerMensajeErrorArcGis(Exception? error)
  {
-    if (error == null) return "Error desconocido.";
     var messages = new List<string>();
     for (var current = error; current != null; current = current.InnerException)
         messages.Add(current.Message);
@@ -754,6 +804,56 @@ namespace Geomatica.Desktop.ViewModels
   Map?.OperationalLayers.Clear();
  }
 
+  /// <summary>
+  /// Realiza la búsqueda geográfica y por filtros de proyectos y actualiza las capas del mapa.
+  /// </summary>
+  public async Task<IReadOnlyList<ProyectoGeomatico>> BuscarConFiltrosGeograficosAsync(CancellationToken ct = default)
+  {
+      string? dptoCodigo = null;
+      string? mpioCodigo = null;
+      double? minX = null;
+      double? minY = null;
+      double? maxX = null;
+      double? maxY = null;
+
+      if (Filtros.AreaInteres is FiltrosViewModel.MunicipioItem muni && !string.IsNullOrEmpty(muni.Codigo))
+      {
+          mpioCodigo = muni.Codigo;
+          var extent = await _municipios.ExtentPorMunicipiosAsync(new[] { muni.Codigo });
+          if (extent != null)
+          {
+              minX = extent.West;
+              minY = extent.South;
+              maxX = extent.East;
+              maxY = extent.North;
+          }
+      }
+      else if (Filtros.SelectedDepartamento is FiltrosViewModel.DepartamentoItem dept && !string.IsNullOrEmpty(dept.Codigo))
+      {
+          dptoCodigo = dept.Codigo;
+          var extent = await _municipios.ExtentPorDepartamentoAsync(dept.Codigo);
+          if (extent != null)
+          {
+              minX = extent.West;
+              minY = extent.South;
+              maxX = extent.East;
+              maxY = extent.North;
+          }
+      }
+
+      return await BuscarYActualizarCapasAsync(
+          Filtros.PalabraClave,
+          Filtros.Desde,
+          Filtros.Hasta,
+          dptoCodigo,
+          mpioCodigo,
+          minX,
+          minY,
+          maxX,
+          maxY,
+          ct);
+  }
+
  /// <summary>
  /// Actualiza las capas del mapa con los proyectos filtrados.
  /// Llamar desde MapaView después de obtener los resultados filtrados.
@@ -762,13 +862,15 @@ namespace Geomatica.Desktop.ViewModels
      string? texto,
      DateTime? desde,
      DateTime? hasta,
-     double? minX,
-     double? minY,
-     double? maxX,
-     double? maxY,
+     string? dptoCodigo = null,
+     string? mpioCodigo = null,
+     double? minX = null,
+     double? minY = null,
+     double? maxX = null,
+     double? maxY = null,
      CancellationToken ct = default)
  {
-  var proyectos = await _buscarProyectos.EjecutarAsync(texto, desde, hasta, minX, minY, maxX, maxY, ct);
+  var proyectos = await _buscarProyectos.EjecutarAsync(texto, desde, hasta, dptoCodigo, mpioCodigo, minX, minY, maxX, maxY, ct);
   await ActualizarCapasConFiltroAsync(proyectos);
   return proyectos;
  }

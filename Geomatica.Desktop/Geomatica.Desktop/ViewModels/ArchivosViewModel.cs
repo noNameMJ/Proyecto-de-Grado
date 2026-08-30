@@ -2,8 +2,9 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
 using System.IO;
-using Microsoft.Extensions.DependencyInjection;
 using Geomatica.Data.Repositories;
+using Geomatica.Domain.Entities;
+using Geomatica.Domain.Interfaces.Repositories;
 using System.Windows;
 using Geomatica.Desktop.Services;
 using Geomatica.Desktop.Models;
@@ -14,6 +15,8 @@ namespace Geomatica.Desktop.ViewModels
     {
         private FiltrosViewModel? _filtros;
         private readonly ProyectoArchivosService _archivosService;
+        private readonly IProyectoRepository _proyectoRepository;
+        private readonly INotificationService? _notifications;
         
         public FiltrosViewModel? Filtros => _filtros;
 
@@ -32,8 +35,25 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty] private string estado = "";
 
         [ObservableProperty] private FichaProyectoViewModel? proyectoDetalle;
+        [ObservableProperty] private bool isExtendido;
+
+        public string ExtenderBotonTexto => IsExtendido ? "🗗 Reducir" : "⛶ Extender";
+        public string ExtenderBotonTooltip => IsExtendido ? "Restaurar tamaño normal del panel de archivos" : "Extender panel de archivos a pantalla completa";
+
+        partial void OnIsExtendidoChanged(bool value)
+        {
+            OnPropertyChanged(nameof(ExtenderBotonTexto));
+            OnPropertyChanged(nameof(ExtenderBotonTooltip));
+        }
+
+        [RelayCommand]
+        private void ToggleExtender()
+        {
+            IsExtendido = !IsExtendido;
+        }
 
         public bool HasProyectoDetalle => ProyectoDetalle != null;
+        public bool ShowEmptyState => Items.Count == 0 && string.IsNullOrWhiteSpace(_rutaRaizProyecto);
 
         partial void OnProyectoDetalleChanged(FichaProyectoViewModel? value)
         {
@@ -48,10 +68,16 @@ namespace Geomatica.Desktop.ViewModels
 
         public event EventHandler<string>? AbrirEnMapaSolicitado;
 
-        public ArchivosViewModel(FiltrosViewModel filtros, ProyectoArchivosService archivosService)
+        public ArchivosViewModel(
+            FiltrosViewModel filtros, 
+            ProyectoArchivosService archivosService, 
+            IProyectoRepository proyectoRepository,
+            INotificationService? notifications = null)
         {
             _filtros = filtros;
             _archivosService = archivosService;
+            _proyectoRepository = proyectoRepository;
+            _notifications = notifications;
 
             _filtros.BuscarSolicitado += async (_, __) => { RefrescarSegunFiltros(); await LoadProyectosIntoFiltrosAsync(); };
             _filtros.PropertyChanged += Filtros_PropertyChanged;
@@ -142,6 +168,7 @@ namespace Geomatica.Desktop.ViewModels
                 }
 
                 Estado = $"{Items.Count} elementos";
+                OnPropertyChanged(nameof(ShowEmptyState));
             }
             catch (Exception ex) 
             { 
@@ -154,11 +181,7 @@ namespace Geomatica.Desktop.ViewModels
             try
             {
                 if (_filtros == null) return;
-                IServiceProvider? provider = Application.Current.Properties.Contains("ServiceProvider") ? Application.Current.Properties["ServiceProvider"] as IServiceProvider : null;
-                if (provider == null) return;
-
-                var repo = provider.GetService<IProyectoRepository>();
-                if (repo == null) return;
+                var repo = _proyectoRepository;
 
                 IEnumerable<ProyectoDto> items;
                 if (_filtros.AreaInteres is FiltrosViewModel.MunicipioItem muni && !string.IsNullOrEmpty(muni.Codigo))
@@ -173,13 +196,16 @@ namespace Geomatica.Desktop.ViewModels
                     _filtros.ResultadosLista.Clear();
                     _filtros.ResultadosResumen.Clear();
                     foreach (var p in items) _filtros.ResultadosLista.Add(new FiltrosViewModel.ProyectoItem(p.Id, p.Titulo, p.Lon, p.Lat, p.RutaArchivos));
-                    _filtros.ResultadosResumen.Add($"{items.Count()} proyectos");
-                    foreach (var p in items.Take(5)) _filtros.ResultadosResumen.Add(p.Titulo);
+                    int total = items.Count();
+                    string textoConteo = total == 1 ? "1 proyecto encontrado" : $"{total} proyectos encontrados";
+                    _filtros.ResultadosResumen.Add(textoConteo);
+                    _filtros.NotificarResultadosCargados();
                 });
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[ArchivosViewModel] Error cargando proyectos: {ex}");
+                await Application.Current.Dispatcher.InvokeAsync(() => _filtros?.NotificarResultadosCargados());
             }
         }
 
@@ -187,14 +213,14 @@ namespace Geomatica.Desktop.ViewModels
         {
             if (string.IsNullOrWhiteSpace(_rutaRaizProyecto))
             {
-                MessageBox.Show("Debe seleccionar un proyecto válido primero.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _notifications?.ShowWarning("Debe seleccionar un proyecto válido primero.", "Archivos");
                 return;
             }
 
             string rutaFisica = Path.Combine(_rutaRaizProyecto, RutaActual.TrimStart('/', '\\'));
             if (!Directory.Exists(rutaFisica))
             {
-                MessageBox.Show("La carpeta de destino no existe o no tiene acceso.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                _notifications?.ShowError("La carpeta de destino no existe o no tiene acceso.", "Error de Acceso");
                 return;
             }
 
@@ -203,14 +229,12 @@ namespace Geomatica.Desktop.ViewModels
             {
                 try
                 {
-                    // Si es una carpeta, se podría ignorar o advertir, o implementarlo recursivamente,
-                    // por simplicidad solo procesaremos archivos sueltos.
                     if (Directory.Exists(file)) continue;
 
                     var dest = Path.Combine(rutaFisica, Path.GetFileName(file));
                     if (File.Exists(dest))
                     {
-                        var res = MessageBox.Show($"El archivo '{Path.GetFileName(file)}' ya existe. ¿Desea sobrescribirlo?", "Confirmar", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                        var res = MessageBox.Show($"El archivo '{Path.GetFileName(file)}' ya existe. ¿Desea sobrescribirlo?", "Confirmar sobrescritura", MessageBoxButton.YesNo, MessageBoxImage.Question);
                         if (res != MessageBoxResult.Yes) continue;
                     }
                     File.Copy(file, dest, true);
@@ -218,18 +242,19 @@ namespace Geomatica.Desktop.ViewModels
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    MessageBox.Show($"No tiene permisos para subir archivos en esta carpeta.", "Acceso denegado", MessageBoxButton.OK, MessageBoxImage.Error);
+                    _notifications?.ShowError("No tiene permisos para subir archivos en esta carpeta.", "Acceso Denegado");
                     break;
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Error subiendo '{Path.GetFileName(file)}': {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    _notifications?.ShowError($"Error subiendo '{Path.GetFileName(file)}': {ex.Message}", "Error al Subir");
                 }
             }
 
             if (count > 0)
             {
                 Estado = $"Se subieron {count} archivo(s)";
+                _notifications?.ShowSuccess($"Se subieron {count} archivo(s) correctamente.", "Archivos");
                 RefrescarSegunFiltros();
             }
         }
@@ -260,14 +285,14 @@ namespace Geomatica.Desktop.ViewModels
         {
             if (string.IsNullOrWhiteSpace(_rutaRaizProyecto))
             {
-                MessageBox.Show("Debe seleccionar un proyecto válido primero.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _notifications?.ShowWarning("Debe seleccionar un proyecto válido primero.", "Archivos");
                 return;
             }
 
             string rutaFisica = Path.Combine(_rutaRaizProyecto, RutaActual.TrimStart('/', '\\'));
             if (!Directory.Exists(rutaFisica))
             {
-                MessageBox.Show("La carpeta de destino no existe o no tiene acceso.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                _notifications?.ShowError("La carpeta de destino no existe o no tiene acceso.", "Error de Acceso");
                 return;
             }
 
@@ -288,7 +313,7 @@ namespace Geomatica.Desktop.ViewModels
                         var dest = Path.Combine(rutaFisica, Path.GetFileName(file));
                         if (File.Exists(dest))
                         {
-                            var res = MessageBox.Show($"El archivo '{Path.GetFileName(file)}' ya existe. ¿Desea sobrescribirlo?", "Confirmar", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                            var res = MessageBox.Show($"El archivo '{Path.GetFileName(file)}' ya existe. ¿Desea sobrescribirlo?", "Confirmar sobrescritura", MessageBoxButton.YesNo, MessageBoxImage.Question);
                             if (res != MessageBoxResult.Yes) continue;
                         }
                         File.Copy(file, dest, true);
@@ -296,18 +321,19 @@ namespace Geomatica.Desktop.ViewModels
                     }
                     catch (UnauthorizedAccessException)
                     {
-                        MessageBox.Show($"No tiene permisos para subir archivos en esta carpeta.", "Acceso denegado", MessageBoxButton.OK, MessageBoxImage.Error);
+                        _notifications?.ShowError("No tiene permisos para subir archivos en esta carpeta.", "Acceso Denegado");
                         break;
                     }
                     catch (Exception ex)
                     {
-                        MessageBox.Show($"Error subiendo '{Path.GetFileName(file)}': {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                        _notifications?.ShowError($"Error subiendo '{Path.GetFileName(file)}': {ex.Message}", "Error al Subir");
                     }
                 }
 
                 if (count > 0)
                 {
                     Estado = $"Se subieron {count} archivo(s)";
+                    _notifications?.ShowSuccess($"Se subieron {count} archivo(s) correctamente.", "Archivos");
                     RefrescarSegunFiltros();
                 }
             }
@@ -318,14 +344,14 @@ namespace Geomatica.Desktop.ViewModels
         {
             if (string.IsNullOrWhiteSpace(_rutaRaizProyecto))
             {
-                MessageBox.Show("Debe seleccionar un proyecto válido primero.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _notifications?.ShowWarning("Debe seleccionar un proyecto válido primero.", "Archivos");
                 return;
             }
 
             string rutaFisica = Path.Combine(_rutaRaizProyecto, RutaActual.TrimStart('/', '\\'));
             if (!Directory.Exists(rutaFisica))
             {
-                MessageBox.Show("La carpeta de destino no existe o no tiene acceso.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                _notifications?.ShowError("La carpeta de destino no existe o no tiene acceso.", "Error de Acceso");
                 return;
             }
 
@@ -366,14 +392,14 @@ namespace Geomatica.Desktop.ViewModels
                 var invalidChars = Path.GetInvalidFileNameChars();
                 if (nombre.Any(c => invalidChars.Contains(c)))
                 {
-                    MessageBox.Show("El nombre de la carpeta contiene caracteres no válidos.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    _notifications?.ShowError("El nombre de la carpeta contiene caracteres no válidos.", "Nombre Inválido");
                     return;
                 }
 
                 var nuevaRuta = Path.Combine(rutaFisica, nombre);
                 if (Directory.Exists(nuevaRuta) || File.Exists(nuevaRuta))
                 {
-                    MessageBox.Show("Ya existe un archivo o carpeta con ese nombre.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    _notifications?.ShowWarning("Ya existe un archivo o carpeta con ese nombre.", "Aviso");
                     return;
                 }
 
@@ -381,11 +407,12 @@ namespace Geomatica.Desktop.ViewModels
                 {
                     Directory.CreateDirectory(nuevaRuta);
                     Estado = $"Carpeta '{nombre}' creada";
+                    _notifications?.ShowSuccess($"Carpeta '{nombre}' creada exitosamente.", "Carpeta Creada");
                     RefrescarSegunFiltros();
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Error al crear la carpeta: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    _notifications?.ShowError($"Error al crear la carpeta: {ex.Message}", "Error");
                 }
             }
         }
@@ -395,7 +422,7 @@ namespace Geomatica.Desktop.ViewModels
         {
             if (Seleccionado is not ArchivoVirtual archivo)
             {
-                MessageBox.Show("Seleccione un archivo para descargar.", "Atención", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _notifications?.ShowWarning("Seleccione un archivo para descargar.", "Atención");
                 return;
             }
 
@@ -413,21 +440,44 @@ namespace Geomatica.Desktop.ViewModels
                     string rutaFisica = Path.Combine(_rutaRaizProyecto, archivo.RutaRelativaVirtual.TrimStart('/', '\\'));
                     File.Copy(rutaFisica, sfd.FileName, true);
                     Estado = $"Descargado: {archivo.Nombre}";
+                    _notifications?.ShowSuccess($"Archivo '{archivo.Nombre}' descargado exitosamente.", "Descarga Completa");
                 }
                 catch (Exception ex)
                 {
-                    MessageBox.Show($"Error descargando archivo: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                    _notifications?.ShowError($"Error descargando archivo: {ex.Message}", "Error de Descarga");
                 }
             }
+        }
+
+        private static readonly HashSet<string> FormatosSoportadosMapa = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ".shp", ".kml", ".kmz", ".gdb", ".geodatabase", ".slpk", ".las", ".laz", ".zlas", ".tif", ".tiff"
+        };
+
+        public static bool EsFormatoSoportadoMapa(NodoArchivoVirtual? nodo)
+        {
+            if (nodo == null) return false;
+            if (nodo is CarpetaVirtual carpeta)
+            {
+                return carpeta.Nombre.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase);
+            }
+            if (nodo is ArchivoVirtual archivo)
+            {
+                var ext = archivo.Extension;
+                if (string.IsNullOrWhiteSpace(ext)) return false;
+                if (!ext.StartsWith(".")) ext = "." + ext;
+                return FormatosSoportadosMapa.Contains(ext);
+            }
+            return false;
         }
 
         [RelayCommand]
         private void AbrirEnMapa()
         {
-            if (Seleccionado is ArchivoVirtual archivo)
+            if (Seleccionado != null)
             {
-                string rutaFisica = Path.Combine(_rutaRaizProyecto, archivo.RutaRelativaVirtual.TrimStart('/', '\\'));
-                if (File.Exists(rutaFisica))
+                string rutaFisica = Path.Combine(_rutaRaizProyecto, Seleccionado.RutaRelativaVirtual.TrimStart('/', '\\'));
+                if (File.Exists(rutaFisica) || Directory.Exists(rutaFisica))
                 {
                     AbrirEnMapaSolicitado?.Invoke(this, rutaFisica);
                 }
@@ -460,6 +510,15 @@ namespace Geomatica.Desktop.ViewModels
         private void Eliminar()
         {
             if (Seleccionado == null) return;
+            
+            var tipo = Seleccionado is CarpetaVirtual ? "la carpeta" : "el archivo";
+            var result = MessageBox.Show(
+                $"¿Está seguro de que desea eliminar {tipo} '{Seleccionado.Nombre}'?\n\nEsta acción no se puede deshacer.",
+                "Confirmar eliminación",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+            if (result != MessageBoxResult.Yes) return;
+            
             try 
             { 
                 string rutaFisica = Path.Combine(_rutaRaizProyecto, Seleccionado.RutaRelativaVirtual.TrimStart('/', '\\'));

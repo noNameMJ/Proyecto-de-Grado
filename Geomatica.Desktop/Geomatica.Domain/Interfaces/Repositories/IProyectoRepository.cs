@@ -8,10 +8,12 @@ public interface IProyectoRepository
         string? texto,
         DateTime? desde,
         DateTime? hasta,
-        double? minX,
-        double? minY,
-        double? maxX,
-        double? maxY,
+        string? dptoCodigo = null,
+        string? mpioCodigo = null,
+        double? minX = null,
+        double? minY = null,
+        double? maxX = null,
+        double? maxY = null,
         CancellationToken ct = default);
 
     Task<IReadOnlyList<ProyectoDto>> ListarAsync(DateTime? desde = null, DateTime? hasta = null, string? keyword = null, string? areaJson = null);

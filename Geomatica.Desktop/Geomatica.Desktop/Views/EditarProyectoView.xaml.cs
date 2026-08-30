@@ -22,7 +22,7 @@ namespace Geomatica.Desktop.Views
             Application.LoadComponent(this, new Uri("/Geomatica.Desktop;component/Views/EditarProyectoView.xaml", UriKind.Relative));
 
             _pickerMapView = FindName("pickerMapView") as Esri.ArcGISRuntime.UI.Controls.MapView
-                ?? throw new InvalidOperationException("No se encontró el control 'pickerMapView' en EditarProyectoView.xaml.");
+                ?? throw new InvalidOperationException("No se encontrï¿½ el control 'pickerMapView' en EditarProyectoView.xaml.");
 
             var map = new Map(BasemapStyle.ArcGISTopographic);
             var center = new MapPoint(-73.1198, 7.1254, SpatialReferences.Wgs84);

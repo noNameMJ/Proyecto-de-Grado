@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="clr-namespace:Geomatica.Desktop.ViewModels"
         Title="GEOMÁTICA UIS — Visor de Proyectos" Height="748" Width="1180" MinHeight="600" MinWidth="800"
+        WindowState="Maximized"
         FontFamily="{StaticResource AppFont}"
         Background="{StaticResource SurfaceBrush}">
 
@@ -22,7 +23,12 @@
                 <DockPanel Margin="6,0">
                     <!-- Logo / Título -->
                     <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="6,0,16,0">
-                        <Ellipse Width="28" Height="28" Fill="{StaticResource UisGreenBrush}" Margin="0,0,8,0"/>
+                        <Grid Width="28" Height="28" Margin="0,0,8,0">
+                            <Ellipse Fill="{StaticResource UisGreenBrush}"/>
+                            <TextBlock Text="G" Foreground="White" FontWeight="Bold" FontSize="14"
+                                       HorizontalAlignment="Center" VerticalAlignment="Center"
+                                       FontFamily="{StaticResource AppFont}"/>
+                        </Grid>
                         <TextBlock Text="GEOMÁTICA" Foreground="{StaticResource UisGoldBrush}" 
                                    FontSize="14" FontWeight="Bold" VerticalAlignment="Center"
                                    FontFamily="{StaticResource AppFont}"/>
@@ -30,12 +36,6 @@
                                    VerticalAlignment="Center" Margin="6,0,0,0"
                                    FontFamily="{StaticResource AppFont}"/>
                     </StackPanel>
-
-                    <!-- Indicador de vista actual -->
-                    <TextBlock DockPanel.Dock="Right" Text="{Binding CurrentViewName}" 
-                               Foreground="#888" VerticalAlignment="Center" 
-                               FontSize="12" Margin="0,0,12,0"
-                               FontFamily="{StaticResource AppFont}"/>
 
                     <!-- Navegación -->
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -49,7 +49,62 @@
             </Border>
         </Grid>
 
-        <!-- Content -->
-        <ContentControl Content="{Binding CurrentView}"/>
+        <!-- Status Bar -->
+        <Border DockPanel.Dock="Bottom" Background="{StaticResource ChromeDarkBrush}" Height="24">
+            <DockPanel Margin="8,0">
+                <TextBlock Text="{Binding CurrentViewName}" Foreground="{StaticResource TextMutedBrush}" 
+                           FontSize="11" VerticalAlignment="Center"
+                           FontFamily="{StaticResource AppFont}"/>
+            </DockPanel>
+        </Border>
+
+        <!-- Main Content Area with Floating Toast Notifications Overlay -->
+        <Grid>
+            <!-- Current View -->
+            <ContentControl Content="{Binding CurrentView}"/>
+
+            <!-- Floating Toast Notifications Overlay -->
+            <ItemsControl ItemsSource="{Binding Notifications.Notifications}"
+                          HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                          Margin="0,0,24,20" Panel.ZIndex="9999" IsHitTestVisible="True"
+                          MaxWidth="380">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Border Background="White" CornerRadius="6" Margin="0,8,0,0"
+                                BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                                Effect="{StaticResource ElevatedShadow}" SnapsToDevicePixels="True">
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="6"/>
+                                    <ColumnDefinition Width="*"/>
+                                    <ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Left Accent Color Stripe -->
+                                <Border Grid.Column="0" Background="{Binding AccentBrush}" CornerRadius="6,0,0,6"/>
+
+                                <!-- Notification Message Content -->
+                                <StackPanel Grid.Column="1" Margin="12,10,8,10">
+                                    <DockPanel LastChildFill="True">
+                                        <TextBlock Text="{Binding Icono}" FontSize="13" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                        <TextBlock Text="{Binding Titulo}" FontWeight="Bold" FontSize="13"
+                                                   Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}"/>
+                                    </DockPanel>
+                                    <TextBlock Text="{Binding Mensaje}" FontSize="12" TextWrapping="Wrap"
+                                               Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFont}"
+                                               Margin="0,4,0,0" MaxHeight="80" TextTrimming="CharacterEllipsis"/>
+                                </StackPanel>
+
+                                <!-- Close Button -->
+                                <Button Grid.Column="2" Content="✕" Command="{Binding CerrarCommand}"
+                                        Style="{StaticResource ClearButton}" VerticalAlignment="Top"
+                                        Margin="0,8,8,0" Width="20" Height="20" FontSize="10" 
+                                        ToolTip="Cerrar notificación"/>
+                            </Grid>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </Grid>
     </DockPanel>
 </Window>

@@ -16,10 +16,12 @@ public sealed class BuscarProyectosUseCase
         string? texto,
         DateTime? desde,
         DateTime? hasta,
-        double? minX,
-        double? minY,
-        double? maxX,
-        double? maxY,
+        string? dptoCodigo = null,
+        string? mpioCodigo = null,
+        double? minX = null,
+        double? minY = null,
+        double? maxX = null,
+        double? maxY = null,
         CancellationToken ct = default)
-        => _proyectoRepository.BuscarAsync(texto, desde, hasta, minX, minY, maxX, maxY, ct);
+        => _proyectoRepository.BuscarAsync(texto, desde, hasta, dptoCodigo, mpioCodigo, minX, minY, maxX, maxY, ct);
 }

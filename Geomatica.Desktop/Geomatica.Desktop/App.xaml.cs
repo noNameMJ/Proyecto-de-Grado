@@ -1,17 +1,17 @@
-﻿using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Configuration;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Threading.Tasks;
 using System.Windows;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Esri.ArcGISRuntime;
 using Geomatica.Data.Repositories;
 using Geomatica.AppCore.UseCases;
-using Geomatica.Domain.Entities;
 using Geomatica.Domain.Interfaces.Repositories;
 using Geomatica.Desktop.ViewModels;
+using Geomatica.Desktop.Services;
 using Npgsql;
-using System.Diagnostics;
-using System;
-using System.Collections.Generic;
-using System.Threading.Tasks;
 
 namespace Geomatica.Desktop
 {
@@ -125,7 +125,7 @@ namespace Geomatica.Desktop
                     Debug.WriteLine($"[App] Error verificando tablas: {ex}");
                 }
             }
-
+            services.AddSingleton<INotificationService, NotificationService>();
             services.AddSingleton<IProyectoRepository>(sp => new ProyectoRepository(cs));
             services.AddSingleton<IMunicipioRepository>(sp => new MunicipioRepository(cs));
             services.AddSingleton<BuscarProyectosUseCase>();
@@ -140,9 +140,12 @@ namespace Geomatica.Desktop
                 sp.GetRequiredService<IMunicipioRepository>(),
                 sp.GetRequiredService<FiltrosViewModel>(),
                 sp.GetRequiredService<ArchivosViewModel>()));
+
             services.AddTransient<ArchivosViewModel>(sp => new ArchivosViewModel(
                 sp.GetRequiredService<FiltrosViewModel>(),
-                sp.GetRequiredService<Geomatica.Desktop.Services.ProyectoArchivosService>()));
+                sp.GetRequiredService<Geomatica.Desktop.Services.ProyectoArchivosService>(),
+                sp.GetRequiredService<IProyectoRepository>(),
+                sp.GetRequiredService<INotificationService>()));
 
             // Factory for CrearProyectoViewModel with a navigation callback
             services.AddSingleton<Func<Action, Action?, CrearProyectoViewModel>>(sp => (navigateBack, onCreado) =>
@@ -151,7 +154,8 @@ namespace Geomatica.Desktop
                     sp.GetRequiredService<IMunicipioRepository>(),
                     sp.GetRequiredService<Geomatica.Desktop.Services.ProyectoArchivosService>(),
                     navigateBack,
-                    onCreado));
+                    onCreado,
+                    sp.GetRequiredService<INotificationService>()));
 
             // Factory for EditarProyectoViewModel
             services.AddSingleton<Func<ProyectoDetalleDto, Action, Action?, EditarProyectoViewModel>>(sp => (proyecto, navigateBack, onEditado) =>
@@ -160,10 +164,12 @@ namespace Geomatica.Desktop
                     sp.GetRequiredService<IMunicipioRepository>(),
                     proyecto,
                     navigateBack,
-                    onEditado));
+                    onEditado,
+                    sp.GetRequiredService<INotificationService>()));
 
             services.AddSingleton<MainViewModel>(sp => new MainViewModel(
                 sp.GetRequiredService<FiltrosViewModel>(),
+                sp.GetRequiredService<INotificationService>(),
                 () => sp.GetRequiredService<MapaViewModel>(),
                 () => sp.GetRequiredService<ArchivosViewModel>(),
                 sp.GetRequiredService<Func<Action, Action?, CrearProyectoViewModel>>(),

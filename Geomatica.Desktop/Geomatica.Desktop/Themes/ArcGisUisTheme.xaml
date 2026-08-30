@@ -74,7 +74,7 @@
     <FontFamily x:Key="AppFontSemibold">Segoe UI Semibold</FontFamily>
 
     <!-- ═══════════════════════════════════════════════════════════
-         EFECTOS / SOMBRAS  (deben definirse ANTES de los estilos que las usan)
+         EFECTOS / SOMBRAS
          ═══════════════════════════════════════════════════════════ -->
     <DropShadowEffect x:Key="CardShadow" BlurRadius="12" ShadowDepth="2"
                       Direction="270" Color="#000000" Opacity="0.12"/>
@@ -442,7 +442,80 @@
         <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
         <Setter Property="Background" Value="White"/>
-        <Setter Property="Padding" Value="2"/>
+        <Setter Property="Padding" Value="4"/>
+        <Setter Property="ItemContainerStyle">
+            <Setter.Value>
+                <Style TargetType="ListBoxItem">
+                    <Setter Property="Padding" Value="10,8"/>
+                    <Setter Property="Margin" Value="0,2"/>
+                    <Setter Property="Cursor" Value="Hand"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ListBoxItem">
+                                <Border x:Name="itemBorder" Background="Transparent" 
+                                        BorderBrush="Transparent" BorderThickness="1" 
+                                        CornerRadius="4" Padding="{TemplateBinding Padding}"
+                                        SnapsToDevicePixels="True">
+                                    <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="itemBorder" Property="Background" Value="#F2F8F4"/>
+                                        <Setter TargetName="itemBorder" Property="BorderBrush" Value="#C8E6C9"/>
+                                    </Trigger>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter TargetName="itemBorder" Property="Background" Value="#E0F2E9"/>
+                                        <Setter TargetName="itemBorder" Property="BorderBrush" Value="{StaticResource UisGreenBrush}"/>
+                                        <Setter Property="FontWeight" Value="SemiBold"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Estilo de ListView moderno para el explorador de archivos -->
+    <Style x:Key="ModernListView" TargetType="ListView">
+        <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Background" Value="White"/>
+        <Setter Property="ItemContainerStyle">
+            <Setter.Value>
+                <Style TargetType="ListViewItem">
+                    <Setter Property="Padding" Value="8,5"/>
+                    <Setter Property="Margin" Value="0,1"/>
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                    <Setter Property="Cursor" Value="Hand"/>
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="ListViewItem">
+                                <Border x:Name="lvBorder" Background="Transparent"
+                                        BorderBrush="Transparent" BorderThickness="1"
+                                        CornerRadius="3" Padding="{TemplateBinding Padding}"
+                                        SnapsToDevicePixels="True">
+                                    <GridViewRowPresenter VerticalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="lvBorder" Property="Background" Value="#F5F9F6"/>
+                                        <Setter TargetName="lvBorder" Property="BorderBrush" Value="#D4EAD9"/>
+                                    </Trigger>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter TargetName="lvBorder" Property="Background" Value="#E6F4EC"/>
+                                        <Setter TargetName="lvBorder" Property="BorderBrush" Value="{StaticResource UisGreenBrush}"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <!-- ═══════════════════════════════════════════════════════════
@@ -452,6 +525,132 @@
         <Setter Property="Background" Value="{StaticResource BorderSubtleBrush}"/>
         <Setter Property="Margin" Value="0,12"/>
         <Setter Property="Height" Value="1"/>
+    </Style>
+
+    <!-- Botón peligro (eliminar) -->
+    <Style x:Key="DangerButton" TargetType="Button">
+        <Setter Property="Background" Value="#FFD32F2F"/>
+        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Padding" Value="18,8"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="border" Background="{TemplateBinding Background}"
+                            CornerRadius="4" Padding="{TemplateBinding Padding}"
+                            SnapsToDevicePixels="True">
+                        <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="border" Property="Background" Value="#FFE53935"/>
+                        </Trigger>
+                        <Trigger Property="IsPressed" Value="True">
+                            <Setter TargetName="border" Property="Background" Value="#FFB71C1C"/>
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter TargetName="border" Property="Opacity" Value="0.5"/>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Texto de estado vacío -->
+    <Style x:Key="EmptyStateText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+        <Setter Property="HorizontalAlignment" Value="Center"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+        <Setter Property="TextWrapping" Value="Wrap"/>
+        <Setter Property="TextAlignment" Value="Center"/>
+        <Setter Property="Margin" Value="20"/>
+    </Style>
+
+    <!-- Texto de error de validación -->
+    <Style x:Key="ValidationErrorText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="Foreground" Value="#FFD32F2F"/>
+        <Setter Property="Margin" Value="2,2,0,0"/>
+        <Setter Property="Visibility" Value="Collapsed"/>
+    </Style>
+
+    <!-- Botón navegación activo -->
+    <Style x:Key="NavButtonActive" TargetType="Button" BasedOn="{StaticResource NavButton}">
+        <Setter Property="Background" Value="{StaticResource ChromeLightBrush}"/>
+        <Setter Property="Foreground" Value="White"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+    </Style>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         DATEPICKER ESTILO
+         ═══════════════════════════════════════════════════════════ -->
+    <Style x:Key="ModernDatePicker" TargetType="DatePicker">
+        <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+        <Setter Property="FontSize" Value="13"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="Background" Value="White"/>
+        <Setter Property="Padding" Value="6,4"/>
+        <Setter Property="CalendarStyle">
+            <Setter.Value>
+                <Style TargetType="Calendar">
+                    <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+                </Style>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="DatePicker" BasedOn="{StaticResource ModernDatePicker}"/>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         PROGRESS BAR MODERNO (UIS GREEN)
+         ═══════════════════════════════════════════════════════════ -->
+    <Style x:Key="ModernProgressBar" TargetType="ProgressBar">
+        <Setter Property="Height" Value="4"/>
+        <Setter Property="Background" Value="#E0E0E0"/>
+        <Setter Property="Foreground" Value="{StaticResource UisGreenBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ProgressBar">
+                    <Border Background="{TemplateBinding Background}" CornerRadius="2" ClipToBounds="True">
+                        <Grid x:Name="TemplateRoot">
+                            <Border x:Name="PART_Track" />
+                            <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{TemplateBinding Foreground}" CornerRadius="2"/>
+                        </Grid>
+                    </Border>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ═══════════════════════════════════════════════════════════
+         BADGE / PILL STATUS ESTILO
+         ═══════════════════════════════════════════════════════════ -->
+    <Style x:Key="StatusBadge" TargetType="Border">
+        <Setter Property="Background" Value="#E6F4EC"/>
+        <Setter Property="BorderBrush" Value="#B7E1C7"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="10"/>
+        <Setter Property="Padding" Value="8,2"/>
+        <Setter Property="SnapsToDevicePixels" Value="True"/>
+    </Style>
+
+    <Style x:Key="StatusBadgeText" TargetType="TextBlock">
+        <Setter Property="FontFamily" Value="{StaticResource AppFontSemibold}"/>
+        <Setter Property="FontSize" Value="11"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{StaticResource UisGreenBrush}"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
     </Style>
 
 </ResourceDictionary>

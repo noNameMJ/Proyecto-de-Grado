@@ -1,4 +1,4 @@
-﻿<UserControl x:Class="Geomatica.Desktop.Views.MapaView"
+<UserControl x:Class="Geomatica.Desktop.Views.MapaView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:esri="http://schemas.esri.com/arcgis/runtime/2013"
@@ -31,9 +31,9 @@
         <!-- Zona de mapa y archivos -->
         <Grid Grid.Column="1">
             <Grid.RowDefinitions>
-                <RowDefinition Height="*"/>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
+                <RowDefinition x:Name="RowMapa" Height="*" MinHeight="60"/>
+                <RowDefinition x:Name="RowSplitter" Height="Auto"/>
+                <RowDefinition x:Name="RowArchivos" Height="0" MinHeight="0"/>
             </Grid.RowDefinitions>
 
             <!-- Mapa -->
@@ -87,35 +87,30 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Botón Home — estilo ArcGIS tool button -->
+                <!-- Botón de herramientas del mapa: Solo Home -->
                 <Button x:Name="HomeButton"
                         Content="🏠" ToolTip="Restaurar vista inicial"
                         Style="{StaticResource MapToolButton}"
                         HorizontalAlignment="Right" VerticalAlignment="Bottom"
                         Margin="16"
                         Command="{Binding HomeCommand}"/>
-                <Button Content="↺" ToolTip="Restablecer vista de Colombia"
-                        Style="{StaticResource MapToolButton}"
-                        HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                        Margin="64,16,16,16"
-                        Command="{Binding RestablecerVistaMapaCommand}"/>
             </Grid>
 
-            <GridSplitter Grid.Row="1" Height="4" HorizontalAlignment="Stretch" Background="{StaticResource SeparatorBrush}" 
-                          Visibility="{Binding ArchivosVM.HasProyectoDetalle, Converter={StaticResource BoolToVis}}" />
+            <GridSplitter x:Name="gridSplitterArchivos" Grid.Row="1" Height="4" HorizontalAlignment="Stretch" 
+                          Background="{StaticResource SeparatorBrush}" Visibility="Collapsed" />
 
             <!-- Archivos -->
-            <Grid Grid.Row="2" Background="{StaticResource PanelBrush}" Height="250"
-                  Visibility="{Binding ArchivosVM.HasProyectoDetalle, Converter={StaticResource BoolToVis}}">
+            <Grid x:Name="panelArchivos" Grid.Row="2" Background="{StaticResource PanelBrush}"
+                  Visibility="Collapsed">
                 <!-- Usamos el ContentControl para mostrar ArchivosView -->
                 <views:ArchivosView DataContext="{Binding ArchivosVM}" />
             </Grid>
         </Grid>
 
         <!-- Panel lateral derecho: Detalle del proyecto -->
-        <Border Grid.Column="2" Width="300" MinWidth="250" MaxWidth="400" Background="{StaticResource PanelBrush}" 
+        <Border x:Name="panelDetalle" Grid.Column="2" Width="300" MinWidth="250" MaxWidth="400" Background="{StaticResource PanelBrush}" 
                 BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1,0,0,0"
-                Visibility="{Binding ArchivosVM.HasProyectoDetalle, Converter={StaticResource BoolToVis}}">
+                Visibility="Collapsed">
             <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
                           DataContext="{Binding ArchivosVM.ProyectoDetalle}">
                 <StackPanel Margin="16,14,16,16">

@@ -1,10 +1,14 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Geomatica.Data.Repositories;
-using Geomatica.Desktop.Services;
+using System;
 using System.Collections.ObjectModel;
 using System.Globalization;
+using System.IO;
+using System.Threading.Tasks;
 using System.Windows;
+using Geomatica.Data.Repositories;
+using Geomatica.Domain.Interfaces.Repositories;
+using Geomatica.Desktop.Services;
 
 namespace Geomatica.Desktop.ViewModels
 {
@@ -13,8 +17,7 @@ namespace Geomatica.Desktop.ViewModels
         private readonly IProyectoRepository _proyectoRepository;
         private readonly IMunicipioRepository _municipioRepository;
         private readonly ProyectoArchivosService _proyectoArchivosService;
-
-        // Navigation back
+        private readonly INotificationService? _notifications;
         private readonly Action _navigateBack;
         private readonly Action? _onProyectoCreado;
 
@@ -27,8 +30,16 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty] private string? latStr;
         [ObservableProperty] private string? lonStr;
 
+        [ObservableProperty] private bool tituloInvalido;
+
         [ObservableProperty] private DepartamentoItem? selectedDepartamento;
         [ObservableProperty] private MunicipioItem? selectedMunicipio;
+
+        partial void OnTituloChanged(string value)
+        {
+            if (TituloInvalido && !string.IsNullOrWhiteSpace(value))
+                TituloInvalido = false;
+        }
 
         public event Action<string?>? MunicipioGeoJsonChanged;
 
@@ -37,17 +48,26 @@ namespace Geomatica.Desktop.ViewModels
 
         public IAsyncRelayCommand GuardarCommand { get; }
         public IRelayCommand CancelarCommand { get; }
+        public IRelayCommand SeleccionarCarpetaCommand { get; }
 
-        public CrearProyectoViewModel(IProyectoRepository proyectoRepository, IMunicipioRepository municipioRepository, ProyectoArchivosService proyectoArchivosService, Action navigateBack, Action? onProyectoCreado = null)
+        public CrearProyectoViewModel(
+            IProyectoRepository proyectoRepository, 
+            IMunicipioRepository municipioRepository, 
+            ProyectoArchivosService proyectoArchivosService, 
+            Action navigateBack, 
+            Action? onProyectoCreado = null,
+            INotificationService? notifications = null)
         {
             _proyectoRepository = proyectoRepository;
             _municipioRepository = municipioRepository;
             _proyectoArchivosService = proyectoArchivosService;
             _navigateBack = navigateBack;
             _onProyectoCreado = onProyectoCreado;
+            _notifications = notifications;
 
             GuardarCommand = new AsyncRelayCommand(GuardarAsync);
             CancelarCommand = new RelayCommand(_navigateBack);
+            SeleccionarCarpetaCommand = new RelayCommand(SeleccionarCarpeta);
 
             _ = CargarDepartamentosAsync();
         }
@@ -59,11 +79,13 @@ namespace Geomatica.Desktop.ViewModels
                 var deps = await _municipioRepository.ListarDepartamentosAsync();
                 Departamentos.Clear();
                 foreach (var d in deps)
+                {
                     Departamentos.Add(new DepartamentoItem(d.Codigo, d.Nombre));
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error cargando departamentos: {ex.Message}");
+                _notifications?.ShowError($"Error cargando departamentos: {ex.Message}", "Departamentos");
             }
         }
 
@@ -71,27 +93,37 @@ namespace Geomatica.Desktop.ViewModels
         {
             Municipios.Clear();
             SelectedMunicipio = null;
-            if (value == null) return;
+            MunicipioGeoJsonChanged?.Invoke(null);
+
+            if (value == null || string.IsNullOrEmpty(value.Codigo)) return;
 
             try
             {
                 var muns = await _municipioRepository.ListarMunicipiosPorDepartamentoAsync(value.Codigo);
                 foreach (var m in muns)
+                {
                     Municipios.Add(new MunicipioItem(m.Codigo, m.Nombre));
+                }
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error cargando municipios: {ex.Message}");
+                _notifications?.ShowError($"Error cargando municipios: {ex.Message}", "Municipios");
             }
         }
 
         async partial void OnSelectedMunicipioChanged(MunicipioItem? value)
         {
-            if (value == null) { MunicipioGeoJsonChanged?.Invoke(null); return; }
+            if (value == null || string.IsNullOrEmpty(value.Codigo))
+            {
+                MunicipioGeoJsonChanged?.Invoke(null);
+                return;
+            }
+
             try
             {
-                var results = await _municipioRepository.PorCodigosGeoJsonAsync(new[] { value.Codigo });
-                MunicipioGeoJsonChanged?.Invoke(results.FirstOrDefault()?.GeoJson);
+                var geoDtos = await _municipioRepository.PorCodigosGeoJsonAsync(new[] { value.Codigo });
+                var geo = geoDtos.Count > 0 ? geoDtos[0].GeoJson : null;
+                MunicipioGeoJsonChanged?.Invoke(geo);
             }
             catch
             {
@@ -101,14 +133,15 @@ namespace Geomatica.Desktop.ViewModels
 
         private async Task GuardarAsync()
         {
-            if (string.IsNullOrWhiteSpace(Titulo))
+            TituloInvalido = string.IsNullOrWhiteSpace(Titulo);
+            if (TituloInvalido)
             {
-                MessageBox.Show("El tÌtulo es obligatorio.", "ValidaciÛn", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _notifications?.ShowWarning("El t√≠tulo es obligatorio.", "Validaci√≥n");
                 return;
             }
             if (SelectedMunicipio == null)
             {
-                MessageBox.Show("Debe seleccionar un municipio.", "ValidaciÛn", MessageBoxButton.OK, MessageBoxImage.Warning);
+                _notifications?.ShowWarning("Debe seleccionar un municipio.", "Validaci√≥n");
                 return;
             }
 
@@ -136,7 +169,7 @@ namespace Geomatica.Desktop.ViewModels
             }
             catch (Exception ex)
             {
-                MessageBox.Show(ex.Message, "Error creando estructura de carpetas", MessageBoxButton.OK, MessageBoxImage.Error);
+                _notifications?.ShowError(ex.Message, "Error creando carpetas");
                 return;
             }
 
@@ -152,18 +185,47 @@ namespace Geomatica.Desktop.ViewModels
                     SelectedMunicipio.Codigo
                 );
 
-                MessageBox.Show("Proyecto creado exitosamente.", "…xito", MessageBoxButton.OK, MessageBoxImage.Information);
+                _notifications?.ShowSuccess("Proyecto creado exitosamente.", "Proyecto Creado");
                 _onProyectoCreado?.Invoke();
                 _navigateBack();
             }
             catch (Exception ex)
             {
-                MessageBox.Show($"Error guardando proyecto: {ex.Message}\n\nVerifique que la columna 'descripcion' exista en la DB si falla.", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                _notifications?.ShowError($"Error guardando proyecto: {ex.Message}", "Error al Guardar");
             }
         }
 
         /// <summary>
-        /// Establece las coordenadas desde un tap en el mapa.
+        /// Abre el di√°logo para seleccionar una carpeta f√≠sica del sistema.
+        /// </summary>
+        private void SeleccionarCarpeta()
+        {
+            try
+            {
+                var dialog = new Microsoft.Win32.OpenFolderDialog
+                {
+                    Title = "Seleccionar carpeta para el proyecto",
+                    Multiselect = false
+                };
+
+                if (!string.IsNullOrWhiteSpace(Ruta) && Directory.Exists(Ruta))
+                {
+                    dialog.InitialDirectory = Ruta;
+                }
+
+                if (dialog.ShowDialog() == true)
+                {
+                    Ruta = dialog.FolderName;
+                }
+            }
+            catch (Exception ex)
+            {
+                _notifications?.ShowError($"Error al abrir el selector de carpetas: {ex.Message}", "Selector de Carpetas");
+            }
+        }
+
+        /// <summary>
+        /// Establece las coordenadas seleccionadas en el mapa interactivo.
         /// </summary>
         public void SetCoordenadas(double lat, double lon)
         {
@@ -171,14 +233,7 @@ namespace Geomatica.Desktop.ViewModels
             LonStr = lon.ToString("F6", CultureInfo.InvariantCulture);
         }
 
-        public record DepartamentoItem(string Codigo, string Nombre)
-        {
-            public override string ToString() => Nombre;
-        }
-
-        public record MunicipioItem(string Codigo, string Nombre)
-        {
-            public override string ToString() => Nombre;
-        }
+        public record DepartamentoItem(string Codigo, string Nombre);
+        public record MunicipioItem(string Codigo, string Nombre);
     }
 }
