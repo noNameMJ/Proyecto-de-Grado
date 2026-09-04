@@ -15,20 +15,49 @@ using CommunityToolkit.Mvvm.Input;
 using Esri.ArcGISRuntime.UI.Controls;
 using System.Collections.ObjectModel;
 using System.IO;
+using CommunityToolkit.Mvvm.ComponentModel;
+using Esri.ArcGISRuntime.UI;
+using Geomatica.Desktop.Models;
 using Geomatica.Desktop.Services;
 
 namespace Geomatica.Desktop.ViewModels
 {
-    public class CapaUsuarioItem
+    public partial class CapaUsuarioItem : ObservableObject
     {
         public string Nombre { get; set; } = "";
+        public string RutaCompleta { get; set; } = "";
+        public string TipoIcono { get; set; } = "🗺️";
+        public string TipoTexto { get; set; } = "Capa Ráster";
         public Layer? Capa { get; set; }
         public Envelope? ExtentParaZoom { get; set; }
+
+        [ObservableProperty]
+        private bool isVisible = true;
+
+        partial void OnIsVisibleChanged(bool value)
+        {
+            if (Capa != null)
+            {
+                Capa.IsVisible = value;
+            }
+        }
+
+        [ObservableProperty]
+        private double opacidad = 1.0;
+
+        partial void OnOpacidadChanged(double value)
+        {
+            if (Capa != null)
+            {
+                Capa.Opacity = value;
+            }
+        }
+
         public IRelayCommand? QuitarCommand { get; set; }
         public IRelayCommand? ZoomCommand { get; set; }
     }
 
-    public class MapaViewModel : INotifyPropertyChanged
+    public partial class MapaViewModel : ObservableObject
     {
         private readonly IProyectoRepository _proyectos;
         private readonly BuscarProyectosUseCase _buscarProyectos;
@@ -51,8 +80,31 @@ namespace Geomatica.Desktop.ViewModels
         private readonly Dictionary<Layer, Envelope> _rasterExtentsSeguros = new();
 
         public ObservableCollection<CapaUsuarioItem> CapasAdicionales { get; } = new();
+        [ObservableProperty] private bool isPanelCapasVisible;
 
         public string? UltimosSidecarsRaster { get; private set; }
+
+        // Gestión de Mapas Base (Online y Offline)
+        private readonly BasemapService _basemapService = new();
+        public ObservableCollection<BasemapOption> MapasBase { get; } = new();
+        [ObservableProperty] private BasemapOption? mapaBaseSeleccionado;
+        [ObservableProperty] private bool isSelectorMapasBaseVisible;
+        [ObservableProperty] private bool isModoOfflineForzado;
+        [ObservableProperty] private bool isSinConexionInternet;
+        [ObservableProperty] private string avisoSinConexionTexto = "Sin conexión a internet: funcionando en modo offline con el mapa base predeterminado.";
+
+        // Herramientas de Medición SIG
+        public GraphicsOverlay OverlayMedicion { get; } = new() { Id = "OverlayMedicion" };
+        private readonly List<MapPoint> _puntosMedicion = new();
+        [ObservableProperty] private bool isHerramientasMedicionVisible;
+        [ObservableProperty] private string modoMedicion = "Ninguno"; // "Ninguno", "Distancia", "Area"
+        [ObservableProperty] private string resultadoMedicion = "";
+        [ObservableProperty] private string detalleMedicion = "";
+        [ObservableProperty] private bool hasResultadoMedicion;
+
+        // Visualización de Coordenadas y Escala en Vivo
+        [ObservableProperty] private string coordenadasCursorTexto = "Lat: -- | Lon: --";
+        [ObservableProperty] private string escalaMapaTexto = "Escala: 1:--";
 
         // Comando y evento para Home (MVVM)
         public IRelayCommand HomeCommand { get; }
@@ -81,10 +133,49 @@ namespace Geomatica.Desktop.ViewModels
             HomeCommand = new RelayCommand(() => HomeRequested?.Invoke(this, EventArgs.Empty));
             RestablecerVistaMapaCommand = new AsyncRelayCommand(RestablecerVistaMapaAsync);
 
+            // Cargar lista de mapas base
+            foreach (var b in _basemapService.ObtenerMapasBaseDisponibles())
+            {
+                MapasBase.Add(b);
+            }
+            MapaBaseSeleccionado = MapasBase.FirstOrDefault();
+            if (MapaBaseSeleccionado != null)
+            {
+                MapaBaseSeleccionado.IsSeleccionado = true;
+            }
+
             ArchivosVM.AbrirEnMapaSolicitado += async (s, path) => await CargarCapaAdicionalAsync(path);
             Filtros.PropertyChanged += Filtros_PropertyChanged;
 
             SetupMap();
+
+            // Comprobación inicial de conectividad a internet en segundo plano
+            _ = Task.Run(() =>
+            {
+                var conectado = BasemapService.ComprobarConexionInternet();
+                Application.Current.Dispatcher.Invoke(async () =>
+                {
+                    if (!conectado)
+                    {
+                        IsSinConexionInternet = true;
+                        IsModoOfflineForzado = true;
+                        ActualizarDisponibilidadMapasBase();
+                        var defaultOption = MapasBase.FirstOrDefault(b => b.IsDefaultOffline);
+                        if (defaultOption != null)
+                        {
+                            await AplicarBasemapAsync(defaultOption, true);
+                        }
+                        _notifications?.ShowWarning(
+                            "Se inició la aplicación sin conexión a internet. Los servicios en línea no están disponibles; se utilizará el mapa base Topográfico local predeterminado.", 
+                            "Modo Sin Conexión");
+                    }
+                    else
+                    {
+                        IsSinConexionInternet = false;
+                        ActualizarDisponibilidadMapasBase();
+                    }
+                });
+            });
         }
 
         private async void Filtros_PropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -189,11 +280,33 @@ namespace Geomatica.Desktop.ViewModels
                 await ZoomCapaSeguraAsync(layer, 20, "post-add");
             }
 
+            var tipoIcono = ext switch
+            {
+                ".tif" or ".tiff" => "🗺️",
+                ".shp" => "📐",
+                ".kml" or ".kmz" => "📍",
+                ".geojson" or ".json" => "🌐",
+                _ => "📁"
+            };
+            var tipoTexto = ext switch
+            {
+                ".tif" or ".tiff" => "Ráster GeoTIFF",
+                ".shp" => "Vectorial Shapefile",
+                ".kml" or ".kmz" => "Archivo KML/KMZ",
+                ".geojson" or ".json" => "GeoJSON",
+                _ => "Capa de Datos"
+            };
+
             var item = new CapaUsuarioItem
             {
                 Nombre = Path.GetFileName(path),
+                RutaCompleta = path,
+                TipoIcono = tipoIcono,
+                TipoTexto = tipoTexto,
                 Capa = layer,
-                ExtentParaZoom = _rasterExtentsSeguros.GetValueOrDefault(layer)
+                ExtentParaZoom = _rasterExtentsSeguros.GetValueOrDefault(layer),
+                IsVisible = true,
+                Opacidad = 1.0
             };
             item.QuitarCommand = new RelayCommand(() => 
             {
@@ -203,6 +316,10 @@ namespace Geomatica.Desktop.ViewModels
                     _rasterExtentsSeguros.Remove(item.Capa);
                 }
                 CapasAdicionales.Remove(item);
+                if (CapasAdicionales.Count == 0)
+                {
+                    IsPanelCapasVisible = false;
+                }
             });
             
             item.ZoomCommand = new RelayCommand(async () =>
@@ -214,6 +331,9 @@ namespace Geomatica.Desktop.ViewModels
             Application.Current.Dispatcher.Invoke(() => 
             {
                 CapasAdicionales.Add(item);
+                IsPanelCapasVisible = true;
+                IsSelectorMapasBaseVisible = false;
+                IsHerramientasMedicionVisible = false;
                 _notifications?.ShowSuccess($"Capa '{item.Nombre}' añadida al mapa.", "Capa Añadida");
             });
         }
@@ -602,178 +722,545 @@ namespace Geomatica.Desktop.ViewModels
 
  private async Task ZoomCapaAsync(Layer layer, double padding, string origen)
  {
-    if (_ownerMapView == null)
-    {
-        MessageBox.Show("La vista de mapa todavía no está lista para centrar la capa.", "Zoom a Capa", MessageBoxButton.OK, MessageBoxImage.Information);
-        return;
-    }
+     if (_ownerMapView == null)
+     {
+         _notifications?.ShowInfo("La vista de mapa todavía no está lista para centrar la capa.", "Zoom a Capa");
+         return;
+     }
 
-    var extent = layer.FullExtent;
-    if (extent == null || extent.SpatialReference == null || !EsEnvelopeFinito(extent))
-    {
-        RasterDiagnostics.Log($"Zoom rejected origin={origen}; layer={layer.Name}; extent={extent}");
-        MessageBox.Show("La capa no tiene información espacial válida para hacer zoom.", "Zoom a Capa", MessageBoxButton.OK, MessageBoxImage.Warning);
-        return;
-    }
+     var extent = layer.FullExtent;
+     if (extent == null || extent.SpatialReference == null || !EsEnvelopeFinito(extent))
+     {
+         RasterDiagnostics.Log($"Zoom rejected origin={origen}; layer={layer.Name}; extent={extent}");
+         _notifications?.ShowWarning("La capa no tiene información espacial válida para hacer zoom.", "Zoom a Capa");
+         return;
+     }
 
-    try
+     try
+     {
+         await Application.Current.Dispatcher.InvokeAsync(async () =>
+         {
+             RasterDiagnostics.Log($"Zoom layer origin={origen}; layer={layer.Name}; extent={extent}");
+             await _ownerMapView.SetViewpointGeometryAsync(extent, padding);
+         });
+     }
+     catch (Exception ex)
+     {
+         RasterDiagnostics.LogException($"Zoom layer failed origin={origen}; layer={layer.Name}", ex);
+         _notifications?.ShowWarning($"No se pudo centrar la capa: {ex.Message}", "Zoom a Capa");
+     }
+ }
+
+    private bool _isOpeningFicha = false;
+
+    public async Task AbrirFichaProyectoAsync(int idProyecto)
     {
-        await Application.Current.Dispatcher.InvokeAsync(async () =>
+        if (_isOpeningFicha) return;
+        _isOpeningFicha = true;
+        try
         {
-            RasterDiagnostics.Log($"Zoom layer origin={origen}; layer={layer.Name}; extent={extent}");
-            await _ownerMapView.SetViewpointGeometryAsync(extent, padding);
-        });
+            var detalle = await _proyectos.ObtenerPorIdAsync(idProyecto);
+            if (detalle != null)
+            {
+                if (Filtros != null && Filtros.SelectedProyecto?.Id != detalle.Id)
+                {
+                    Filtros.SelectedProyecto = new FiltrosViewModel.ProyectoItem(
+                        detalle.Id, detalle.Titulo, detalle.Lon, detalle.Lat, detalle.RutaArchivos);
+                }
+                FichaProyectoSolicitada?.Invoke(this, detalle);
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error cargando detalle de proyecto {idProyecto}: {ex}");
+        }
+        finally
+        {
+            _isOpeningFicha = false;
+        }
     }
-    catch (Exception ex)
+
+    // Methods to attach/detach a MapView safely
+    public void AttachMapView(MapView mv)
     {
-        RasterDiagnostics.LogException($"Zoom layer failed origin={origen}; layer={layer.Name}", ex);
-        MessageBox.Show($"No se pudo centrar la capa.\n\nDetalle: {ex.Message}", "Zoom a Capa", MessageBoxButton.OK, MessageBoxImage.Warning);
+        try
+        {
+            if (Application.Current == null)
+            {
+                DoAttach(mv);
+                return;
+            }
+
+            if (Application.Current.Dispatcher.CheckAccess())
+            {
+                DoAttach(mv);
+            }
+            else
+            {
+                Application.Current.Dispatcher.Invoke(() => DoAttach(mv));
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error en AttachMapView: {ex}");
+        }
     }
- }
 
- private bool _isOpeningFicha = false;
-
- public async Task AbrirFichaProyectoAsync(int idProyecto)
- {
-  if (_isOpeningFicha) return;
-  _isOpeningFicha = true;
-  try
-  {
-   var detalle = await _proyectos.ObtenerPorIdAsync(idProyecto);
-   if (detalle != null)
-   {
-    if (Filtros != null && Filtros.SelectedProyecto?.Id != detalle.Id)
+    private void DoAttach(MapView mv)
     {
-        Filtros.SelectedProyecto = new FiltrosViewModel.ProyectoItem(
-            detalle.Id, detalle.Titulo, detalle.Lon, detalle.Lat, detalle.RutaArchivos);
+        if (_ownerMapView == mv) return;
+        if (_ownerMapView != null)
+        {
+            try { _ownerMapView.Map = null; } catch { }
+        }
+        _ownerMapView = mv;
+        if (_ownerMapView != null)
+        {
+            if (_ownerMapView.Map != Map)
+            {
+                _ownerMapView.Map = Map;
+            }
+            if (_ownerMapView.GraphicsOverlays != null && !_ownerMapView.GraphicsOverlays.Contains(OverlayMedicion))
+            {
+                _ownerMapView.GraphicsOverlays.Add(OverlayMedicion);
+            }
+        }
     }
-    FichaProyectoSolicitada?.Invoke(this, detalle);
-   }
-  }
-  catch (Exception ex)
-  {
-   System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error cargando detalle de proyecto {idProyecto}: {ex}");
-  }
-  finally
-  {
-      _isOpeningFicha = false;
-  }
- }
 
- // Methods to attach/detach a MapView safely
- public void AttachMapView(MapView mv)
- {
- // Ensure the MapView.Map assignment happens on the UI thread and completes before returning.
- try
- {
- if (Application.Current == null)
- {
- // fallback: do the operation directly
- DoAttach(mv);
- return;
- }
+    public void DetachMapView(MapView mv)
+    {
+        try
+        {
+            if (Application.Current == null)
+            {
+                DoDetach(mv);
+                return;
+            }
 
- if (Application.Current.Dispatcher.CheckAccess())
- {
- DoAttach(mv);
- }
- else
- {
- Application.Current.Dispatcher.Invoke(() => DoAttach(mv));
- }
- }
- catch (Exception ex)
- {
- System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error en AttachMapView: {ex}");
- }
- }
+            if (Application.Current.Dispatcher.CheckAccess())
+            {
+                DoDetach(mv);
+            }
+            else
+            {
+                Application.Current.Dispatcher.Invoke(() => DoDetach(mv));
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error en DetachMapView: {ex}");
+        }
+    }
 
- private void DoAttach(MapView mv)
- {
- if (_ownerMapView == mv) return;
- // detach previous owner
- if (_ownerMapView != null)
- {
- try { _ownerMapView.Map = null; } catch { }
- }
- _ownerMapView = mv;
- if (_ownerMapView != null && _ownerMapView.Map != Map)
- {
- _ownerMapView.Map = Map;
- }
- }
+    private void DoDetach(MapView mv)
+    {
+        if (_ownerMapView == mv && mv != null)
+        {
+            try
+            {
+                try
+                {
+                    var vp = mv.GetCurrentViewpoint(ViewpointType.CenterAndScale);
+                    if (vp != null)
+                    {
+                        LastViewpoint = vp;
+                    }
+                }
+                catch { }
 
- public void DetachMapView(MapView mv)
- {
- try
- {
- if (Application.Current == null)
- {
- DoDetach(mv);
- return;
- }
+                try 
+                { 
+                    if (mv.GraphicsOverlays != null && mv.GraphicsOverlays.Contains(OverlayMedicion))
+                    {
+                        mv.GraphicsOverlays.Remove(OverlayMedicion);
+                    }
+                    _ownerMapView.Map = null; 
+                } 
+                catch { }
+                _ownerMapView = null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error en DoDetach: {ex}");
+            }
+        }
+    }
 
- if (Application.Current.Dispatcher.CheckAccess())
- {
- DoDetach(mv);
- }
- else
- {
- Application.Current.Dispatcher.Invoke(() => DoDetach(mv));
- }
- }
- catch (Exception ex)
- {
- System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error en DetachMapView: {ex}");
- }
- }
+    [ObservableProperty] private Map? map;
 
- private void DoDetach(MapView mv)
- {
- if (_ownerMapView == mv)
- {
- try
- {
- // Save current viewpoint so zoom/center can be restored later
- try
- {
- var vp = mv.GetCurrentViewpoint(ViewpointType.CenterAndScale);
- if (vp != null)
- {
- LastViewpoint = vp;
- }
- }
- catch { }
+    // Guarda el último viewpoint mostrado en el MapView para restaurarlo
+    // cuando la vista se vuelva a adjuntar.
+    public Viewpoint? LastViewpoint { get; set; }
 
- try { _ownerMapView.Map = null; } catch { }
- _ownerMapView = null;
- }
- catch (Exception ex)
- {
- System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error en DoDetach: {ex}");
- }
- }
- }
+    async partial void OnIsModoOfflineForzadoChanged(bool value)
+    {
+        AppLogger.Info($"[MapaViewModel] OnIsModoOfflineForzadoChanged: {value}");
+        ActualizarDisponibilidadMapasBase();
 
- public event PropertyChangedEventHandler? PropertyChanged;
- protected void OnPropertyChanged([CallerMemberName] string name = "") =>
- PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        if (value)
+        {
+            var defaultOption = MapasBase.FirstOrDefault(b => b.IsDefaultOffline);
+            if (defaultOption != null)
+            {
+                await AplicarBasemapAsync(defaultOption, true);
+            }
+            _notifications?.ShowInfo("Modo Offline activado: usando mapa base local predeterminado.", "Modo Sin Conexión");
+        }
+        else
+        {
+            if (IsSinConexionInternet)
+            {
+                _notifications?.ShowWarning("No se detectó conexión a internet activa para salir del modo offline.", "Sin Conexión");
+                IsModoOfflineForzado = true;
+                return;
+            }
 
- private Map? _map;
- public Map? Map { get => _map; set { _map = value; OnPropertyChanged(); } }
+            if (MapaBaseSeleccionado != null && Map != null)
+            {
+                await AplicarBasemapAsync(MapaBaseSeleccionado, false);
+                _notifications?.ShowInfo("Modo Online activado: usando servicios web de ArcGIS.", "Modo En Línea");
+            }
+        }
+    }
 
- // Guarda el último viewpoint mostrado en el MapView para restaurarlo
- // cuando la vista se vuelva a adjuntar.
- public Viewpoint? LastViewpoint { get; set; }
+    public void ActualizarDisponibilidadMapasBase()
+    {
+        bool offlineActivo = IsModoOfflineForzado || IsSinConexionInternet;
 
- private void SetupMap()
- {
- var map = new Map(BasemapStyle.ArcGISTopographic);
- var center = new MapPoint(-74.146592,4.680486, SpatialReferences.Wgs84);
- map.InitialViewpoint = new Viewpoint(center,12_000_000);
- Map = map;
- }
- // Fallback para crear campos cuando no existen los helpers CreateXxx
+        foreach (var b in MapasBase)
+        {
+            if (b.IsDefaultOffline)
+            {
+                b.IsHabilitado = true;
+                b.EstadoTexto = offlineActivo ? "Offline Activo" : "Offline Predeterminado";
+            }
+            else
+            {
+                b.IsHabilitado = !offlineActivo;
+                b.EstadoTexto = offlineActivo ? "No disponible sin conexión" : "En línea";
+            }
+        }
+
+        if (offlineActivo)
+        {
+            var defaultOffline = MapasBase.FirstOrDefault(b => b.IsDefaultOffline);
+            if (defaultOffline != null && MapaBaseSeleccionado != defaultOffline)
+            {
+                MapaBaseSeleccionado = defaultOffline;
+                foreach (var b in MapasBase)
+                {
+                    b.IsSeleccionado = (b == defaultOffline);
+                }
+            }
+        }
+    }
+
+    [RelayCommand]
+    public void ToggleSelectorMapasBase()
+    {
+        IsSelectorMapasBaseVisible = !IsSelectorMapasBaseVisible;
+        if (IsSelectorMapasBaseVisible)
+        {
+            IsHerramientasMedicionVisible = false;
+            IsPanelCapasVisible = false;
+        }
+    }
+
+    [RelayCommand]
+    public void TogglePanelCapas()
+    {
+        IsPanelCapasVisible = !IsPanelCapasVisible;
+        if (IsPanelCapasVisible)
+        {
+            IsSelectorMapasBaseVisible = false;
+            IsHerramientasMedicionVisible = false;
+        }
+    }
+
+    [RelayCommand]
+    public void QuitarTodasLasCapas()
+    {
+        if (CapasAdicionales.Count == 0) return;
+
+        foreach (var item in CapasAdicionales.ToList())
+        {
+            if (item.Capa != null && Map != null)
+            {
+                Map.OperationalLayers.Remove(item.Capa);
+                _rasterExtentsSeguros.Remove(item.Capa);
+            }
+        }
+        CapasAdicionales.Clear();
+        IsPanelCapasVisible = false;
+        _notifications?.ShowInfo("Se han quitado todas las capas adicionales del mapa.", "Capas");
+    }
+
+    [RelayCommand]
+    public async Task CambiarMapaBaseAsync(BasemapOption? option)
+    {
+        if (option == null || Map == null) return;
+        if (!option.IsHabilitado)
+        {
+            _notifications?.ShowWarning($"El mapa '{option.Nombre}' requiere conexión a internet y no está disponible en modo offline.", "Mapa No Disponible");
+            return;
+        }
+        await AplicarBasemapAsync(option, IsModoOfflineForzado || IsSinConexionInternet);
+    }
+
+    private async Task AplicarBasemapAsync(BasemapOption option, bool forzarOffline)
+    {
+        if (Map == null) return;
+
+        try
+        {
+            var basemap = _basemapService.CrearBasemap(option, forzarOffline);
+            MapaBaseSeleccionado = option;
+            foreach (var b in MapasBase)
+            {
+                b.IsSeleccionado = (b == option);
+            }
+            IsSelectorMapasBaseVisible = false;
+
+            // Cargar el basemap para obtener su SpatialReference
+            try
+            {
+                await basemap.LoadAsync();
+            }
+            catch (Exception loadEx)
+            {
+                AppLogger.Warn($"Basemap LoadAsync warning: {loadEx.Message}");
+            }
+
+            var basemapLayer = basemap.BaseLayers.FirstOrDefault();
+            if (basemapLayer != null && basemapLayer.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
+            {
+                try { await basemapLayer.LoadAsync(); } catch { }
+            }
+            var basemapSr = basemapLayer?.SpatialReference;
+            AppLogger.Info($"Basemap '{option.Nombre}' SpatialReference: {basemapSr?.Wkid ?? 0}; Map SpatialReference: {Map.SpatialReference?.Wkid ?? 0}");
+
+            // Si los sistemas de referencia difieren (ej. 3857 vs 3116):
+            // En ArcGIS Runtime se debe instanciar un nuevo Map para adoptar la nueva proyección
+            if (Map.SpatialReference != null && basemapSr != null && Map.SpatialReference.Wkid != basemapSr.Wkid)
+            {
+                AppLogger.Info($"Cambiando SpatialReference del mapa de {Map.SpatialReference.Wkid} a {basemapSr.Wkid}. Reinstanciando Map.");
+
+                var newMap = new Map(basemap);
+                var ops = Map.OperationalLayers.ToList();
+                Map.OperationalLayers.Clear();
+                foreach (var l in ops)
+                {
+                    newMap.OperationalLayers.Add(l);
+                }
+
+                Map = newMap;
+                if (_ownerMapView != null)
+                {
+                    _ownerMapView.Map = newMap;
+                }
+            }
+            else
+            {
+                Map.Basemap = basemap;
+            }
+
+            var modoTexto = (forzarOffline || IsSinConexionInternet)
+                ? " (Modo Offline)"
+                : "";
+            _notifications?.ShowSuccess($"Mapa base cambiado a: {option.Nombre}{modoTexto}", "Mapa Base");
+
+            if (_ownerMapView != null)
+            {
+                await RestablecerVistaMapaAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error($"Error al aplicar basemap '{option.Nombre}'", ex);
+            _notifications?.ShowError($"No se pudo aplicar el mapa base: {ex.Message}", "Error Mapa Base");
+        }
+    }
+
+    [RelayCommand]
+    public void ToggleHerramientasMedicion()
+    {
+        IsHerramientasMedicionVisible = !IsHerramientasMedicionVisible;
+        if (IsHerramientasMedicionVisible)
+        {
+            IsSelectorMapasBaseVisible = false;
+            IsPanelCapasVisible = false;
+        }
+        else
+        {
+            ModoMedicion = "Ninguno";
+            LimpiarMedicion();
+        }
+    }
+
+    [RelayCommand]
+    public void ActivarMedicionDistancia()
+    {
+        ModoMedicion = "Distancia";
+        LimpiarMedicion();
+        _notifications?.ShowInfo("Haga clic en el mapa para trazar puntos y medir distancias.", "Medir Distancia");
+    }
+
+    [RelayCommand]
+    public void ActivarMedicionArea()
+    {
+        ModoMedicion = "Area";
+        LimpiarMedicion();
+        _notifications?.ShowInfo("Haga clic en el mapa para trazar los vértices del polígono y medir el área.", "Medir Área");
+    }
+
+    [RelayCommand]
+    public void LimpiarMedicion()
+    {
+        _puntosMedicion.Clear();
+        OverlayMedicion.Graphics.Clear();
+        ResultadoMedicion = "";
+        DetalleMedicion = "";
+        HasResultadoMedicion = false;
+    }
+
+    [RelayCommand]
+    public void CopiarMedicion()
+    {
+        if (string.IsNullOrWhiteSpace(ResultadoMedicion)) return;
+        try
+        {
+            Clipboard.SetText($"{ResultadoMedicion} ({DetalleMedicion})");
+            _notifications?.ShowSuccess("Resultado de medición copiado al portapapeles.", "Copiado");
+        }
+        catch { }
+    }
+
+    public void AgregarPuntoMedicion(MapPoint punto)
+    {
+        if (ModoMedicion == "Ninguno") return;
+
+        var puntoWgs84 = GeometryEngine.Project(punto, SpatialReferences.Wgs84) as MapPoint ?? punto;
+        _puntosMedicion.Add(puntoWgs84);
+
+        OverlayMedicion.Graphics.Clear();
+
+        var puntoSymbol = new SimpleMarkerSymbol(
+            SimpleMarkerSymbolStyle.Circle,
+            System.Drawing.Color.FromArgb(255, 24, 134, 75),
+            8);
+        var lineSymbol = new SimpleLineSymbol(
+            SimpleLineSymbolStyle.Solid,
+            System.Drawing.Color.FromArgb(230, 24, 134, 75),
+            3);
+
+        // Dibujar vértices
+        foreach (var p in _puntosMedicion)
+        {
+            OverlayMedicion.Graphics.Add(new Graphic(p, puntoSymbol));
+        }
+
+        if (ModoMedicion == "Distancia")
+        {
+            if (_puntosMedicion.Count >= 2)
+            {
+                var polyline = new Polyline(_puntosMedicion, SpatialReferences.Wgs84);
+                OverlayMedicion.Graphics.Add(new Graphic(polyline, lineSymbol));
+
+                var longitudMetros = GeometryEngine.LengthGeodetic(polyline, LinearUnits.Meters, GeodeticCurveType.Geodesic);
+                if (longitudMetros >= 1000)
+                {
+                    var km = longitudMetros / 1000.0;
+                    ResultadoMedicion = $"{km:F2} km";
+                    DetalleMedicion = $"{longitudMetros:N0} metros ({_puntosMedicion.Count} puntos)";
+                }
+                else
+                {
+                    ResultadoMedicion = $"{longitudMetros:F1} m";
+                    DetalleMedicion = $"{_puntosMedicion.Count} puntos marcados";
+                }
+                HasResultadoMedicion = true;
+            }
+            else
+            {
+                ResultadoMedicion = "1 punto marcado";
+                DetalleMedicion = "Haga clic en otro punto para calcular la distancia";
+                HasResultadoMedicion = true;
+            }
+        }
+        else if (ModoMedicion == "Area")
+        {
+            if (_puntosMedicion.Count >= 3)
+            {
+                var polygon = new Polygon(_puntosMedicion, SpatialReferences.Wgs84);
+                var fillSymbol = new SimpleFillSymbol(
+                    SimpleFillSymbolStyle.Solid,
+                    System.Drawing.Color.FromArgb(80, 24, 134, 75),
+                    lineSymbol);
+
+                OverlayMedicion.Graphics.Add(new Graphic(polygon, fillSymbol));
+
+                var areaM2 = Math.Abs(GeometryEngine.AreaGeodetic(polygon, AreaUnits.SquareMeters, GeodeticCurveType.Geodesic));
+                var ha = areaM2 / 10_000.0;
+                var km2 = areaM2 / 1_000_000.0;
+
+                if (areaM2 >= 1_000_000)
+                {
+                    ResultadoMedicion = $"{km2:F2} km²";
+                    DetalleMedicion = $"{ha:N1} ha | {areaM2:N0} m² ({_puntosMedicion.Count} vértices)";
+                }
+                else if (areaM2 >= 10_000)
+                {
+                    ResultadoMedicion = $"{ha:F2} ha";
+                    DetalleMedicion = $"{areaM2:N0} m² ({_puntosMedicion.Count} vértices)";
+                }
+                else
+                {
+                    ResultadoMedicion = $"{areaM2:N1} m²";
+                    DetalleMedicion = $"{_puntosMedicion.Count} vértices";
+                }
+                HasResultadoMedicion = true;
+            }
+            else if (_puntosMedicion.Count == 2)
+            {
+                var polyline = new Polyline(_puntosMedicion, SpatialReferences.Wgs84);
+                OverlayMedicion.Graphics.Add(new Graphic(polyline, lineSymbol));
+                ResultadoMedicion = "2 vértices marcados";
+                DetalleMedicion = "Agregue al menos 3 vértices para calcular el área";
+                HasResultadoMedicion = true;
+            }
+            else
+            {
+                ResultadoMedicion = "1 vértice marcado";
+                DetalleMedicion = "Agregue al menos 3 vértices para calcular el área";
+                HasResultadoMedicion = true;
+            }
+        }
+    }
+
+    public void ActualizarCoordenadasCursor(double lat, double lon)
+    {
+        var latDir = lat >= 0 ? "N" : "S";
+        var lonDir = lon >= 0 ? "E" : "W";
+        CoordenadasCursorTexto = $"Lat: {Math.Abs(lat):F5}° {latDir}  |  Lon: {Math.Abs(lon):F5}° {lonDir}";
+    }
+
+    public void ActualizarEscala(double escala)
+    {
+        if (escala > 0)
+        {
+            EscalaMapaTexto = $"Escala 1:{escala:N0}";
+        }
+    }
+
+    private void SetupMap()
+    {
+        var newMap = new Map(BasemapStyle.ArcGISTopographic);
+        var center = new MapPoint(-74.146592, 4.680486, SpatialReferences.Wgs84);
+        newMap.InitialViewpoint = new Viewpoint(center, 12_000_000);
+        Map = newMap;
+    }
+
+    // Fallback para crear campos cuando no existen los helpers CreateXxx
     private static Field OID(string name)
         => Field.FromJson($"{{\"name\":\"{name}\",\"type\":\"esriFieldTypeOID\",\"alias\":\"{name}\"}}")!;
 
@@ -783,11 +1270,11 @@ namespace Geomatica.Desktop.ViewModels
     private static Field Str(string name, int length, string? alias = null)
         => Field.FromJson($"{{\"name\":\"{name}\",\"type\":\"esriFieldTypeString\",\"alias\":\"{alias ?? name}\",\"length\":{length}}}")!;
 
- /// <summary>
- /// Busca el id de proyecto correspondiente al OID de un feature en la capa de proyectos.
- /// </summary>
- public int? BuscarIdProyectoPorOid(long oid)
-  => _oidToProjectId.TryGetValue(oid, out var id) ? id : null;
+    /// <summary>
+    /// Busca el id de proyecto correspondiente al OID de un feature en la capa de proyectos.
+    /// </summary>
+    public int? BuscarIdProyectoPorOid(long oid)
+        => _oidToProjectId.TryGetValue(oid, out var id) ? id : null;
 
  /// <summary>
  /// Invalida el caché de municipios y la capa de proyectos para reflejar datos nuevos.

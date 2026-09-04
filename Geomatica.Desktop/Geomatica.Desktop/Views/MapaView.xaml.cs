@@ -30,6 +30,7 @@ namespace Geomatica.Desktop.Views
             Unloaded += MapaView_Unloaded;
             _controlMapView.GeoViewTapped += ControlMapView_GeoViewTapped;
             _controlMapView.LayerViewStateChanged += ControlMapView_LayerViewStateChanged;
+            _controlMapView.MouseMove += ControlMapView_MouseMove;
         }
 
         private double _lastArchivosHeight = 260.0;
@@ -147,9 +148,33 @@ namespace Geomatica.Desktop.Views
                 {
                     try
                     {
-                        vm.LastViewpoint = mv.GetCurrentViewpoint(ViewpointType.CenterAndScale);
+                        var vp = mv.GetCurrentViewpoint(ViewpointType.CenterAndScale);
+                        vm.LastViewpoint = vp;
+                        if (vp != null && vp.TargetScale > 0)
+                        {
+                            vm.ActualizarEscala(vp.TargetScale);
+                        }
                     }
                     catch { }
+                }
+            }
+            catch { }
+        }
+
+        private void ControlMapView_MouseMove(object sender, System.Windows.Input.MouseEventArgs e)
+        {
+            if (_currentVm == null) return;
+            try
+            {
+                var screenPoint = e.GetPosition(_controlMapView);
+                var mapPoint = _controlMapView.ScreenToLocation(screenPoint);
+                if (mapPoint != null)
+                {
+                    var wgs84 = Esri.ArcGISRuntime.Geometry.GeometryEngine.Project(mapPoint, Esri.ArcGISRuntime.Geometry.SpatialReferences.Wgs84) as Esri.ArcGISRuntime.Geometry.MapPoint;
+                    if (wgs84 != null)
+                    {
+                        _currentVm.ActualizarCoordenadasCursor(wgs84.Y, wgs84.X);
+                    }
                 }
             }
             catch { }
@@ -454,6 +479,13 @@ namespace Geomatica.Desktop.Views
             {
                 var mv = sender as MapView;
                 if (mv == null || _currentVm == null) return;
+
+                // Si está activa una herramienta de medición SIG, capturar el punto
+                if (_currentVm.ModoMedicion != "Ninguno" && e.Location != null)
+                {
+                    _currentVm.AgregarPuntoMedicion(e.Location);
+                    return;
+                }
 
                 int? idProyecto = null;
                 var layerProyectos = _currentVm.LayerProyectos;

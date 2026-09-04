@@ -64,6 +64,11 @@
         <GradientStop Color="#004D26" Offset="1"/>
     </LinearGradientBrush>
 
+    <!-- Status Brushes -->
+    <SolidColorBrush x:Key="DangerBrush"        Color="{StaticResource DangerColor}"/>
+    <SolidColorBrush x:Key="ErrorBrush"         Color="{StaticResource DangerColor}"/>
+    <SolidColorBrush x:Key="InfoBrush"          Color="{StaticResource InfoColor}"/>
+
     <!-- Accent gold stripe -->
     <SolidColorBrush x:Key="AccentStripeBrush" Color="{StaticResource UisGoldColor}"/>
 

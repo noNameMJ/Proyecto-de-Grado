@@ -1,6 +1,8 @@
+﻿using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Text;
+using System.Linq;
 using System.Threading;
 using System.Windows;
 
@@ -8,30 +10,20 @@ namespace Geomatica.Desktop.Services
 {
     public static class RasterDiagnostics
     {
-        private static readonly object Gate = new();
-        private static readonly string LogPath = Path.Combine(
-            AppContext.BaseDirectory,
-            "raster-diagnostics.log");
-
         public static void Log(string message)
         {
-            var line = $"{DateTimeOffset.Now:O} [T{Thread.CurrentThread.ManagedThreadId}] {message}";
-            Debug.WriteLine(line);
-            lock (Gate)
-            {
-                File.AppendAllText(LogPath, line + Environment.NewLine, Encoding.UTF8);
-            }
+            AppLogger.Info($"[Raster] {message}");
         }
 
         public static void LogException(string context, Exception? ex)
         {
             if (ex == null)
             {
-                Log($"{context}: <no exception>");
+                AppLogger.Info($"[Raster] {context}: <no exception>");
                 return;
             }
 
-            Log($"{context}: {ex}");
+            AppLogger.Error($"[Raster] {context}", ex);
         }
 
         public static void LogDispatcher(string context)
@@ -92,7 +84,14 @@ namespace Geomatica.Desktop.Services
 
         public static void LogArcGisLayerError(string context, string? layerName, string? status, Exception? error)
         {
-            Log($"{context}: layer={layerName ?? "<unknown>"}; status={status ?? "<unknown>"}; error={(error?.ToString() ?? "<null>")}");
+            if (error != null)
+            {
+                AppLogger.Error($"[Raster Layer Error] {context}: layer={layerName ?? "<unknown>"}; status={status ?? "<unknown>"}", error);
+            }
+            else
+            {
+                Log($"{context}: layer={layerName ?? "<unknown>"}; status={status ?? "<unknown>"}; error=<null>");
+            }
         }
 
         public static void LogPix4DProduct(string path, string? productType, IReadOnlyList<string> sidecars)
