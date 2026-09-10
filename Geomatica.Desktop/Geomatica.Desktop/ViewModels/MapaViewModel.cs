@@ -34,12 +34,16 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty]
         private bool isVisible = true;
 
+        public Action<bool>? OnVisibilityChangedAction { get; set; }
+        public Action<double>? OnOpacityChangedAction { get; set; }
+
         partial void OnIsVisibleChanged(bool value)
         {
             if (Capa != null)
             {
                 Capa.IsVisible = value;
             }
+            OnVisibilityChangedAction?.Invoke(value);
         }
 
         [ObservableProperty]
@@ -51,6 +55,7 @@ namespace Geomatica.Desktop.ViewModels
             {
                 Capa.Opacity = value;
             }
+            OnOpacityChangedAction?.Invoke(value);
         }
 
         public IRelayCommand? QuitarCommand { get; set; }
@@ -106,6 +111,23 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty] private string coordenadasCursorTexto = "Lat: -- | Lon: --";
         [ObservableProperty] private string escalaMapaTexto = "Escala: 1:--";
 
+        // Visor 3D y Nubes de Puntos
+        [ObservableProperty] private bool isModo3D;
+        [ObservableProperty] private Scene? scene;
+        [ObservableProperty] private string modo3DTextoIcono = "🌐 3D";
+        [ObservableProperty] private bool hasCapa3DActiva;
+        [ObservableProperty] private string infoCapa3DTexto = "";
+        [ObservableProperty] private string tituloCapa3D = "";
+
+        public GraphicsOverlay OverlayNubePuntos3D { get; } = new()
+        {
+            Id = "OverlayNubePuntos3D",
+            SceneProperties = { SurfacePlacement = SurfacePlacement.Absolute }
+        };
+
+        private SceneView? _ownerSceneView;
+        public Envelope? UltimoExtent3D { get; private set; }
+
         // Comando y evento para Home (MVVM)
         public IRelayCommand HomeCommand { get; }
         public IAsyncRelayCommand RestablecerVistaMapaCommand { get; }
@@ -148,6 +170,7 @@ namespace Geomatica.Desktop.ViewModels
             Filtros.PropertyChanged += Filtros_PropertyChanged;
 
             SetupMap();
+            SetupScene();
 
             // Comprobación inicial de conectividad a internet en segundo plano
             _ = Task.Run(() =>
@@ -218,28 +241,19 @@ namespace Geomatica.Desktop.ViewModels
                 }
                 else if (ext == ".slpk")
                 {
-                    layer = new ArcGISSceneLayer(new Uri(path));
+                    await CargarSlpk3DAsync(path);
+                    return;
                 }
-
-        else if (ext == ".las" || ext == ".laz" || ext == ".zlas")
-        {
-            // Nota: Para visualizar archivos de Nube de Puntos directamente en MapView WPF como dataset
-            // Dependiendo de la versión de ArcGIS Runtime puede ser PointCloudLayer.
-            try 
-            {
-                layer = new PointCloudLayer(new Uri(path));
-            } 
-            catch (Exception)
-            {
-                MessageBox.Show("ArcGIS Runtime requiere un SLPK o dataset compatible para nubes de puntos .las/.laz.", "Aviso", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-        }
-        else if (ext == ".tif" || ext == ".tiff")
-        {
-            layer = await CrearRasterLayerValidadoAsync(path);
-            if (layer == null) return;
-        }
+                else if (ext == ".las" || ext == ".laz" || ext == ".zlas")
+                {
+                    await CargarNubePuntosLas3DAsync(path);
+                    return;
+                }
+                else if (ext == ".tif" || ext == ".tiff")
+                {
+                    layer = await CrearRasterLayerValidadoAsync(path);
+                    if (layer == null) return;
+                }
         if (layer != null)
         {
             layer.ShowInLegend = false;
@@ -886,6 +900,419 @@ namespace Geomatica.Desktop.ViewModels
         }
     }
 
+    // ==========================================
+    // SECCIÓN: VISOR 3D Y NUBES DE PUNTOS
+    // ==========================================
+
+    private void SetupScene()
+    {
+        var basemapStyle = MapaBaseSeleccionado?.Style ?? BasemapStyle.ArcGISTopographic;
+        var newScene = new Scene(basemapStyle);
+
+        try
+        {
+            // Superficie de elevación mundial 3D
+            var elevationSource = new ArcGISTiledElevationSource(new Uri("https://elevation3d.arcgis.com/arcgis/rest/services/WorldElevation3D/Terrain3D/ImageServer"));
+            newScene.BaseSurface.ElevationSources.Add(elevationSource);
+            newScene.BaseSurface.IsEnabled = true;
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Warn($"No se pudo inicializar la fuente de elevación 3D: {ex.Message}");
+        }
+
+        Scene = newScene;
+        if (_ownerSceneView != null)
+        {
+            _ownerSceneView.Scene = newScene;
+            if (_ownerSceneView.GraphicsOverlays != null && !_ownerSceneView.GraphicsOverlays.Contains(OverlayNubePuntos3D))
+            {
+                _ownerSceneView.GraphicsOverlays.Add(OverlayNubePuntos3D);
+            }
+        }
+    }
+
+    public void AttachSceneView(SceneView sv)
+    {
+        try
+        {
+            if (Application.Current == null)
+            {
+                DoAttachScene(sv);
+                return;
+            }
+
+            if (Application.Current.Dispatcher.CheckAccess())
+            {
+                DoAttachScene(sv);
+            }
+            else
+            {
+                Application.Current.Dispatcher.Invoke(() => DoAttachScene(sv));
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("Error al adjuntar SceneView", ex);
+        }
+    }
+
+    private void DoAttachScene(SceneView sv)
+    {
+        if (_ownerSceneView == sv) return;
+        if (_ownerSceneView != null)
+        {
+            try { _ownerSceneView.Scene = null; } catch { }
+        }
+        _ownerSceneView = sv;
+        if (_ownerSceneView != null)
+        {
+            if (_ownerSceneView.Scene != Scene)
+            {
+                _ownerSceneView.Scene = Scene;
+            }
+            if (_ownerSceneView.GraphicsOverlays != null && !_ownerSceneView.GraphicsOverlays.Contains(OverlayNubePuntos3D))
+            {
+                _ownerSceneView.GraphicsOverlays.Add(OverlayNubePuntos3D);
+            }
+        }
+    }
+
+    public void DetachSceneView(SceneView sv)
+    {
+        try
+        {
+            if (Application.Current == null)
+            {
+                DoDetachScene(sv);
+                return;
+            }
+
+            if (Application.Current.Dispatcher.CheckAccess())
+            {
+                DoDetachScene(sv);
+            }
+            else
+            {
+                Application.Current.Dispatcher.Invoke(() => DoDetachScene(sv));
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("Error al desadjuntar SceneView", ex);
+        }
+    }
+
+    private void DoDetachScene(SceneView sv)
+    {
+        if (_ownerSceneView == sv && sv != null)
+        {
+            try
+            {
+                if (sv.GraphicsOverlays != null && sv.GraphicsOverlays.Contains(OverlayNubePuntos3D))
+                {
+                    sv.GraphicsOverlays.Remove(OverlayNubePuntos3D);
+                }
+                _ownerSceneView.Scene = null;
+                _ownerSceneView = null;
+            }
+            catch { }
+        }
+    }
+
+    [RelayCommand]
+    public async Task ToggleModo3DAsync()
+    {
+        IsModo3D = !IsModo3D;
+        Modo3DTextoIcono = IsModo3D ? "🗺️ 2D" : "🌐 3D";
+
+        if (IsModo3D)
+        {
+            if (Scene == null)
+            {
+                SetupScene();
+            }
+
+            await EnfocarCamaraModo3DAsync();
+            _notifications?.ShowInfo("Visor 3D activado con relieve topográfico. Use clic derecho sostenido para orbitar e inclinar.", "Modo 3D");
+        }
+        else
+        {
+            _notifications?.ShowInfo("Visor 2D activado.", "Modo 2D");
+        }
+    }
+
+    [RelayCommand]
+    public async Task InclinarCamara45Async()
+    {
+        if (_ownerSceneView == null) return;
+        try
+        {
+            var currentCam = _ownerSceneView.Camera;
+            if (currentCam != null)
+            {
+                var newCam = currentCam.RotateTo(currentCam.Heading, 45.0, currentCam.Roll);
+                await _ownerSceneView.SetViewpointCameraAsync(newCam, TimeSpan.FromSeconds(0.8));
+            }
+        }
+        catch { }
+    }
+
+    [RelayCommand]
+    public async Task InclinarCamaraCenitalAsync()
+    {
+        if (_ownerSceneView == null) return;
+        try
+        {
+            var currentCam = _ownerSceneView.Camera;
+            if (currentCam != null)
+            {
+                var newCam = currentCam.RotateTo(currentCam.Heading, 0.0, currentCam.Roll);
+                await _ownerSceneView.SetViewpointCameraAsync(newCam, TimeSpan.FromSeconds(0.8));
+            }
+        }
+        catch { }
+    }
+
+    [RelayCommand]
+    public async Task ResetearCamara3DAsync()
+    {
+        if (_ownerSceneView == null) return;
+        try
+        {
+            var currentCam = _ownerSceneView.Camera;
+            if (currentCam != null)
+            {
+                var newCam = currentCam.RotateTo(0.0, currentCam.Pitch, 0.0);
+                await _ownerSceneView.SetViewpointCameraAsync(newCam, TimeSpan.FromSeconds(0.8));
+            }
+        }
+        catch { }
+    }
+
+    [RelayCommand]
+    public async Task ZoomCapa3DAsync()
+    {
+        if (UltimoExtent3D != null && _ownerSceneView != null)
+        {
+            try
+            {
+                var center = UltimoExtent3D.GetCenter();
+                var wgs84Center = (center.SpatialReference != null && center.SpatialReference.Wkid != 4326)
+                    ? GeometryEngine.Project(center, SpatialReferences.Wgs84) as MapPoint ?? center
+                    : center;
+
+                double diagonal = Math.Max(UltimoExtent3D.Width, UltimoExtent3D.Height);
+                double altitud = Math.Max(300.0, diagonal * 1.5);
+                if (altitud > 50_000) altitud = 50_000;
+
+                double elevBase = wgs84Center.Z > 0 ? wgs84Center.Z : 800.0;
+                var camera = new Camera(wgs84Center.Y, wgs84Center.X, elevBase + altitud, 0.0, 50.0, 0.0);
+                await _ownerSceneView.SetViewpointCameraAsync(camera, TimeSpan.FromSeconds(1.2));
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Warn($"Error en ZoomCapa3DAsync: {ex.Message}");
+            }
+        }
+    }
+
+    private async Task EnfocarCamaraModo3DAsync()
+    {
+        if (_ownerSceneView == null) return;
+
+        if (UltimoExtent3D != null)
+        {
+            await ZoomCapa3DAsync();
+            return;
+        }
+
+        if (LastViewpoint != null)
+        {
+            var targetGeo = LastViewpoint.TargetGeometry as MapPoint;
+            if (targetGeo != null)
+            {
+                var wgs84 = (targetGeo.SpatialReference != null && targetGeo.SpatialReference.Wkid != 4326)
+                    ? GeometryEngine.Project(targetGeo, SpatialReferences.Wgs84) as MapPoint ?? targetGeo
+                    : targetGeo;
+
+                double alt = LastViewpoint.TargetScale > 0 ? Math.Max(2000.0, LastViewpoint.TargetScale * 0.7) : 25_000.0;
+                var cam = new Camera(wgs84.Y, wgs84.X, alt, 0.0, 45.0, 0.0);
+                await _ownerSceneView.SetViewpointCameraAsync(cam, TimeSpan.FromSeconds(1.0));
+                return;
+            }
+        }
+
+        // Vista regional inicial de Colombia en 3D
+        var camColombia = new Camera(4.680486, -74.146592, 1_800_000.0, 0.0, 45.0, 0.0);
+        await _ownerSceneView.SetViewpointCameraAsync(camColombia, TimeSpan.FromSeconds(1.0));
+    }
+
+    private async Task CargarSlpk3DAsync(string path)
+    {
+        try
+        {
+            if (Scene == null) SetupScene();
+
+            Layer slpkLayer;
+            try
+            {
+                slpkLayer = new PointCloudLayer(new Uri(path));
+                await slpkLayer.LoadAsync();
+            }
+            catch
+            {
+                slpkLayer = new ArcGISSceneLayer(new Uri(path));
+                await slpkLayer.LoadAsync();
+            }
+
+            slpkLayer.Name = Path.GetFileNameWithoutExtension(path);
+            Scene?.OperationalLayers.Add(slpkLayer);
+
+            HasCapa3DActiva = true;
+            TituloCapa3D = slpkLayer.Name;
+            InfoCapa3DTexto = $"Paquete de Escena 3D (.slpk)\nCapa: {slpkLayer.Name}";
+
+            if (!IsModo3D)
+            {
+                IsModo3D = true;
+                Modo3DTextoIcono = "🗺️ 2D";
+            }
+
+            var itemCapa = new CapaUsuarioItem
+            {
+                Nombre = Path.GetFileName(path),
+                RutaCompleta = path,
+                Capa = slpkLayer,
+                TipoIcono = "☁️",
+                TipoTexto = "Nube de Puntos 3D (SLPK)",
+                QuitarCommand = new RelayCommand(() =>
+                {
+                    Scene?.OperationalLayers.Remove(slpkLayer);
+                    var item = CapasAdicionales.FirstOrDefault(c => c.RutaCompleta == path);
+                    if (item != null) CapasAdicionales.Remove(item);
+                    if (!CapasAdicionales.Any(c => c.Capa is PointCloudLayer || c.Capa is ArcGISSceneLayer || c.TipoIcono == "☁️"))
+                    {
+                        HasCapa3DActiva = false;
+                        InfoCapa3DTexto = "";
+                    }
+                }),
+                ZoomCommand = new AsyncRelayCommand(async () =>
+                {
+                    if (slpkLayer.FullExtent != null)
+                    {
+                        UltimoExtent3D = slpkLayer.FullExtent;
+                        await ZoomCapa3DAsync();
+                    }
+                })
+            };
+            CapasAdicionales.Add(itemCapa);
+
+            if (slpkLayer.FullExtent != null)
+            {
+                UltimoExtent3D = slpkLayer.FullExtent;
+                await Task.Delay(200);
+                await ZoomCapa3DAsync();
+            }
+
+            _notifications?.ShowSuccess($"Nube de puntos 3D '{Path.GetFileName(path)}' cargada exitosamente.", "Visor 3D");
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error($"Error al cargar .slpk en 3D: {path}", ex);
+            _notifications?.ShowError($"No se pudo cargar el archivo 3D: {ex.Message}", "Error Visor 3D");
+        }
+    }
+
+    private async Task CargarNubePuntosLas3DAsync(string path)
+    {
+        try
+        {
+            _notifications?.ShowInfo($"Procesando nube de puntos LiDAR '{Path.GetFileName(path)}'...", "Cargando 3D");
+
+            var cloud = await Task.Run(() => LasFileReader.Read(path, maxPointsToSample: 75_000));
+
+            if (cloud.SampledPointsCount == 0)
+            {
+                _notifications?.ShowWarning("El archivo LAS no contiene puntos legibles.", "Sin Puntos");
+                return;
+            }
+
+            if (Scene == null) SetupScene();
+
+            OverlayNubePuntos3D.Graphics.Clear();
+
+            var targetSr = cloud.SpatialReference ?? SpatialReferences.Wgs84;
+            var envelopeOriginal = new Envelope(cloud.MinX, cloud.MinY, cloud.MaxX, cloud.MaxY, targetSr);
+            var envelopeWgs84 = (targetSr.Wkid == 4326)
+                ? envelopeOriginal
+                : GeometryEngine.Project(envelopeOriginal, SpatialReferences.Wgs84) as Envelope ?? envelopeOriginal;
+
+            UltimoExtent3D = envelopeWgs84;
+
+            var graphics = new List<Graphic>(cloud.SampledPointsCount);
+            foreach (var pt in cloud.Points)
+            {
+                var mapPoint = new MapPoint(pt.X, pt.Y, pt.Z, targetSr);
+                var wgs84Point = (targetSr.Wkid == 4326)
+                    ? mapPoint
+                    : GeometryEngine.Project(mapPoint, SpatialReferences.Wgs84) as MapPoint ?? mapPoint;
+
+                var color = System.Drawing.Color.FromArgb(240, pt.R, pt.G, pt.B);
+                var symbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, color, 3.5);
+
+                graphics.Add(new Graphic(wgs84Point, symbol));
+            }
+
+            OverlayNubePuntos3D.Graphics.AddRange(graphics);
+
+            HasCapa3DActiva = true;
+            TituloCapa3D = Path.GetFileName(path);
+            InfoCapa3DTexto = $"Puntos archivo: {cloud.TotalPoints:N0} (muestra 3D: {cloud.SampledPointsCount:N0})\n" +
+                              $"Elevación Z: {cloud.MinZ:F1} m a {cloud.MaxZ:F1} m (Rango: {cloud.AlturaRango:F1} m)\n" +
+                              $"Colores: {(cloud.HasRgbColors ? "RGB Fotogramétrico" : "Rampa Hipsométrica")}";
+
+            if (!IsModo3D)
+            {
+                IsModo3D = true;
+                Modo3DTextoIcono = "🗺️ 2D";
+            }
+
+            var itemCapa = new CapaUsuarioItem
+            {
+                Nombre = Path.GetFileName(path),
+                RutaCompleta = path,
+                Capa = null,
+                TipoIcono = "☁️",
+                TipoTexto = "Nube de Puntos (LAS)",
+                OnVisibilityChangedAction = (vis) => OverlayNubePuntos3D.IsVisible = vis,
+                OnOpacityChangedAction = (op) => OverlayNubePuntos3D.Opacity = op,
+                QuitarCommand = new RelayCommand(() =>
+                {
+                    OverlayNubePuntos3D.Graphics.Clear();
+                    var item = CapasAdicionales.FirstOrDefault(c => c.RutaCompleta == path);
+                    if (item != null) CapasAdicionales.Remove(item);
+                    HasCapa3DActiva = false;
+                    InfoCapa3DTexto = "";
+                }),
+                ZoomCommand = new AsyncRelayCommand(async () => await ZoomCapa3DAsync())
+            };
+            CapasAdicionales.Add(itemCapa);
+
+            await Task.Delay(250);
+            await ZoomCapa3DAsync();
+
+            _notifications?.ShowSuccess(
+                $"Nube de puntos renderizada: {cloud.SampledPointsCount:N0} puntos (de {cloud.TotalPoints:N0} totales).",
+                "Visor 3D");
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error($"Error al leer nube de puntos LAS '{path}'", ex);
+            _notifications?.ShowError($"Error al cargar archivo LiDAR: {ex.Message}", "Error LAS 3D");
+        }
+    }
+
     [ObservableProperty] private Map? map;
 
     // Guarda el último viewpoint mostrado en el MapView para restaurarlo
@@ -1062,6 +1489,18 @@ namespace Geomatica.Desktop.ViewModels
             else
             {
                 Map.Basemap = basemap;
+            }
+
+            if (Scene != null)
+            {
+                try
+                {
+                    if (option.Style != null)
+                        Scene.Basemap = new Basemap(option.Style.Value);
+                    else
+                        Scene.Basemap = _basemapService.CrearBasemap(option, forzarOffline || IsSinConexionInternet);
+                }
+                catch { }
             }
 
             var modoTexto = (forzarOffline || IsSinConexionInternet)

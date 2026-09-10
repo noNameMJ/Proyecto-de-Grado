@@ -1,78 +1,267 @@
 <UserControl x:Class="Geomatica.Desktop.Views.FichaProyectoView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-    <Grid Background="{StaticResource SurfaceBrush}">
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel MaxWidth="900" Margin="32,24" HorizontalAlignment="Stretch">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             xmlns:vm="clr-namespace:Geomatica.Desktop.ViewModels"
+             mc:Ignorable="d" 
+             d:DataContext="{d:DesignInstance Type=vm:FichaProyectoViewModel}">
 
-                <!-- Barra superior: Volver + Editar -->
-                <DockPanel Margin="0,0,0,16">
-                    <Button Content="←  Volver al mapa" Command="{Binding VolverCommand}"
-                            Style="{StaticResource GhostButton}" HorizontalAlignment="Left"
-                            FontSize="13"/>
-                    <Button Content="✏️  Editar" Command="{Binding EditarCommand}"
-                            Style="{StaticResource SecondaryButton}" HorizontalAlignment="Right"
-                            Padding="16,8"/>
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    </UserControl.Resources>
+
+    <Grid Background="{StaticResource PanelBrush}">
+        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Margin="16,14,16,20" MaxWidth="600">
+
+                <!-- ═══════════════════════════════════════════════════════════
+                     BARRA SUPERIOR: Badge de Tipo + Botones de Acción
+                     ═══════════════════════════════════════════════════════════ -->
+                <DockPanel Margin="0,0,0,10">
+                    <!-- Badge Identificador del Proyecto -->
+                    <Border DockPanel.Dock="Left" Background="#E8F4EC" BorderBrush="#B2DFBF" BorderThickness="1"
+                            CornerRadius="10" Padding="8,3" VerticalAlignment="Center">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="📋 " FontSize="10" VerticalAlignment="Center"/>
+                            <TextBlock Text="PROYECTO" FontSize="10" FontWeight="Bold" 
+                                       Foreground="{StaticResource UisGreenBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding CodigoId, StringFormat='  {0}'}" FontSize="10" FontWeight="SemiBold" 
+                                       Foreground="#1A5C34" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Botones de Acción: Cerrar y Editar -->
+                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Command="{Binding EditarCommand}"
+                                Style="{StaticResource SecondaryButton}"
+                                Padding="10,5" FontSize="12" Margin="0,0,6,0"
+                                ToolTip="Editar detalles del proyecto">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="✏️" FontSize="11" Margin="0,0,4,0"/>
+                                <TextBlock Text="Editar"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding VolverCommand}"
+                                Style="{StaticResource GhostButton}"
+                                Padding="8,4" FontSize="13"
+                                ToolTip="Cerrar ficha">
+                            <TextBlock Text="✕" FontSize="13" FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"/>
+                        </Button>
+                    </StackPanel>
                 </DockPanel>
 
-                <!-- Tarjeta principal -->
-                <Border Style="{StaticResource Card}">
+                <!-- Franja decorativa UIS (Verde institucional a Dorado) -->
+                <Border Height="3" CornerRadius="1.5" Margin="0,0,0,12">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                            <GradientStop Color="{StaticResource UisGreenColor}" Offset="0.0"/>
+                            <GradientStop Color="{StaticResource UisGoldColor}" Offset="1.0"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                </Border>
+
+                <!-- ═══════════════════════════════════════════════════════════
+                     TÍTULO DEL PROYECTO
+                     ═══════════════════════════════════════════════════════════ -->
+                <TextBlock Text="{Binding Titulo}" FontWeight="Bold" FontSize="17" 
+                           LineHeight="22" TextWrapping="Wrap" Margin="0,0,0,10"
+                           Foreground="{StaticResource TextPrimaryBrush}"
+                           FontFamily="{StaticResource AppFont}"/>
+
+                <!-- Badges rápidos de metadatos (Fecha, Municipio, Archivos) -->
+                <WrapPanel Margin="0,0,0,12">
+                    <!-- Chip Fecha -->
+                    <Border Background="White" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                            CornerRadius="12" Padding="8,3" Margin="0,0,6,6">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="📅 " FontSize="10" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding FechaTexto}" FontSize="11" 
+                                       Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Chip Municipio -->
+                    <Border Background="#FFFDF0" BorderBrush="#EBDCA8" BorderThickness="1"
+                            CornerRadius="12" Padding="8,3" Margin="0,0,6,6"
+                            Visibility="{Binding HasMunicipio, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="📍 " FontSize="10" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding MunicipioNombre}" FontSize="11" FontWeight="SemiBold"
+                                       Foreground="#8A6707" FontFamily="{StaticResource AppFont}"/>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- Chip Estado Archivos -->
+                    <Border Background="White" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                            CornerRadius="12" Padding="8,3" Margin="0,0,6,6"
+                            Visibility="{Binding HasRutaArchivos, Converter={StaticResource BoolToVis}}">
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="📂 " FontSize="10" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding EstadoRutaTexto}" FontSize="11" 
+                                       Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFont}"/>
+                        </StackPanel>
+                    </Border>
+                </WrapPanel>
+
+                <!-- ═══════════════════════════════════════════════════════════
+                     SECCIÓN: DESCRIPCIÓN
+                     ═══════════════════════════════════════════════════════════ -->
+                <TextBlock Text="DESCRIPCIÓN" FontSize="11" FontWeight="Bold" 
+                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,5"
+                           FontFamily="{StaticResource AppFontSemibold}"/>
+                <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}" 
+                        BorderThickness="1" Padding="12,10" Margin="0,0,0,12">
+                    <TextBlock Text="{Binding Descripcion, TargetNullValue='Sin descripción registrada para este proyecto.'}"
+                               TextWrapping="Wrap" FontSize="12.5" LineHeight="18"
+                               Foreground="{StaticResource TextPrimaryBrush}"
+                               FontFamily="{StaticResource AppFont}"/>
+                </Border>
+
+                <!-- ═══════════════════════════════════════════════════════════
+                     SECCIÓN: PALABRAS CLAVE / ETIQUETAS
+                     ═══════════════════════════════════════════════════════════ -->
+                <StackPanel Visibility="{Binding HasPalabrasClave, Converter={StaticResource BoolToVis}}" Margin="0,0,0,12">
+                    <TextBlock Text="PALABRAS CLAVE" FontSize="11" FontWeight="Bold" 
+                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,5"
+                               FontFamily="{StaticResource AppFontSemibold}"/>
+                    <ItemsControl ItemsSource="{Binding PalabrasClaveLista}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <WrapPanel Orientation="Horizontal"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#EDF6F0" BorderBrush="#BFE0C8" BorderThickness="1"
+                                        CornerRadius="10" Padding="8,3" Margin="0,0,5,5">
+                                    <TextBlock Text="{Binding StringFormat='#{0}'}" FontSize="11" FontWeight="SemiBold" 
+                                               Foreground="{StaticResource UisGreenBrush}" FontFamily="{StaticResource AppFont}"/>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+
+                <!-- ═══════════════════════════════════════════════════════════
+                     SECCIÓN: UBICACIÓN Y COORDENADAS
+                     ═══════════════════════════════════════════════════════════ -->
+                <TextBlock Text="UBICACIÓN GEOGRÁFICA" FontSize="11" FontWeight="Bold" 
+                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,5"
+                           FontFamily="{StaticResource AppFontSemibold}"/>
+                <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}" 
+                        BorderThickness="1" Padding="12,10" Margin="0,0,0,12">
                     <StackPanel>
-                        <!-- Franja verde UIS top -->
-                        <Rectangle Height="4" Fill="{StaticResource UisGreenBrush}" 
-                                   Margin="0,0,0,20" RadiusX="2" RadiusY="2"/>
+                        <!-- Municipio y Código (si existe) -->
+                        <DockPanel Margin="0,0,0,8" Visibility="{Binding HasMunicipio, Converter={StaticResource BoolToVis}}">
+                            <TextBlock Text="Municipio:" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}" 
+                                       FontFamily="{StaticResource AppFont}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding MunicipioNombre}" FontWeight="SemiBold" FontSize="12" 
+                                       Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}"
+                                       Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding MunicipioCodigo, StringFormat='(Cód. {0})'}" 
+                                       FontSize="11" Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFont}"
+                                       Margin="6,0,0,0" VerticalAlignment="Center"/>
+                        </DockPanel>
 
-                        <TextBlock Text="{Binding Titulo}" Style="{StaticResource PageTitle}"
-                                   TextWrapping="Wrap" Margin="0,0,0,16"/>
+                        <!-- Métricas de Latitud y Longitud -->
+                        <UniformGrid Columns="2" Margin="0,0,0,8">
+                            <Border Background="#F8F9FA" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1" 
+                                    CornerRadius="4" Padding="8,6" Margin="0,0,4,0">
+                                <StackPanel>
+                                    <TextBlock Text="LATITUD" FontSize="9" FontWeight="Bold" 
+                                               Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFontSemibold}"/>
+                                    <TextBlock Text="{Binding LatitudTexto}" FontSize="12.5" FontWeight="SemiBold" 
+                                               Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="#F8F9FA" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1" 
+                                    CornerRadius="4" Padding="8,6" Margin="4,0,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="LONGITUD" FontSize="9" FontWeight="Bold" 
+                                               Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFontSemibold}"/>
+                                    <TextBlock Text="{Binding LongitudTexto}" FontSize="12.5" FontWeight="SemiBold" 
+                                               Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}" Margin="0,2,0,0"/>
+                                </StackPanel>
+                            </Border>
+                        </UniformGrid>
 
-                        <Separator Style="{StaticResource ModernSeparator}" Margin="0,0,0,16"/>
-
-                        <!-- Descripción -->
-                        <TextBlock Text="Descripción" Style="{StaticResource FieldLabel}"/>
-                        <TextBlock Text="{Binding Descripcion, TargetNullValue='Sin descripción'}" 
-                                   TextWrapping="Wrap" FontSize="14" Margin="0,0,0,18"
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}"/>
-
-                        <!-- Fecha -->
-                        <TextBlock Text="Fecha" Style="{StaticResource FieldLabel}"/>
-                        <TextBlock Text="{Binding FechaTexto}" FontSize="14" Margin="0,0,0,18"
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}"/>
-
-                        <!-- Palabra clave -->
-                        <TextBlock Text="Palabra clave" Style="{StaticResource FieldLabel}"/>
-                        <TextBlock Text="{Binding PalabraClave, TargetNullValue='—'}" 
-                                   FontSize="14" Margin="0,0,0,18"
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}"/>
-
-                        <!-- Municipio -->
-                        <TextBlock Text="Municipio" Style="{StaticResource FieldLabel}"/>
-                        <TextBlock Text="{Binding MunicipioNombre, TargetNullValue='No asignado'}" 
-                                   FontSize="14" Margin="0,0,0,18"
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}"/>
-
-                        <!-- Coordenadas -->
-                        <TextBlock Text="Coordenadas" Style="{StaticResource FieldLabel}"/>
-                        <TextBlock Text="{Binding Coordenadas}" FontSize="14" Margin="0,0,0,18"
-                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                   FontFamily="{StaticResource AppFont}"/>
-
-                        <Separator Style="{StaticResource ModernSeparator}" Margin="0,0,0,16"/>
-
-                        <!-- Ruta de archivos -->
-                        <TextBlock Text="Ruta de archivos" Style="{StaticResource FieldLabel}"/>
-                        <TextBlock Text="{Binding RutaArchivos, TargetNullValue='Sin ruta asignada'}" 
-                                   FontSize="13" Foreground="{StaticResource TextSecondaryBrush}" 
-                                   TextWrapping="Wrap" Margin="0,0,0,10"
-                                   FontFamily="{StaticResource AppFont}"/>
-                        <Button Content="📁  Abrir carpeta" Command="{Binding AbrirCarpetaCommand}"
-                                Style="{StaticResource OutlineButton}" HorizontalAlignment="Left"
-                                Padding="14,7" FontSize="12"/>
+                        <!-- Botón Copiar Coordenadas -->
+                        <Button Command="{Binding CopiarCoordenadasCommand}"
+                                Style="{StaticResource OutlineButton}" HorizontalAlignment="Stretch"
+                                Padding="10,5" FontSize="11.5" ToolTip="Copiar latitud y longitud al portapapeles">
+                            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                <TextBlock Text="📋 " FontSize="11" VerticalAlignment="Center"/>
+                                <TextBlock Text="Copiar coordenadas" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
                     </StackPanel>
                 </Border>
+
+                <!-- ═══════════════════════════════════════════════════════════
+                     SECCIÓN: REPOSITORIO DE ARCHIVOS
+                     ═══════════════════════════════════════════════════════════ -->
+                <TextBlock Text="REPOSITORIO DE ARCHIVOS" FontSize="11" FontWeight="Bold" 
+                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,5"
+                           FontFamily="{StaticResource AppFontSemibold}"/>
+                <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}" 
+                        BorderThickness="1" Padding="12,10" Margin="0,0,0,12">
+                    <StackPanel>
+                        <!-- Cuadro de texto con la ruta -->
+                        <Border Background="#F8F9FA" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                                CornerRadius="4" Padding="8,6" Margin="0,0,0,8">
+                            <TextBlock Text="{Binding RutaArchivos, TargetNullValue='Sin ruta de archivos asignada'}"
+                                       FontSize="11" FontFamily="Consolas, Segoe UI" Foreground="{StaticResource TextSecondaryBrush}"
+                                       TextWrapping="Wrap" MaxHeight="60" TextTrimming="CharacterEllipsis"/>
+                        </Border>
+
+                        <!-- Botones de Acción de Archivos -->
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+
+                            <Button Grid.Column="0" Command="{Binding AbrirCarpetaCommand}"
+                                    Style="{StaticResource PrimaryButton}" HorizontalAlignment="Stretch"
+                                    Padding="10,6" FontSize="12" Margin="0,0,6,0"
+                                    ToolTip="Abrir carpeta en el Explorador de Windows">
+                                <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                                    <TextBlock Text="📁 " FontSize="11" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Abrir carpeta" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+
+                            <Button Grid.Column="1" Command="{Binding CopiarRutaCommand}"
+                                    Style="{StaticResource OutlineButton}" Padding="10,6" FontSize="12"
+                                    ToolTip="Copiar ruta de carpeta al portapapeles">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock Text="📋 " FontSize="11" VerticalAlignment="Center"/>
+                                    <TextBlock Text="Copiar" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+
+                <!-- ═══════════════════════════════════════════════════════════
+                     BANNER INFORMATIVO INFERIOR
+                     ═══════════════════════════════════════════════════════════ -->
+                <Border Background="#F2FAF5" BorderBrush="#BEE5CF" BorderThickness="1"
+                        CornerRadius="6" Padding="10,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Grid.Column="0" Text="💡" FontSize="13" Margin="0,0,8,0" VerticalAlignment="Top"/>
+                        <TextBlock Grid.Column="1" 
+                                   Text="Los archivos y capas del proyecto se encuentran listados en el panel inferior." 
+                                   FontSize="11" Foreground="#1E6539" FontFamily="{StaticResource AppFont}" 
+                                   TextWrapping="Wrap" LineHeight="15" VerticalAlignment="Center"/>
+                    </Grid>
+                </Border>
+
             </StackPanel>
         </ScrollViewer>
     </Grid>

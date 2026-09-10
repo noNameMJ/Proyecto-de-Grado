@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Geomatica.Data.Repositories;
 using Geomatica.Desktop.Services;
@@ -88,7 +88,7 @@ namespace Geomatica.Desktop.ViewModels
             {
                 // "Cerrar detalle" limpia la ficha pero nos quedamos en MapaView.
                 archivosVm.ProyectoDetalle = null;
-            });
+            }, Notifications);
             fichaVm.EditarSolicitado += OnEditarSolicitado;
 
             archivosVm.ProyectoDetalle = fichaVm;

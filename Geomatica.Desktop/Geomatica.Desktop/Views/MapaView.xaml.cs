@@ -15,6 +15,7 @@ namespace Geomatica.Desktop.Views
     {
         private ViewModels.MapaViewModel? _currentVm;
         private readonly MapView _controlMapView;
+        private readonly SceneView? _controlSceneView;
         private MapView? _attachedMapView;
         private CancellationTokenSource? _loadCts;
         private CancellationTokenSource? _restoreVpCts;
@@ -25,6 +26,7 @@ namespace Geomatica.Desktop.Views
 
             _controlMapView = FindName("controlMapView") as MapView
                 ?? throw new InvalidOperationException("No se encontró el control 'controlMapView' en MapaView.xaml.");
+            _controlSceneView = FindName("controlSceneView") as SceneView;
 
             DataContextChanged += MapaView_DataContextChanged;
             Unloaded += MapaView_Unloaded;
@@ -74,6 +76,11 @@ namespace Geomatica.Desktop.Views
                     try { _attachedMapView.ViewpointChanged -= AttachedMapView_ViewpointChanged; } catch { }
                     _attachedMapView = null;
                 }
+
+                if (_controlSceneView != null)
+                {
+                    oldVm.DetachSceneView(_controlSceneView);
+                }
             }
 
             if (e.NewValue is ViewModels.MapaViewModel newVm)
@@ -122,6 +129,18 @@ namespace Geomatica.Desktop.Views
                     catch (Exception ex)
                     {
                         Debug.WriteLine($"[MapaView] Error suscribiendo ViewpointChanged: {ex}");
+                    }
+                }
+
+                if (_controlSceneView != null)
+                {
+                    try
+                    {
+                        newVm.AttachSceneView(_controlSceneView);
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[MapaView] Error al AttachSceneView: {ex}");
                     }
                 }
 
@@ -239,6 +258,11 @@ namespace Geomatica.Desktop.Views
                         // As a fallback, clear the Map reference on the MapView
                         try { mv.Map = null; } catch { }
                     }
+                }
+
+                if (_controlSceneView != null)
+                {
+                    try { vm.DetachSceneView(_controlSceneView); } catch { }
                 }
 
                 vm.PropertyChanged -= Vm_PropertyChanged;
@@ -377,6 +401,24 @@ namespace Geomatica.Desktop.Views
                         }
                     }
                     catch { }
+                });
+            }
+
+            if (e.PropertyName == nameof(ViewModels.MapaViewModel.Scene) && sender is ViewModels.MapaViewModel vmScene)
+            {
+                Dispatcher.InvokeAsync(() =>
+                {
+                    if (_controlSceneView != null)
+                    {
+                        try
+                        {
+                            vmScene.AttachSceneView(_controlSceneView);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[MapaView] Error en Vm_PropertyChanged AttachSceneView: {ex}");
+                        }
+                    }
                 });
             }
         }
