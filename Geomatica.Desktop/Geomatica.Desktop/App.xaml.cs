@@ -28,17 +28,17 @@ namespace Geomatica.Desktop
         {
             base.OnStartup(e);
 
-            AppLogger.Info("Inicializando componentes y configuraci√≥n de la aplicaci√≥n...");
+            AppLogger.Info("Inicializando componentes y configuraciÛn de la aplicaciÛn...");
 
             // Manejadores globales de excepciones para logging estructurado y resiliencia
             DispatcherUnhandledException += (s, args) =>
             {
-                AppLogger.Error("Excepci√≥n no controlada en hilo de UI (Dispatcher)", args.Exception);
+                AppLogger.Error("ExcepciÛn no controlada en hilo de UI (Dispatcher)", args.Exception);
                 args.Handled = true;
                 try
                 {
                     var notifications = _serviceProvider?.GetService<INotificationService>();
-                    notifications?.ShowError($"Ocurri√≥ un error en la aplicaci√≥n: {args.Exception.Message}", "Error Inesperado");
+                    notifications?.ShowError($"OcurriÛ un error en la aplicaciÛn: {args.Exception.Message}", "Error Inesperado");
                 }
                 catch { }
             };
@@ -47,17 +47,17 @@ namespace Geomatica.Desktop
             {
                 if (args.ExceptionObject is Exception ex)
                 {
-                    AppLogger.Error("Excepci√≥n fatal no controlada en AppDomain", ex);
+                    AppLogger.Error("ExcepciÛn fatal no controlada en AppDomain", ex);
                 }
                 else
                 {
-                    AppLogger.Error($"Excepci√≥n no controlada en AppDomain: {args.ExceptionObject}");
+                    AppLogger.Error($"ExcepciÛn no controlada en AppDomain: {args.ExceptionObject}");
                 }
             };
 
             TaskScheduler.UnobservedTaskException += (s, args) =>
             {
-                AppLogger.Error("Excepci√≥n no observada en tarea en segundo plano (TaskScheduler)", args.Exception);
+                AppLogger.Error("ExcepciÛn no observada en tarea en segundo plano (TaskScheduler)", args.Exception);
                 args.SetObserved();
             };
 
@@ -65,6 +65,7 @@ namespace Geomatica.Desktop
             var config = new ConfigurationBuilder()
                 .SetBasePath(AppContext.BaseDirectory)
                 .AddJsonFile("appsettings.json", optional: true, reloadOnChange: true)
+                .AddJsonFile(Path.Combine(AppContext.BaseDirectory, "..", "appsettings.json"), optional: true, reloadOnChange: true)
                 .AddEnvironmentVariables()
                 .AddUserSecrets<App>()
                 .Build();
@@ -77,12 +78,12 @@ namespace Geomatica.Desktop
                 AppLogger.Info("API Key de ArcGIS configurada.");
             }
 
-            // Permite pre-generar o actualizar el paquete oficial Esri Topogr√°fico para Colombia
+            // Permite pre-generar o actualizar el paquete oficial Esri Topogr·fico para Colombia
             if (e.Args.Length > 0 && e.Args[0] == "--export-topographic")
             {
                 try
                 {
-                    AppLogger.Info("Iniciando tarea de exportaci√≥n oficial Esri Topogr√°fico...");
+                    AppLogger.Info("Iniciando tarea de exportaciÛn oficial Esri Topogr·fico...");
                     var portal = ArcGISPortal.CreateAsync().GetAwaiter().GetResult();
                     var item = PortalItem.CreateAsync(portal, "df541726b3df4c0caf99255bb1be4c86").GetAwaiter().GetResult();
                     var task = ExportVectorTilesTask.CreateAsync(item).GetAwaiter().GetResult();
@@ -107,21 +108,21 @@ namespace Geomatica.Desktop
                         var job = task.ExportVectorTiles(parameters, vtpkPath, stylePath);
                         job.ProgressChanged += (s, ev) =>
                         {
-                            AppLogger.Info($"Progreso exportaci√≥n vectorial: {job.Progress}%");
+                            AppLogger.Info($"Progreso exportaciÛn vectorial: {job.Progress}%");
                         };
                         job.Start();
                         var res = job.GetResultAsync().GetAwaiter().GetResult();
-                        AppLogger.Info($"Exportaci√≥n vectorial completada exitosamente en: {vtpkPath}");
+                        AppLogger.Info($"ExportaciÛn vectorial completada exitosamente en: {vtpkPath}");
                     }
                     else
                     {
-                        AppLogger.Info($"Paquete vectorial regional ya existe ({new FileInfo(vtpkPath).Length / (1024.0 * 1024.0):F1} MB), omitiendo re-exportaci√≥n vectorial.");
+                        AppLogger.Info($"Paquete vectorial regional ya existe ({new FileInfo(vtpkPath).Length / (1024.0 * 1024.0):F1} MB), omitiendo re-exportaciÛn vectorial.");
                     }
 
-                    // Exportar tambi√©n la capa de sombreado de relieve (Hillshade) oficial de Esri
+                    // Exportar tambiÈn la capa de sombreado de relieve (Hillshade) oficial de Esri
                     try
                     {
-                        AppLogger.Info("Iniciando exportaci√≥n de capa de sombreado de relieve (Hillshade) desde PortalItem babedc22ebd64a428b77f7119c2591c3...");
+                        AppLogger.Info("Iniciando exportaciÛn de capa de sombreado de relieve (Hillshade) desde PortalItem babedc22ebd64a428b77f7119c2591c3...");
                         var hillItem = PortalItem.CreateAsync(portal, "babedc22ebd64a428b77f7119c2591c3").GetAwaiter().GetResult();
                         AppLogger.Info($"PortalItem World Hillshade cargado. URL: {hillItem.Url}");
                         var hillTask = ExportTileCacheTask.CreateAsync(hillItem.Url!).GetAwaiter().GetResult();
@@ -131,18 +132,18 @@ namespace Geomatica.Desktop
                         var hillJob = hillTask.ExportTileCache(hillParams, hillshadePath);
                         hillJob.ProgressChanged += (s, ev) =>
                         {
-                            AppLogger.Info($"Progreso exportaci√≥n Hillshade: {hillJob.Progress}%");
+                            AppLogger.Info($"Progreso exportaciÛn Hillshade: {hillJob.Progress}%");
                         };
                         hillJob.Start();
                         var hillRes = hillJob.GetResultAsync().GetAwaiter().GetResult();
-                        AppLogger.Info($"Exportaci√≥n Hillshade completada exitosamente en: {hillshadePath}");
+                        AppLogger.Info($"ExportaciÛn Hillshade completada exitosamente en: {hillshadePath}");
                     }
                     catch (Exception exHill)
                     {
                         AppLogger.Warn($"No se pudo exportar Hillshade complementario: {exHill}");
                     }
 
-                    // Copiar tambi√©n al directorio bin Assets y AppData
+                    // Copiar tambiÈn al directorio bin Assets y AppData
                     var binAssets = Path.Combine(appDir, "Assets", "Basemaps");
                     if (Directory.Exists(binAssets))
                     {
@@ -160,7 +161,7 @@ namespace Geomatica.Desktop
                 }
                 catch (Exception ex)
                 {
-                    AppLogger.Error("Error en exportaci√≥n oficial Esri", ex);
+                    AppLogger.Error("Error en exportaciÛn oficial Esri", ex);
                     Environment.Exit(1);
                 }
                 return;
@@ -184,7 +185,7 @@ namespace Geomatica.Desktop
             }
             catch (ArgumentException ex)
             {
-                AppLogger.Warn($"Error al parsear la cadena de conexi√≥n: {ex.Message}");
+                AppLogger.Warn($"Error al parsear la cadena de conexiÛn: {ex.Message}");
             }
 
             // Test DB connection early to provide clear feedback
@@ -194,7 +195,7 @@ namespace Geomatica.Desktop
                 using var testCon = new NpgsqlConnection(cs);
                 testCon.Open();
                 testCon.Close();
-                AppLogger.Info("Conexi√≥n a Base de Datos PostgreSQL exitosa.");
+                AppLogger.Info("ConexiÛn a Base de Datos PostgreSQL exitosa.");
                 dbOk = true;
             }
             catch (Exception ex)
@@ -203,12 +204,12 @@ namespace Geomatica.Desktop
                 try
                 {
                     var builderCheck = new NpgsqlConnectionStringBuilder(cs);
-                    var msg = $"No se pudo conectar a la base de datos.\n\nTarget: Host={builderCheck.Host}:{builderCheck.Port}, Database={builderCheck.Database}\n\nError: {ex.Message}\n\nLa aplicaci√≥n continuar√°, pero algunas funcionalidades podr√°n fallar.";
-                    MessageBox.Show(msg, "Error conexi√≥n Postgres", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    var msg = $"No se pudo conectar a la base de datos.\n\nTarget: Host={builderCheck.Host}:{builderCheck.Port}, Database={builderCheck.Database}\n\nError: {ex.Message}\n\nLa aplicaciÛn continuar·, pero algunas funcionalidades podr·n fallar.";
+                    MessageBox.Show(msg, "Error conexiÛn Postgres", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
                 catch
                 {
-                    MessageBox.Show($"No se pudo conectar a la base de datos.\n\nError: {ex.Message}", "Error conexi√≥n Postgres", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show($"No se pudo conectar a la base de datos.\n\nError: {ex.Message}", "Error conexiÛn Postgres", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
 
@@ -235,7 +236,7 @@ namespace Geomatica.Desktop
 
                     if (missing.Count > 0)
                     {
-                        var msg = $"La base de datos existe pero faltan tablas en el esquema 'geovisor': {string.Join(", ", missing)}.\n\nVerifica que la migraci√≥n/creaci√≥n de tablas se haya ejecutado.";
+                        var msg = $"La base de datos existe pero faltan tablas en el esquema 'geovisor': {string.Join(", ", missing)}.\n\nVerifica que la migraciÛn/creaciÛn de tablas se haya ejecutado.";
                         AppLogger.Warn($"Tablas faltantes en geovisor: {string.Join(", ", missing)}");
                         MessageBox.Show(msg, "Tablas faltantes", MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
@@ -314,7 +315,7 @@ namespace Geomatica.Desktop
             _serviceProvider = services.BuildServiceProvider();
             Application.Current.Properties["ServiceProvider"] = _serviceProvider;
 
-            // Precarga de cach√©s: departamentos y municipios se cargan en segundo plano
+            // Precarga de cachÈs: departamentos y municipios se cargan en segundo plano
             var muniRepo = _serviceProvider.GetRequiredService<IMunicipioRepository>();
             _ = Task.Run(async () =>
             {
@@ -352,7 +353,7 @@ namespace Geomatica.Desktop
                     }
                     else
                     {
-                        AppLogger.Warn("Aviso: ArcGIS:ApiKey no est√° configurada.");
+                        AppLogger.Warn("Aviso: ArcGIS:ApiKey no est· configurada.");
                     }
 
                     Esri.ArcGISRuntime.Security.AuthenticationManager.Current.ChallengeHandler = new Esri.ArcGISRuntime.Security.DefaultChallengeHandler();

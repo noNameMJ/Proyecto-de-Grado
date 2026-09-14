@@ -1,4 +1,4 @@
-﻿<UserControl x:Class="Geomatica.Desktop.Views.BarraFiltrosView"
+<UserControl x:Class="Geomatica.Desktop.Views.BarraFiltrosView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
@@ -33,10 +33,11 @@
 
             <!-- Filtros -->
             <StackPanel Grid.Row="1" Margin="16,0,16,8">
-                <!-- Palabra clave -->
-                <TextBlock Text="Palabra clave" Style="{StaticResource FieldLabel}"/>
+                <!-- Palabra clave / Etiqueta -->
+                <TextBlock Text="Palabra clave / Etiqueta" Style="{StaticResource FieldLabel}"/>
                 <TextBox Text="{Binding PalabraClave, UpdateSourceTrigger=PropertyChanged}" 
-                         Style="{StaticResource ModernTextBox}" Margin="0,0,0,12"/>
+                         Style="{StaticResource ModernTextBox}" Margin="0,0,0,12"
+                         ToolTip="Filtrar por palabra clave o etiqueta (ej: fotogrametría, lidar, ortomosaico, topografía)"/>
 
                 <!-- Rango temporal -->
                 <TextBlock Text="Rango temporal" Style="{StaticResource FieldLabel}"/>

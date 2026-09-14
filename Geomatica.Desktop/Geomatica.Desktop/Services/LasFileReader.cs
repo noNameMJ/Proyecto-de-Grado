@@ -35,12 +35,17 @@ namespace Geomatica.Desktop.Services
         public double MaxZ { get; set; }
 
         public SpatialReference? SpatialReference { get; set; }
+        public string CrsNombre { get; set; } = "Desconocido";
         public List<LasPoint3D> Points { get; } = new();
 
         public double CentroX => (MinX + MaxX) / 2.0;
         public double CentroY => (MinY + MaxY) / 2.0;
         public double CentroZ => (MinZ + MaxZ) / 2.0;
         public double AlturaRango => Math.Max(1.0, MaxZ - MinZ);
+
+        public double AnchoMetros => Math.Max(1.0, MaxX - MinX);
+        public double LargoMetros => Math.Max(1.0, MaxY - MinY);
+        public double RadioAproximadoMetros => Math.Sqrt(AnchoMetros * AnchoMetros + LargoMetros * LargoMetros + AlturaRango * AlturaRango) / 2.0;
     }
 
     public static class LasFileReader
@@ -119,8 +124,10 @@ namespace Geomatica.Desktop.Services
 
             cloud.TotalPoints = totalPoints;
 
-            // Detectar CRS (de archivo .prj asociado o por rangos de coordenadas colombianas)
-            cloud.SpatialReference = DetectarSpatialReference(filePath, minX, maxX, minY, maxY);
+            // Detectar CRS (desde VLRs internos del LAS, archivo .prj asociado o análisis de coordenadas)
+            var (sr, crsDesc) = DetectarSpatialReference(filePath, reader, fs, headerSize, numVlr, offsetToPoints, minX, maxX, minY, maxY);
+            cloud.SpatialReference = sr;
+            cloud.CrsNombre = crsDesc;
 
             if (totalPoints == 0 || pointRecordLength == 0)
             {
@@ -241,9 +248,23 @@ namespace Geomatica.Desktop.Services
             }
         }
 
-        private static SpatialReference DetectarSpatialReference(string filePath, double minX, double maxX, double minY, double maxY)
+        private static (SpatialReference sr, string nombre) DetectarSpatialReference(
+            string filePath, 
+            BinaryReader reader, 
+            Stream fs, 
+            ushort headerSize, 
+            uint numVlr, 
+            uint offsetToPoints, 
+            double minX, double maxX, double minY, double maxY)
         {
-            // 1. Revisar archivo sidecar .prj
+            // 1. Intentar extraer CRS exacto de los VLRs internos del LAS (GeoKeyDirectory o WKT)
+            var (vlrSr, vlrNombre) = LeerVlrsSpatialReference(reader, fs, headerSize, numVlr, offsetToPoints);
+            if (vlrSr != null)
+            {
+                return (vlrSr, vlrNombre);
+            }
+
+            // 2. Revisar archivo sidecar .prj (mismo nombre que el LAS)
             var dir = Path.GetDirectoryName(filePath);
             var nameWithoutExt = Path.GetFileNameWithoutExtension(filePath);
             if (!string.IsNullOrEmpty(dir))
@@ -254,56 +275,199 @@ namespace Geomatica.Desktop.Services
                     try
                     {
                         var wkt = File.ReadAllText(prjPath).Trim();
-                        if (wkt.Contains("3116") || wkt.Contains("MAGNA-SIRGAS / Colombia Bogota", StringComparison.OrdinalIgnoreCase))
-                            return SpatialReference.Create(3116);
-                        if (wkt.Contains("9377") || wkt.Contains("MAGNA-SIRGAS / Origen-Nacional", StringComparison.OrdinalIgnoreCase))
-                            return SpatialReference.Create(9377);
-                        if (wkt.Contains("4326") || wkt.Contains("WGS 84", StringComparison.OrdinalIgnoreCase))
-                            return SpatialReferences.Wgs84;
-                        if (wkt.Contains("32618") || wkt.Contains("UTM zone 18N", StringComparison.OrdinalIgnoreCase))
-                            return SpatialReference.Create(32618);
-                        if (wkt.Contains("32617") || wkt.Contains("UTM zone 17N", StringComparison.OrdinalIgnoreCase))
-                            return SpatialReference.Create(32617);
-                        if (wkt.Contains("32619") || wkt.Contains("UTM zone 19N", StringComparison.OrdinalIgnoreCase))
-                            return SpatialReference.Create(32619);
-
-                        var sr = SpatialReference.Create(wkt);
-                        if (sr != null) return sr;
+                        var prjSr = ParsearWktTexto(wkt);
+                        if (prjSr != null)
+                        {
+                            return (prjSr, prjSr.Wkid != 0 ? $"EPSG:{prjSr.Wkid} (de archivo .prj)" : "CRS de archivo .prj");
+                        }
                     }
                     catch { }
                 }
             }
 
-            // 2. Heurística por coordenadas comunes en Colombia
+            // 3. Heurística inteligente según coordenadas de Colombia
             double cx = (minX + maxX) / 2.0;
             double cy = (minY + maxY) / 2.0;
 
             // Grados WGS84: Longitud entre -85° y -65°, Latitud entre -5° y 15°
             if (cx >= -85.0 && cx <= -65.0 && cy >= -5.0 && cy <= 15.0)
             {
-                return SpatialReferences.Wgs84;
+                return (SpatialReferences.Wgs84, "WGS 84 (EPSG:4326) [Geográfico]");
             }
 
-            // Origen Nacional Colombia (EPSG:9377): X ~ 4,000,000 - 6,000,000; Y ~ 1,000,000 - 3,000,000
-            if (cx > 3_000_000 && cx < 7_000_000 && cy > 800_000 && cy < 4_000_000)
+            // Origen Nacional Colombia (EPSG:9377): X ~ 4,000,000 - 6,000,000; Y ~ 1,000,000 - 3,500,000
+            if (cx > 3_500_000 && cx < 6_500_000 && cy > 800_000 && cy < 3_800_000)
             {
-                return SpatialReference.Create(9377);
+                return (SpatialReference.Create(9377), "MAGNA-SIRGAS Origen Nacional (EPSG:9377)");
             }
 
-            // MAGNA-SIRGAS Colombia Bogotá (EPSG:3116): X ~ 700,000 - 1,300,000; Y ~ 600,000 - 1,700,000
-            if (cx > 500_000 && cx < 1_500_000 && cy > 400_000 && cy < 1_900_000)
+            // MAGNA-SIRGAS Colombia Bogotá (EPSG:3116): X ~ 900,000 - 1,250,000; Y ~ 700,000 - 1,500,000
+            if (cx >= 880_000 && cx <= 1_250_000 && cy >= 650_000 && cy <= 1_550_000)
             {
-                return SpatialReference.Create(3116);
+                return (SpatialReference.Create(3116), "MAGNA-SIRGAS Bogotá (EPSG:3116)");
             }
 
-            // UTM Zone 18N (EPSG:32618): X ~ 200,000 - 850,000; Y ~ 0 - 1,500,000
-            if (cx > 100_000 && cx < 900_000 && cy >= 0 && cy < 1_600_000)
+            // UTM Zone 18N (EPSG:32618): X ~ 100,000 - 880,000; Y ~ 0 - 1,500,000 (Gran parte de Colombia Central y Oriental)
+            if (cx > 100_000 && cx < 880_000 && cy >= 0 && cy < 1_600_000)
             {
-                return SpatialReference.Create(32618);
+                return (SpatialReference.Create(32618), "WGS 84 / UTM Zone 18N (EPSG:32618)");
             }
 
-            // Default fallback para Colombia: MAGNA Bogotá (EPSG:3116)
-            return SpatialReference.Create(3116);
+            // UTM Zone 17N (EPSG:32617): Colombia Occidental / Chocó
+            if (cx > 100_000 && cx < 500_000 && cy >= 0 && cy < 1_200_000)
+            {
+                return (SpatialReference.Create(32617), "WGS 84 / UTM Zone 17N (EPSG:32617)");
+            }
+
+            // Default fallback
+            return (SpatialReference.Create(3116), "MAGNA-SIRGAS Bogotá (EPSG:3116) [Predeterminado]");
+        }
+
+        private static (SpatialReference? sr, string nombre) LeerVlrsSpatialReference(
+            BinaryReader reader, 
+            Stream fs, 
+            ushort headerSize, 
+            uint numVlr, 
+            uint offsetToPoints)
+        {
+            if (numVlr == 0 || headerSize >= offsetToPoints) return (null, "");
+
+            try
+            {
+                fs.Seek(headerSize, SeekOrigin.Begin);
+
+                for (int i = 0; i < numVlr; i++)
+                {
+                    if (fs.Position + 54 > offsetToPoints || fs.Position + 54 > fs.Length) break;
+
+                    ushort reserved = reader.ReadUInt16();
+                    byte[] userIdBytes = reader.ReadBytes(16);
+                    ushort recordId = reader.ReadUInt16();
+                    ushort recordLength = reader.ReadUInt16();
+                    byte[] descBytes = reader.ReadBytes(32);
+
+                    string userId = Encoding.ASCII.GetString(userIdBytes).Trim('\0', ' ');
+
+                    if (fs.Position + recordLength > fs.Length) break;
+                    byte[] data = reader.ReadBytes(recordLength);
+
+                    // 1. GeoKeyDirectoryTag (Record ID 34735)
+                    if (recordId == 34735 && (userId.Contains("LASF_Projection", StringComparison.OrdinalIgnoreCase) || userId.Contains("liblas", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var sr = ParsearGeoKeyDirectory(data);
+                        if (sr != null)
+                        {
+                            return (sr, sr.Wkid != 0 ? $"EPSG:{sr.Wkid} (VLR GeoKey)" : "VLR GeoKey");
+                        }
+                    }
+
+                    // 2. WKT Coordinate System (Record ID 2112 o 2111)
+                    if ((recordId == 2112 || recordId == 2111 || recordId == 34737) && 
+                        (userId.Contains("LASF_Projection", StringComparison.OrdinalIgnoreCase) || userId.Contains("liblas", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        var sr = ParsearWkt(data);
+                        if (sr != null)
+                        {
+                            return (sr, sr.Wkid != 0 ? $"EPSG:{sr.Wkid} (VLR WKT)" : "VLR WKT");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[LasFileReader] Error analizando VLRs: {ex.Message}");
+            }
+
+            return (null, "");
+        }
+
+        private static SpatialReference? ParsearGeoKeyDirectory(byte[] data)
+        {
+            if (data.Length < 8) return null;
+            int numKeys = BitConverter.ToUInt16(data, 6);
+            int offset = 8;
+
+            SpatialReference? geographicSr = null;
+
+            for (int k = 0; k < numKeys; k++)
+            {
+                if (offset + 8 > data.Length) break;
+
+                ushort keyId = BitConverter.ToUInt16(data, offset);
+                ushort tiffTagLocation = BitConverter.ToUInt16(data, offset + 2);
+                ushort count = BitConverter.ToUInt16(data, offset + 4);
+                ushort valueOffset = BitConverter.ToUInt16(data, offset + 6);
+                offset += 8;
+
+                // ProjectedCSTypeGeoKey = 3072
+                if (keyId == 3072 && tiffTagLocation == 0 && valueOffset > 0)
+                {
+                    try
+                    {
+                        var sr = SpatialReference.Create(valueOffset);
+                        if (sr != null) return sr;
+                    }
+                    catch { }
+                }
+
+                // GeographicTypeGeoKey = 2048
+                if (keyId == 2048 && tiffTagLocation == 0 && valueOffset > 0)
+                {
+                    try
+                    {
+                        geographicSr = SpatialReference.Create(valueOffset);
+                    }
+                    catch { }
+                }
+            }
+
+            return geographicSr;
+        }
+
+        private static SpatialReference? ParsearWkt(byte[] data)
+        {
+            try
+            {
+                string text = Encoding.UTF8.GetString(data).Trim('\0', ' ', '\r', '\n');
+                return ParsearWktTexto(text);
+            }
+            catch { }
+            return null;
+        }
+
+        private static SpatialReference? ParsearWktTexto(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text)) return null;
+
+            try
+            {
+                // Buscar código EPSG en el texto: AUTHORITY["EPSG","32618"] o ID["EPSG",32618]
+                var matches = System.Text.RegularExpressions.Regex.Matches(
+                    text, 
+                    @"(?:AUTHORITY|ID)\[""EPSG""\s*,\s*""?(\d+)""?\]", 
+                    System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+                // El último suele ser el código proyectado (si está anidado)
+                for (int i = matches.Count - 1; i >= 0; i--)
+                {
+                    if (int.TryParse(matches[i].Groups[1].Value, out int epsg) && epsg > 0)
+                    {
+                        try
+                        {
+                            var sr = SpatialReference.Create(epsg);
+                            if (sr != null) return sr;
+                        }
+                        catch { }
+                    }
+                }
+
+                // Intentar construir directamente desde el texto WKT
+                var srWkt = SpatialReference.Create(text);
+                if (srWkt != null) return srWkt;
+            }
+            catch { }
+
+            return null;
         }
     }
 }

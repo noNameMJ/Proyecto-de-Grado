@@ -6,6 +6,17 @@
              xmlns:models="clr-namespace:Geomatica.Desktop.Models">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <Style x:Key="ModernContextMenu" TargetType="ContextMenu">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+            <Setter Property="FontSize" Value="12.5"/>
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+            <Setter Property="Padding" Value="2,4"/>
+            <Setter Property="HasDropShadow" Value="True"/>
+        </Style>
     </UserControl.Resources>
 
     <Grid Background="{StaticResource SurfaceBrush}">
@@ -20,10 +31,11 @@
                 BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,0,0,1"
                 Padding="10,6">
             <DockPanel LastChildFill="True">
-                <!-- Botón Arriba a la izquierda -->
-                <Button Content="⬆  Arriba" Command="{Binding ArribaCommand}" 
+                <!-- Botón Arriba a la izquierda (permite soltar para mover a la carpeta superior) -->
+                <Button x:Name="btnArriba" Content="⬆  Arriba" Command="{Binding ArribaCommand}" 
                         Style="{StaticResource ToolbarButton}" Width="85" DockPanel.Dock="Left"
-                        ToolTip="Subir al nivel superior de carpetas"/>
+                        ToolTip="Subir al nivel superior de carpetas (o arrastre un archivo aquí para moverlo arriba)"
+                        AllowDrop="True" Drop="BtnArriba_Drop" DragOver="BtnArriba_DragOver" DragLeave="BtnArriba_DragLeave"/>
                 <Rectangle Width="1" Height="20" Fill="{StaticResource SeparatorBrush}" Margin="8,0" DockPanel.Dock="Left"/>
                 <TextBlock Text="Ruta:" VerticalAlignment="Center" FontWeight="SemiBold" 
                            Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
@@ -55,14 +67,83 @@
 
         <!-- ══════ File list with GridView columns ══════ -->
         <Grid Grid.Row="1">
-            <ListView ItemsSource="{Binding Items}" 
+            <ListView x:Name="listViewArchivos"
+                      ItemsSource="{Binding Items}" 
                       MouseDoubleClick="ListView_MouseDoubleClick" 
+                      ContextMenuOpening="ListView_ContextMenuOpening"
+                      PreviewMouseLeftButtonDown="ListView_PreviewMouseLeftButtonDown"
+                      PreviewMouseMove="ListView_PreviewMouseMove"
                       SelectedItem="{Binding SelectedEntry, Mode=TwoWay}"
                       BorderThickness="0" Background="White"
                       FontFamily="{StaticResource AppFont}"
-                      AllowDrop="True" Drop="ListView_Drop"
+                      AllowDrop="True" Drop="ListView_Drop" DragOver="ListView_DragOver" DragLeave="ListView_DragLeave"
                       ScrollViewer.HorizontalScrollBarVisibility="Auto"
                       ScrollViewer.VerticalScrollBarVisibility="Auto">
+
+                <!-- Atajos de teclado para operaciones de archivos -->
+                <ListView.InputBindings>
+                    <KeyBinding Key="F2" Command="{Binding RenombrarCommand}"/>
+                    <KeyBinding Key="F5" Command="{Binding RefrescarCommand}"/>
+                    <KeyBinding Key="Delete" Command="{Binding EliminarCommand}"/>
+                    <KeyBinding Modifiers="Control" Key="C" Command="{Binding CopiarCommand}"/>
+                    <KeyBinding Modifiers="Control" Key="X" Command="{Binding CortarCommand}"/>
+                    <KeyBinding Modifiers="Control" Key="V" Command="{Binding PegarCommand}"/>
+                    <KeyBinding Key="Return" Command="{Binding AbrirCommand}"/>
+                </ListView.InputBindings>
+
+                <!-- Menú contextual para clic derecho -->
+                <ListView.ContextMenu>
+                    <ContextMenu Style="{StaticResource ModernContextMenu}">
+                        <!-- Encabezado con el nombre del elemento cuando está seleccionado -->
+                        <MenuItem Header="{Binding NombreSeleccionado}" IsEnabled="False" FontWeight="Bold"
+                                  Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+                        <Separator Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+
+                        <!-- Acciones primarias de apertura -->
+                        <MenuItem Header="🗺️  Cargar en Mapa / Visor" Command="{Binding AbrirEnMapaCommand}"
+                                  Visibility="{Binding IsFormatoMapaSeleccionado, Converter={StaticResource BoolToVis}}"
+                                  FontWeight="SemiBold"/>
+                        <MenuItem Header="👁️  Abrir con app externa" Command="{Binding AbrirCommand}"
+                                  Visibility="{Binding IsArchivoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+                        <MenuItem Header="📂  Abrir carpeta" Command="{Binding AbrirCommand}"
+                                  Visibility="{Binding IsCarpetaSeleccionada, Converter={StaticResource BoolToVis}}"
+                                  FontWeight="SemiBold"/>
+                        <MenuItem Header="⬇️  Descargar archivo..." Command="{Binding DescargarCommand}"
+                                  Visibility="{Binding IsArchivoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+
+                        <Separator Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+
+                        <!-- Operaciones de portapapeles y archivos -->
+                        <MenuItem Header="✂️  Cortar / Mover" Command="{Binding CortarCommand}" InputGestureText="Ctrl+X"
+                                  Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+                        <MenuItem Header="📋  Copiar" Command="{Binding CopiarCommand}" InputGestureText="Ctrl+C"
+                                  Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+                        <MenuItem Header="📥  Pegar" Command="{Binding PegarCommand}" InputGestureText="Ctrl+V"
+                                  IsEnabled="{Binding CanPaste}"/>
+
+                        <Separator/>
+
+                        <!-- Gestión: Renombrar y Eliminar -->
+                        <MenuItem Header="✏️  Renombrar" Command="{Binding RenombrarCommand}" InputGestureText="F2"
+                                  Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+                        <MenuItem Header="🗑️  Eliminar" Command="{Binding EliminarCommand}" InputGestureText="Supr"
+                                  Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+
+                        <Separator Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+
+                        <!-- Operaciones de ruta y sistema -->
+                        <MenuItem Header="📋  Copiar ruta completa" Command="{Binding CopiarRutaCompletaCommand}"
+                                  Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+                        <MenuItem Header="📁  Mostrar en el Explorador de Windows" Command="{Binding MostrarEnExploradorCommand}"/>
+
+                        <!-- Opciones de directorio / fondo vacío -->
+                        <Separator/>
+                        <MenuItem Header="➕  Subir archivo(s)..." Command="{Binding SubirCommand}"/>
+                        <MenuItem Header="📁  Nueva carpeta..." Command="{Binding NuevaCarpetaCommand}"/>
+                        <MenuItem Header="🔄  Actualizar" Command="{Binding RefrescarCommand}" InputGestureText="F5"/>
+                    </ContextMenu>
+                </ListView.ContextMenu>
+
                 <ListView.View>
                     <GridView>
                         <GridViewColumn Header="Nombre" Width="260">
@@ -96,6 +177,7 @@
                         <Setter Property="Padding" Value="4,4"/>
                         <Setter Property="Margin" Value="0"/>
                         <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <EventSetter Event="PreviewMouseRightButtonDown" Handler="ListViewItem_PreviewMouseRightButtonDown"/>
                     </Style>
                 </ListView.ItemContainerStyle>
             </ListView>
@@ -113,29 +195,50 @@
             <DockPanel LastChildFill="True">
                 <!-- Mensaje de estado a la derecha -->
                 <TextBlock Text="{Binding Estado}" DockPanel.Dock="Right" VerticalAlignment="Center" 
-                           FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
-                           FontFamily="{StaticResource AppFont}" Margin="12,0,0,0"
-                           TextTrimming="CharacterEllipsis" MaxWidth="280"/>
+                            FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                            FontFamily="{StaticResource AppFont}" Margin="12,0,0,0"
+                            TextTrimming="CharacterEllipsis" MaxWidth="260"/>
 
                 <!-- Botones de acción organizados horizontalmente con WrapPanel -->
                 <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Content="➕ Subir Archivo" Command="{Binding SubirCommand}" 
-                            Style="{StaticResource PrimaryButton}" Padding="12,6" Margin="0,2,6,2"/>
+                    <Button Content="➕ Subir" Command="{Binding SubirCommand}" 
+                            Style="{StaticResource PrimaryButton}" Padding="10,5" Margin="0,2,5,2"
+                            ToolTip="Subir uno o más archivos a la carpeta actual"/>
                     <Button Content="📁 Nueva Carpeta" Command="{Binding NuevaCarpetaCommand}" 
-                            Style="{StaticResource OutlineButton}" Margin="0,2,6,2" Padding="12,6"
+                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
                             ToolTip="Crear una nueva carpeta en la ubicación actual"/>
-                    <Button Content="⬇️ Descargar" Command="{Binding DescargarCommand}" 
-                            Style="{StaticResource OutlineButton}" Margin="0,2,6,2" Padding="12,6"
-                            ToolTip="Descargar el archivo seleccionado"/>
+                    <Button Content="✂️ Cortar" Command="{Binding CortarCommand}" 
+                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            IsEnabled="{Binding IsElementoSeleccionado}"
+                            ToolTip="Cortar el elemento seleccionado (Ctrl+X)"/>
+                    <Button Content="📋 Copiar" Command="{Binding CopiarCommand}" 
+                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            IsEnabled="{Binding IsElementoSeleccionado}"
+                            ToolTip="Copiar el elemento seleccionado (Ctrl+C)"/>
+                    <Button Content="📥 Pegar" Command="{Binding PegarCommand}" 
+                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            IsEnabled="{Binding CanPaste}"
+                            ToolTip="Pegar el elemento cortado o copiado en la ubicación actual (Ctrl+V)"/>
+                    <Button Content="✏️ Renombrar" Command="{Binding RenombrarCommand}" 
+                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            IsEnabled="{Binding IsElementoSeleccionado}"
+                            ToolTip="Renombrar el elemento seleccionado (F2)"/>
                     <Button Content="🗺️ Ver en Mapa" Command="{Binding AbrirEnMapaCommand}" 
-                            Style="{StaticResource OutlineButton}" Margin="0,2,6,2" Padding="12,6"
+                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            IsEnabled="{Binding IsFormatoMapaSeleccionado}"
                             ToolTip="Cargar el archivo como capa en el mapa"/>
                     <Button Content="👁️ Abrir Ext." Command="{Binding AbrirCommand}" 
-                            Style="{StaticResource OutlineButton}" Margin="0,2,6,2" Padding="12,6"
+                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            IsEnabled="{Binding IsElementoSeleccionado}"
                             ToolTip="Abrir con la aplicación predeterminada del sistema"/>
+                    <Button Content="⬇️ Descargar" Command="{Binding DescargarCommand}" 
+                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            IsEnabled="{Binding IsArchivoSeleccionado}"
+                            ToolTip="Descargar una copia del archivo seleccionado"/>
                     <Button Content="🗑️ Eliminar" Command="{Binding EliminarCommand}" 
-                            Style="{StaticResource DangerButton}" Margin="0,2,6,2" Padding="12,6"
-                            ToolTip="Eliminar el archivo o carpeta seleccionado"/>
+                            Style="{StaticResource DangerButton}" Margin="0,2,5,2" Padding="10,5"
+                            IsEnabled="{Binding IsElementoSeleccionado}"
+                            ToolTip="Eliminar el archivo o carpeta seleccionado (Supr)"/>
                 </WrapPanel>
             </DockPanel>
         </Border>

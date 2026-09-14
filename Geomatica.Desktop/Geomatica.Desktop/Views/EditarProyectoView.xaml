@@ -31,7 +31,9 @@
                         <DatePicker SelectedDate="{Binding FechaInicio}" HorizontalAlignment="Left" 
                                     Width="200" Margin="0,0,0,14"/>
 
-                        <TextBlock Text="Palabra Clave" Style="{StaticResource FieldLabel}"/>
+                        <TextBlock Text="Palabras Clave (Etiquetas)" Style="{StaticResource FieldLabel}"/>
+                        <TextBlock Text="Separe los términos con comas (,). Ejemplo: topografía, fotogrametría, lidar, ortomosaico, campus uis" 
+                                   FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,5" TextWrapping="Wrap"/>
                         <TextBox Text="{Binding PalabraClave}" Style="{StaticResource ModernTextBox}" Margin="0,0,0,14"/>
 
                         <Separator Style="{StaticResource ModernSeparator}"/>
