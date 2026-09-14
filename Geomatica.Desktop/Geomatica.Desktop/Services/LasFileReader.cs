@@ -36,15 +36,16 @@ namespace Geomatica.Desktop.Services
 
         public SpatialReference? SpatialReference { get; set; }
         public string CrsNombre { get; set; } = "Desconocido";
+        public bool EsCoordenadasLocales { get; set; }
         public List<LasPoint3D> Points { get; } = new();
 
         public double CentroX => (MinX + MaxX) / 2.0;
         public double CentroY => (MinY + MaxY) / 2.0;
         public double CentroZ => (MinZ + MaxZ) / 2.0;
-        public double AlturaRango => Math.Max(1.0, MaxZ - MinZ);
+        public double AlturaRango => Math.Max(0.01, MaxZ - MinZ);
 
-        public double AnchoMetros => Math.Max(1.0, MaxX - MinX);
-        public double LargoMetros => Math.Max(1.0, MaxY - MinY);
+        public double AnchoMetros => Math.Max(0.01, MaxX - MinX);
+        public double LargoMetros => Math.Max(0.01, MaxY - MinY);
         public double RadioAproximadoMetros => Math.Sqrt(AnchoMetros * AnchoMetros + LargoMetros * LargoMetros + AlturaRango * AlturaRango) / 2.0;
     }
 
@@ -125,9 +126,10 @@ namespace Geomatica.Desktop.Services
             cloud.TotalPoints = totalPoints;
 
             // Detectar CRS (desde VLRs internos del LAS, archivo .prj asociado o análisis de coordenadas)
-            var (sr, crsDesc) = DetectarSpatialReference(filePath, reader, fs, headerSize, numVlr, offsetToPoints, minX, maxX, minY, maxY);
+            var (sr, crsDesc, esLocal) = DetectarSpatialReference(filePath, reader, fs, headerSize, numVlr, offsetToPoints, minX, maxX, minY, maxY);
             cloud.SpatialReference = sr;
             cloud.CrsNombre = crsDesc;
+            cloud.EsCoordenadasLocales = esLocal;
 
             if (totalPoints == 0 || pointRecordLength == 0)
             {
@@ -248,7 +250,7 @@ namespace Geomatica.Desktop.Services
             }
         }
 
-        private static (SpatialReference sr, string nombre) DetectarSpatialReference(
+        private static (SpatialReference? sr, string nombre, bool esLocal) DetectarSpatialReference(
             string filePath, 
             BinaryReader reader, 
             Stream fs, 
@@ -257,11 +259,32 @@ namespace Geomatica.Desktop.Services
             uint offsetToPoints, 
             double minX, double maxX, double minY, double maxY)
         {
+            double cx = (minX + maxX) / 2.0;
+            double cy = (minY + maxY) / 2.0;
+
+            // En Colombia:
+            // - Geográficas WGS84: Longitud en [-85.0 .. -66.0], Latitud en [-4.5 .. 13.5].
+            // - Proyectadas (MAGNA Origen Nacional, Bogotá, UTM): Coordenadas X > 100,000 m.
+            // Si |cx| < 50,000 y |cy| < 50,000 y NO está en el recuadro geográfico de Colombia:
+            // es DEFINITIVAMENTE un escáner en coordenadas locales (metros desde el instrumento).
+            bool estaEnRangoGeograficoColombia = (cx >= -85.0 && cx <= -66.0 && cy >= -4.5 && cy <= 13.5);
+            bool esRangoLocalPequeno = Math.Abs(cx) < 50_000.0 && Math.Abs(cy) < 50_000.0 && !estaEnRangoGeograficoColombia;
+
+            if (esRangoLocalPequeno)
+            {
+                return (null, "Coordenadas Locales (Escáner / TLS)", true);
+            }
+
             // 1. Intentar extraer CRS exacto de los VLRs internos del LAS (GeoKeyDirectory o WKT)
             var (vlrSr, vlrNombre) = LeerVlrsSpatialReference(reader, fs, headerSize, numVlr, offsetToPoints);
             if (vlrSr != null)
             {
-                return (vlrSr, vlrNombre);
+                // Si el VLR dice WGS84 o grados, pero las coordenadas no son grados de Colombia
+                if ((vlrSr.Wkid == 4326 || vlrSr.IsGeographic) && !estaEnRangoGeograficoColombia)
+                {
+                    return (null, "Coordenadas Locales (Escáner / TLS)", true);
+                }
+                return (vlrSr, vlrNombre, false);
             }
 
             // 2. Revisar archivo sidecar .prj (mismo nombre que el LAS)
@@ -278,7 +301,12 @@ namespace Geomatica.Desktop.Services
                         var prjSr = ParsearWktTexto(wkt);
                         if (prjSr != null)
                         {
-                            return (prjSr, prjSr.Wkid != 0 ? $"EPSG:{prjSr.Wkid} (de archivo .prj)" : "CRS de archivo .prj");
+                            // Si el PRJ dice que es geográfico o MAGNA 3D (como EPSG:4997), pero las coordenadas no son grados de Colombia
+                            if ((prjSr.Wkid == 4326 || prjSr.Wkid == 4997 || prjSr.IsGeographic) && !estaEnRangoGeograficoColombia)
+                            {
+                                return (null, "Coordenadas Locales (Escáner / TLS)", true);
+                            }
+                            return (prjSr, prjSr.Wkid != 0 ? $"EPSG:{prjSr.Wkid} (de archivo .prj)" : "CRS de archivo .prj", false);
                         }
                     }
                     catch { }
@@ -286,41 +314,37 @@ namespace Geomatica.Desktop.Services
             }
 
             // 3. Heurística inteligente según coordenadas de Colombia
-            double cx = (minX + maxX) / 2.0;
-            double cy = (minY + maxY) / 2.0;
-
-            // Grados WGS84: Longitud entre -85° y -65°, Latitud entre -5° y 15°
-            if (cx >= -85.0 && cx <= -65.0 && cy >= -5.0 && cy <= 15.0)
+            if (estaEnRangoGeograficoColombia)
             {
-                return (SpatialReferences.Wgs84, "WGS 84 (EPSG:4326) [Geográfico]");
+                return (SpatialReferences.Wgs84, "WGS 84 (EPSG:4326) [Geográfico]", false);
             }
 
             // Origen Nacional Colombia (EPSG:9377): X ~ 4,000,000 - 6,000,000; Y ~ 1,000,000 - 3,500,000
             if (cx > 3_500_000 && cx < 6_500_000 && cy > 800_000 && cy < 3_800_000)
             {
-                return (SpatialReference.Create(9377), "MAGNA-SIRGAS Origen Nacional (EPSG:9377)");
+                return (SpatialReference.Create(9377), "MAGNA-SIRGAS Origen Nacional (EPSG:9377)", false);
             }
 
             // MAGNA-SIRGAS Colombia Bogotá (EPSG:3116): X ~ 900,000 - 1,250,000; Y ~ 700,000 - 1,500,000
             if (cx >= 880_000 && cx <= 1_250_000 && cy >= 650_000 && cy <= 1_550_000)
             {
-                return (SpatialReference.Create(3116), "MAGNA-SIRGAS Bogotá (EPSG:3116)");
+                return (SpatialReference.Create(3116), "MAGNA-SIRGAS Bogotá (EPSG:3116)", false);
             }
 
             // UTM Zone 18N (EPSG:32618): X ~ 100,000 - 880,000; Y ~ 0 - 1,500,000 (Gran parte de Colombia Central y Oriental)
             if (cx > 100_000 && cx < 880_000 && cy >= 0 && cy < 1_600_000)
             {
-                return (SpatialReference.Create(32618), "WGS 84 / UTM Zone 18N (EPSG:32618)");
+                return (SpatialReference.Create(32618), "WGS 84 / UTM Zone 18N (EPSG:32618)", false);
             }
 
             // UTM Zone 17N (EPSG:32617): Colombia Occidental / Chocó
             if (cx > 100_000 && cx < 500_000 && cy >= 0 && cy < 1_200_000)
             {
-                return (SpatialReference.Create(32617), "WGS 84 / UTM Zone 17N (EPSG:32617)");
+                return (SpatialReference.Create(32617), "WGS 84 / UTM Zone 17N (EPSG:32617)", false);
             }
 
-            // Default fallback
-            return (SpatialReference.Create(3116), "MAGNA-SIRGAS Bogotá (EPSG:3116) [Predeterminado]");
+            // Si las coordenadas son menores a 100,000 m y no coinciden con ningún CRS proyectado:
+            return (null, "Coordenadas Locales (Escáner / TLS)", true);
         }
 
         private static (SpatialReference? sr, string nombre) LeerVlrsSpatialReference(

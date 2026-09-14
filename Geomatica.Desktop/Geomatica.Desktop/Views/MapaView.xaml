@@ -220,11 +220,11 @@
                                                        Foreground="{StaticResource UisGreenBrush}" VerticalAlignment="Center"/>
                                         </DockPanel>
                                         <UniformGrid Columns="3">
-                                            <Button Content="▲ +25m" Command="{Binding SubirAltura3DCommand}"
-                                                    ToolTip="Eleva la nube 25 m si quedó bajo el relieve topográfico"
+                                            <Button Content="▲ Subir" Command="{Binding SubirAltura3DCommand}"
+                                                    ToolTip="Eleva la nube de puntos en Z si quedó bajo el relieve topográfico"
                                                     Style="{StaticResource OutlineButton}" Padding="2,3" FontSize="10" Margin="0,0,2,0"/>
-                                            <Button Content="▼ -25m" Command="{Binding BajarAltura3DCommand}"
-                                                    ToolTip="Baja la nube 25 m si quedó flotando demasiado alta"
+                                            <Button Content="▼ Bajar" Command="{Binding BajarAltura3DCommand}"
+                                                    ToolTip="Baja la nube de puntos en Z si quedó flotando demasiado alta"
                                                     Style="{StaticResource OutlineButton}" Padding="2,3" FontSize="10" Margin="2,0,2,0"/>
                                             <Button Content="↺ 0m" Command="{Binding ResetearAltura3DCommand}"
                                                     ToolTip="Restablece la cota Z original del archivo"

@@ -1284,7 +1284,7 @@ namespace Geomatica.Desktop.ViewModels
             double targetZ = (targetItem?.CentroZ ?? UltimoCentroZ3D) + (targetItem?.OffsetZ3D ?? OffsetZ3D);
             var lookAtTarget = new MapPoint(wgs84Center.X, wgs84Center.Y, targetZ, SpatialReferences.Wgs84);
             double radio = targetItem?.RadioMetros ?? UltimoRadioMetros3D;
-            double distance = Math.Clamp(radio * 2.2, 120.0, 15_000.0);
+            double distance = Math.Clamp(radio * 2.5, 1.5, 25_000.0);
 
             var camera = new Camera(lookAtTarget, distance, 320.0, 45.0, 0.0);
             await _ownerSceneView.SetViewpointCameraAsync(camera, TimeSpan.FromSeconds(0.9));
@@ -1305,7 +1305,7 @@ namespace Geomatica.Desktop.ViewModels
 
             double targetZ = item.CentroZ + item.OffsetZ3D;
             var lookAtTarget = new MapPoint(wgs84Center.X, wgs84Center.Y, targetZ, SpatialReferences.Wgs84);
-            double distance = Math.Clamp(item.RadioMetros * 2.2, 120.0, 15_000.0);
+            double distance = Math.Clamp(item.RadioMetros * 2.5, 1.5, 25_000.0);
 
             var camera = new Camera(lookAtTarget, distance, 0.0, 50.0, 0.0);
             await _ownerSceneView.SetViewpointCameraAsync(camera, TimeSpan.FromSeconds(1.2));
@@ -1321,7 +1321,8 @@ namespace Geomatica.Desktop.ViewModels
     {
         if (Capa3DSeleccionada != null)
         {
-            Capa3DSeleccionada.OffsetZ3D += 25.0;
+            double step = Capa3DSeleccionada.RadioMetros < 25.0 ? 1.0 : 25.0;
+            Capa3DSeleccionada.OffsetZ3D += step;
             OffsetZ3D = Capa3DSeleccionada.OffsetZ3D;
             Capa3DSeleccionada.ReconstruirPuntos();
         }
@@ -1332,7 +1333,8 @@ namespace Geomatica.Desktop.ViewModels
     {
         if (Capa3DSeleccionada != null)
         {
-            Capa3DSeleccionada.OffsetZ3D -= 25.0;
+            double step = Capa3DSeleccionada.RadioMetros < 25.0 ? 1.0 : 25.0;
+            Capa3DSeleccionada.OffsetZ3D -= step;
             OffsetZ3D = Capa3DSeleccionada.OffsetZ3D;
             Capa3DSeleccionada.ReconstruirPuntos();
         }
@@ -1474,6 +1476,59 @@ namespace Geomatica.Desktop.ViewModels
         }
     }
 
+    private (double Lon, double Lat, double Alt)? _anclajeLocalActual3D;
+
+    private async Task<(double Lon, double Lat, double Alt)> ObtenerAnclajeLocal3DAsync()
+    {
+        if (_anclajeLocalActual3D.HasValue)
+        {
+            return _anclajeLocalActual3D.Value;
+        }
+
+        double lon = -73.1210; // Campus Principal UIS, Bucaramanga
+        double lat = 7.1390;
+        double alt = 960.0;
+
+        if (Filtros?.SelectedProyecto is FiltrosViewModel.ProyectoItem p && (p.Lon != 0 || p.Lat != 0))
+        {
+            lon = p.Lon;
+            lat = p.Lat;
+        }
+        else if (ArchivosVM?.ProyectoDetalle?.Proyecto != null && (ArchivosVM.ProyectoDetalle.Proyecto.Lon != 0 || ArchivosVM.ProyectoDetalle.Proyecto.Lat != 0))
+        {
+            lon = ArchivosVM.ProyectoDetalle.Proyecto.Lon;
+            lat = ArchivosVM.ProyectoDetalle.Proyecto.Lat;
+        }
+        else if (LastViewpoint?.TargetGeometry is MapPoint vpPoint)
+        {
+            var wgs84Vp = (vpPoint.SpatialReference != null && vpPoint.SpatialReference.Wkid != 4326)
+                ? GeometryEngine.Project(vpPoint, SpatialReferences.Wgs84) as MapPoint ?? vpPoint
+                : vpPoint;
+            if (wgs84Vp != null && !double.IsNaN(wgs84Vp.X) && !double.IsNaN(wgs84Vp.Y) && wgs84Vp.X >= -180 && wgs84Vp.X <= 180)
+            {
+                lon = wgs84Vp.X;
+                lat = wgs84Vp.Y;
+            }
+        }
+
+        try
+        {
+            if (Scene?.BaseSurface != null)
+            {
+                var testPt = new MapPoint(lon, lat, SpatialReferences.Wgs84);
+                var elev = await Scene.BaseSurface.GetElevationAsync(testPt);
+                if (!double.IsNaN(elev) && elev > -100.0)
+                {
+                    alt = elev;
+                }
+            }
+        }
+        catch { }
+
+        _anclajeLocalActual3D = (lon, lat, alt);
+        return _anclajeLocalActual3D.Value;
+    }
+
     private async Task CargarNubePuntosLas3DAsync(string path)
     {
         try
@@ -1490,24 +1545,6 @@ namespace Geomatica.Desktop.ViewModels
 
             if (Scene == null) SetupScene();
 
-            var targetSr = cloud.SpatialReference ?? SpatialReferences.Wgs84;
-
-            // Calcular radio aproximado en metros según sistema de referencia
-            double radioMetros = cloud.RadioAproximadoMetros;
-            if (targetSr.Wkid == 4326 || (cloud.MinX >= -180 && cloud.MaxX <= 180 && cloud.MinY >= -90 && cloud.MaxY <= 90))
-            {
-                double latRad = cloud.CentroY * Math.PI / 180.0;
-                double dx = (cloud.MaxX - cloud.MinX) * 111_320.0 * Math.Cos(latRad);
-                double dy = (cloud.MaxY - cloud.MinY) * 111_320.0;
-                radioMetros = Math.Sqrt(dx * dx + dy * dy + cloud.AlturaRango * cloud.AlturaRango) / 2.0;
-            }
-            radioMetros = Math.Max(80.0, radioMetros);
-
-            var envelopeOriginal = new Envelope(cloud.MinX, cloud.MinY, cloud.MaxX, cloud.MaxY, targetSr);
-            var envelopeWgs84 = (targetSr.Wkid == 4326)
-                ? envelopeOriginal
-                : GeometryEngine.Project(envelopeOriginal, SpatialReferences.Wgs84) as Envelope ?? envelopeOriginal;
-
             // 1. Crear GraphicsOverlays PROPIOS e independientes para esta capa específica
             var overlayGuia = new GraphicsOverlay
             {
@@ -1520,48 +1557,128 @@ namespace Geomatica.Desktop.ViewModels
                 SceneProperties = { SurfacePlacement = SurfacePlacement.Absolute }
             };
 
-            // Marco Guía y Centro proyectados sobre el relieve (Draped)
-            var polyPoints = new PointCollection(targetSr)
-            {
-                new MapPoint(cloud.MinX, cloud.MinY, targetSr),
-                new MapPoint(cloud.MaxX, cloud.MinY, targetSr),
-                new MapPoint(cloud.MaxX, cloud.MaxY, targetSr),
-                new MapPoint(cloud.MinX, cloud.MaxY, targetSr),
-                new MapPoint(cloud.MinX, cloud.MinY, targetSr)
-            };
-            var footprintPoly = new Polygon(polyPoints, targetSr);
-            var footprintWgs84 = (targetSr.Wkid == 4326)
-                ? footprintPoly
-                : GeometryEngine.Project(footprintPoly, SpatialReferences.Wgs84) as Polygon ?? footprintPoly;
-
-            var lineSymbol = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.FromArgb(235, 255, 193, 7), 2.5);
-            var fillSymbol = new SimpleFillSymbol(SimpleFillSymbolStyle.Solid, System.Drawing.Color.FromArgb(40, 255, 193, 7), lineSymbol);
-            overlayGuia.Graphics.Add(new Graphic(footprintWgs84, fillSymbol));
-
-            var centerPoint = new MapPoint(cloud.CentroX, cloud.CentroY, targetSr);
-            var centerWgs84 = (targetSr.Wkid == 4326)
-                ? centerPoint
-                : GeometryEngine.Project(centerPoint, SpatialReferences.Wgs84) as MapPoint ?? centerPoint;
-            var pinSymbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Cross, System.Drawing.Color.FromArgb(240, 220, 53, 69), 14.0);
-            overlayGuia.Graphics.Add(new Graphic(centerWgs84, pinSymbol));
-
-            // 2. Caché y renderizado de puntos de esta capa
+            double radioMetros = cloud.RadioAproximadoMetros;
+            Envelope envelopeWgs84;
+            double centroZWgs84;
             var cachedList = new List<(MapPoint PtWgs84, System.Drawing.Color Color)>(cloud.SampledPointsCount);
-            foreach (var pt in cloud.Points)
-            {
-                var mapPoint = new MapPoint(pt.X, pt.Y, pt.Z, targetSr);
-                var wgs84Point = (targetSr.Wkid == 4326)
-                    ? mapPoint
-                    : GeometryEngine.Project(mapPoint, SpatialReferences.Wgs84) as MapPoint ?? mapPoint;
 
-                var color = System.Drawing.Color.FromArgb(240, pt.R, pt.G, pt.B);
-                cachedList.Add((wgs84Point, color));
+            if (cloud.EsCoordenadasLocales)
+            {
+                // Nube de puntos en coordenadas locales de escáner (sin georreferenciación global o relativa al instrumento)
+                var (anchorLon, anchorLat, anchorAlt) = await ObtenerAnclajeLocal3DAsync();
+
+                double cosLat = Math.Cos(anchorLat * Math.PI / 180.0);
+                double metersPerDegLat = 111_320.0;
+                double metersPerDegLon = 111_320.0 * (cosLat > 0.01 ? cosLat : 1.0);
+
+                // Elevar la base de la nube 0.5m sobre el terreno para que no colisione con el relieve
+                double zOffsetBase = (cloud.MinZ < 0) ? Math.Abs(cloud.MinZ) + 0.5 : 0.5;
+
+                // Footprint y centro
+                double minLon = anchorLon + (cloud.MinX / metersPerDegLon);
+                double maxLon = anchorLon + (cloud.MaxX / metersPerDegLon);
+                double minLat = anchorLat + (cloud.MinY / metersPerDegLat);
+                double maxLat = anchorLat + (cloud.MaxY / metersPerDegLat);
+
+                envelopeWgs84 = new Envelope(minLon, minLat, maxLon, maxLat, SpatialReferences.Wgs84);
+                centroZWgs84 = anchorAlt + zOffsetBase + cloud.CentroZ;
+
+                var footprintPoly = new Polygon(new PointCollection(SpatialReferences.Wgs84)
+                {
+                    new MapPoint(minLon, minLat, SpatialReferences.Wgs84),
+                    new MapPoint(maxLon, minLat, SpatialReferences.Wgs84),
+                    new MapPoint(maxLon, maxLat, SpatialReferences.Wgs84),
+                    new MapPoint(minLon, maxLat, SpatialReferences.Wgs84),
+                    new MapPoint(minLon, minLat, SpatialReferences.Wgs84)
+                }, SpatialReferences.Wgs84);
+
+                var lineSymbol = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.FromArgb(235, 255, 193, 7), 2.5);
+                var fillSymbol = new SimpleFillSymbol(SimpleFillSymbolStyle.Solid, System.Drawing.Color.FromArgb(40, 255, 193, 7), lineSymbol);
+                overlayGuia.Graphics.Add(new Graphic(footprintPoly, fillSymbol));
+
+                double centerLon = anchorLon + (cloud.CentroX / metersPerDegLon);
+                double centerLat = anchorLat + (cloud.CentroY / metersPerDegLat);
+                var centerWgs84 = new MapPoint(centerLon, centerLat, SpatialReferences.Wgs84);
+                var pinSymbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Cross, System.Drawing.Color.FromArgb(240, 220, 53, 69), 14.0);
+                overlayGuia.Graphics.Add(new Graphic(centerWgs84, pinSymbol));
+
+                // Puntos
+                foreach (var pt in cloud.Points)
+                {
+                    double ptLon = anchorLon + (pt.X / metersPerDegLon);
+                    double ptLat = anchorLat + (pt.Y / metersPerDegLat);
+                    double ptAlt = anchorAlt + zOffsetBase + pt.Z;
+
+                    var wgs84Point = new MapPoint(ptLon, ptLat, ptAlt, SpatialReferences.Wgs84);
+                    var color = System.Drawing.Color.FromArgb(240, pt.R, pt.G, pt.B);
+                    cachedList.Add((wgs84Point, color));
+                }
             }
+            else
+            {
+                // Nube con sistema de coordenadas georreferenciado (WGS84 o Proyectado)
+                var targetSr = cloud.SpatialReference ?? SpatialReferences.Wgs84;
+
+                if (targetSr.Wkid == 4326 || (cloud.MinX >= -180 && cloud.MaxX <= 180 && cloud.MinY >= -90 && cloud.MaxY <= 90))
+                {
+                    double latRad = cloud.CentroY * Math.PI / 180.0;
+                    double dx = (cloud.MaxX - cloud.MinX) * 111_320.0 * Math.Cos(latRad);
+                    double dy = (cloud.MaxY - cloud.MinY) * 111_320.0;
+                    radioMetros = Math.Sqrt(dx * dx + dy * dy + cloud.AlturaRango * cloud.AlturaRango) / 2.0;
+                }
+
+                var envelopeOriginal = new Envelope(cloud.MinX, cloud.MinY, cloud.MaxX, cloud.MaxY, targetSr);
+                envelopeWgs84 = (targetSr.Wkid == 4326)
+                    ? envelopeOriginal
+                    : GeometryEngine.Project(envelopeOriginal, SpatialReferences.Wgs84) as Envelope ?? envelopeOriginal;
+
+                centroZWgs84 = cloud.CentroZ;
+
+                var polyPoints = new PointCollection(targetSr)
+                {
+                    new MapPoint(cloud.MinX, cloud.MinY, targetSr),
+                    new MapPoint(cloud.MaxX, cloud.MinY, targetSr),
+                    new MapPoint(cloud.MaxX, cloud.MaxY, targetSr),
+                    new MapPoint(cloud.MinX, cloud.MaxY, targetSr),
+                    new MapPoint(cloud.MinX, cloud.MinY, targetSr)
+                };
+                var footprintPoly = new Polygon(polyPoints, targetSr);
+                var footprintWgs84 = (targetSr.Wkid == 4326)
+                    ? footprintPoly
+                    : GeometryEngine.Project(footprintPoly, SpatialReferences.Wgs84) as Polygon ?? footprintPoly;
+
+                var lineSymbol = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.FromArgb(235, 255, 193, 7), 2.5);
+                var fillSymbol = new SimpleFillSymbol(SimpleFillSymbolStyle.Solid, System.Drawing.Color.FromArgb(40, 255, 193, 7), lineSymbol);
+                overlayGuia.Graphics.Add(new Graphic(footprintWgs84, fillSymbol));
+
+                var centerPoint = new MapPoint(cloud.CentroX, cloud.CentroY, targetSr);
+                var centerWgs84 = (targetSr.Wkid == 4326)
+                    ? centerPoint
+                    : GeometryEngine.Project(centerPoint, SpatialReferences.Wgs84) as MapPoint ?? centerPoint;
+                var pinSymbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Cross, System.Drawing.Color.FromArgb(240, 220, 53, 69), 14.0);
+                overlayGuia.Graphics.Add(new Graphic(centerWgs84, pinSymbol));
+
+                foreach (var pt in cloud.Points)
+                {
+                    var mapPoint = new MapPoint(pt.X, pt.Y, pt.Z, targetSr);
+                    var wgs84Point = (targetSr.Wkid == 4326)
+                        ? mapPoint
+                        : GeometryEngine.Project(mapPoint, SpatialReferences.Wgs84) as MapPoint ?? mapPoint;
+
+                    var color = System.Drawing.Color.FromArgb(240, pt.R, pt.G, pt.B);
+                    cachedList.Add((wgs84Point, color));
+                }
+            }
+
+            radioMetros = Math.Max(0.4, radioMetros);
+
+            // Determinar tamaño de punto inicial óptimo según radio de la nube
+            double tamanoPunto = (radioMetros < 15.0) ? 5.5 : (radioMetros < 100.0 ? 5.0 : 4.5);
 
             var initialGraphics = new List<Graphic>(cachedList.Count);
             foreach (var item in cachedList)
             {
-                var symbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, item.Color, 4.5);
+                var symbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, item.Color, tamanoPunto);
                 initialGraphics.Add(new Graphic(item.PtWgs84, symbol));
             }
             overlayPuntos.Graphics.AddRange(initialGraphics);
@@ -1583,17 +1700,18 @@ namespace Geomatica.Desktop.ViewModels
                 OverlayGuia3D = overlayGuia,
                 OverlayPuntos3D = overlayPuntos,
                 PuntosMuestreados3D = cachedList,
-                CentroZ = cloud.CentroZ,
+                CentroZ = centroZWgs84,
                 RadioMetros = radioMetros,
                 CrsNombre = cloud.CrsNombre,
                 ExtentParaZoom = envelopeWgs84,
                 InfoDetalle3D = $"Archivo: {cloud.TotalPoints:N0} pts (muestra: {cloud.SampledPointsCount:N0})\n" +
                                 $"CRS: {cloud.CrsNombre}\n" +
-                                $"Dim: {cloud.AnchoMetros:F0}m × {cloud.LargoMetros:F0}m (R: {cloud.RadioAproximadoMetros:F0}m)\n" +
-                                $"Elevación Z: {cloud.MinZ:F1} m a {cloud.MaxZ:F1} m (Δ {cloud.AlturaRango:F1} m)\n" +
-                                $"Colores: {(cloud.HasRgbColors ? "RGB Fotogramétrico" : "Rampa Hipsométrica")}",
+                                $"Dim: {cloud.AnchoMetros:F1}m × {cloud.LargoMetros:F1}m (R: {cloud.RadioAproximadoMetros:F1}m)\n" +
+                                $"Elevación Z: {cloud.MinZ:F2} m a {cloud.MaxZ:F2} m (Δ {cloud.AlturaRango:F2} m)\n" +
+                                $"Colores: {(cloud.HasRgbColors ? "RGB Fotogramétrico" : "Rampa Hipsométrica")}" +
+                                (cloud.EsCoordenadasLocales ? "\n(Anclado en entorno 3D local 1:1 en metros)" : ""),
                 OffsetZ3D = 0.0,
-                TamanoPunto3D = 4.5
+                TamanoPunto3D = tamanoPunto
             };
 
             itemCapa.QuitarCommand = new RelayCommand(() =>
@@ -1607,6 +1725,10 @@ namespace Geomatica.Desktop.ViewModels
                 overlayPuntos.Graphics.Clear();
                 CapasAdicionales.Remove(itemCapa);
                 Capas3D.Remove(itemCapa);
+                if (Capas3D.Count == 0)
+                {
+                    _anclajeLocalActual3D = null;
+                }
                 SincronizarEstadoCapas3D();
             });
 
@@ -1752,6 +1874,7 @@ namespace Geomatica.Desktop.ViewModels
         CapasAdicionales.Clear();
         Capas3D.Clear();
         Capa3DSeleccionada = null;
+        _anclajeLocalActual3D = null;
         SincronizarEstadoCapas3D();
         IsPanelCapasVisible = false;
         _notifications?.ShowInfo("Se han quitado todas las capas adicionales del visor.", "Capas");
