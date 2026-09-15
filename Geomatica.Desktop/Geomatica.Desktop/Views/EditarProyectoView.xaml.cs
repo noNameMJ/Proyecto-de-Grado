@@ -48,6 +48,7 @@ namespace Geomatica.Desktop.Views
             {
                 _currentVm = vm;
                 vm.MunicipioGeoJsonChanged += OnMunicipioGeoJsonChanged;
+                vm.CoordenadasPinChanged += OnCoordenadasPinChanged;
 
                 // Mostrar pin inicial si ya hay coordenadas
                 if (!string.IsNullOrWhiteSpace(vm.LatStr) && !string.IsNullOrWhiteSpace(vm.LonStr))
@@ -68,8 +69,24 @@ namespace Geomatica.Desktop.Views
             if (_currentVm != null)
             {
                 _currentVm.MunicipioGeoJsonChanged -= OnMunicipioGeoJsonChanged;
+                _currentVm.CoordenadasPinChanged -= OnCoordenadasPinChanged;
                 _currentVm = null;
             }
+        }
+
+        private void OnCoordenadasPinChanged(double? lat, double? lon)
+        {
+            Dispatcher.InvokeAsync(() =>
+            {
+                if (lat.HasValue && lon.HasValue)
+                {
+                    ActualizarPin(new MapPoint(lon.Value, lat.Value, SpatialReferences.Wgs84));
+                }
+                else
+                {
+                    _pinOverlay.Graphics.Clear();
+                }
+            });
         }
 
         private void OnMunicipioGeoJsonChanged(string? geoJson)
@@ -96,7 +113,7 @@ namespace Geomatica.Desktop.Views
             });
         }
 
-        private void PickerMapView_GeoViewTapped(object? sender, Esri.ArcGISRuntime.UI.Controls.GeoViewInputEventArgs e)
+        private async void PickerMapView_GeoViewTapped(object? sender, Esri.ArcGISRuntime.UI.Controls.GeoViewInputEventArgs e)
         {
             if (e.Location == null) return;
 
@@ -104,9 +121,9 @@ namespace Geomatica.Desktop.Views
             if (wgs84 == null) return;
 
             if (DataContext is EditarProyectoViewModel vm)
-                vm.SetCoordenadas(wgs84.Y, wgs84.X);
-
-            ActualizarPin(wgs84);
+            {
+                await vm.ProcesarClickMapaAsync(wgs84.Y, wgs84.X);
+            }
         }
 
         private void ActualizarPin(MapPoint point)

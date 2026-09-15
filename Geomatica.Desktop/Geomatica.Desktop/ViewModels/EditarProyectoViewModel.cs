@@ -20,6 +20,7 @@ namespace Geomatica.Desktop.ViewModels
         private readonly INotificationService? _notifications;
         private readonly Action _navigateBack;
         private readonly Action? _onProyectoEditado;
+        private bool _isUpdatingProgrammatically;
 
         public int IdProyecto { get; }
 
@@ -43,6 +44,7 @@ namespace Geomatica.Desktop.ViewModels
         }
 
         public event Action<string?>? MunicipioGeoJsonChanged;
+        public event Action<double?, double?>? CoordenadasPinChanged;
 
         public ObservableCollection<DepartamentoItem> Departamentos { get; } = new();
         public ObservableCollection<MunicipioItem> Municipios { get; } = new();
@@ -86,6 +88,7 @@ namespace Geomatica.Desktop.ViewModels
 
         private async Task CargarDatosInicialesAsync(string? municipioCodigo)
         {
+            _isUpdatingProgrammatically = true;
             try
             {
                 var deps = await _municipioRepository.ListarDepartamentosAsync();
@@ -120,16 +123,38 @@ namespace Geomatica.Desktop.ViewModels
             {
                 _notifications?.ShowError($"Error cargando departamentos: {ex.Message}", "Departamentos");
             }
+            finally
+            {
+                _isUpdatingProgrammatically = false;
+            }
+
+            if (SelectedMunicipio != null)
+            {
+                try
+                {
+                    var results = await _municipioRepository.PorCodigosGeoJsonAsync(new[] { SelectedMunicipio.Codigo });
+                    MunicipioGeoJsonChanged?.Invoke(results.FirstOrDefault()?.GeoJson);
+                }
+                catch { }
+            }
         }
 
         async partial void OnSelectedDepartamentoChanged(DepartamentoItem? value)
         {
+            if (_isUpdatingProgrammatically) return;
+
+            Municipios.Clear();
+            SelectedMunicipio = null;
+            MunicipioGeoJsonChanged?.Invoke(null);
+            LatStr = null;
+            LonStr = null;
+            CoordenadasPinChanged?.Invoke(null, null);
+
             if (value == null || string.IsNullOrEmpty(value.Codigo)) return;
 
             try
             {
                 var muns = await _municipioRepository.ListarMunicipiosPorDepartamentoAsync(value.Codigo);
-                Municipios.Clear();
                 foreach (var m in muns)
                 {
                     Municipios.Add(new MunicipioItem(m.Codigo, m.Nombre));
@@ -143,6 +168,8 @@ namespace Geomatica.Desktop.ViewModels
 
         async partial void OnSelectedMunicipioChanged(MunicipioItem? value)
         {
+            if (_isUpdatingProgrammatically) return;
+
             if (value == null || string.IsNullOrEmpty(value.Codigo))
             {
                 MunicipioGeoJsonChanged?.Invoke(null);
@@ -153,10 +180,138 @@ namespace Geomatica.Desktop.ViewModels
             {
                 var results = await _municipioRepository.PorCodigosGeoJsonAsync(new[] { value.Codigo });
                 MunicipioGeoJsonChanged?.Invoke(results.FirstOrDefault()?.GeoJson);
+
+                // Si hay coordenadas actuales, verificar si están dentro del nuevo municipio
+                if (ObtenerCoordenadasActuales(out var lat, out var lon))
+                {
+                    var adentro = await _municipioRepository.PuntoEstaEnMunicipioAsync(value.Codigo, lon, lat);
+                    if (!adentro)
+                    {
+                        LatStr = null;
+                        LonStr = null;
+                        CoordenadasPinChanged?.Invoke(null, null);
+                        _notifications?.ShowWarning($"El punto marcado previamente no pertenece a {value.Nombre} y ha sido removido.", "Ubicación");
+                    }
+                }
             }
             catch
             {
                 MunicipioGeoJsonChanged?.Invoke(null);
+            }
+        }
+
+        public bool ObtenerCoordenadasActuales(out double lat, out double lon)
+        {
+            lat = 0;
+            lon = 0;
+            var latNorm = LatStr?.Replace(',', '.');
+            var lonNorm = LonStr?.Replace(',', '.');
+
+            if (!string.IsNullOrWhiteSpace(latNorm) && !string.IsNullOrWhiteSpace(lonNorm)
+                && double.TryParse(latNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var l)
+                && double.TryParse(lonNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var o))
+            {
+                lat = l;
+                lon = o;
+                return true;
+            }
+            return false;
+        }
+
+        public async Task<bool> ProcesarClickMapaAsync(double lat, double lon)
+        {
+            try
+            {
+                var ubicacion = await _municipioRepository.ObtenerPorPuntoAsync(lon, lat);
+                if (ubicacion == null)
+                {
+                    _notifications?.ShowWarning("El punto seleccionado no se encuentra dentro del territorio de ningún municipio registrado.", "Ubicación Inválida");
+                    return false;
+                }
+
+                if (SelectedMunicipio == null)
+                {
+                    await AsignarUbicacionDetectadaAsync(ubicacion);
+                    SetCoordenadas(lat, lon);
+                    _notifications?.ShowInfo($"Municipio detectado: {ubicacion.MunicipioNombre} ({ubicacion.DepartamentoNombre}).", "Ubicación Asignada");
+                    return true;
+                }
+
+                if (SelectedMunicipio.Codigo == ubicacion.MunicipioCodigo)
+                {
+                    SetCoordenadas(lat, lon);
+                    return true;
+                }
+
+                var msg = $"El punto seleccionado pertenece a {ubicacion.MunicipioNombre} ({ubicacion.DepartamentoNombre}), pero actualmente tiene seleccionado {SelectedMunicipio.Nombre}.\n\n¿Desea cambiar el municipio del proyecto a {ubicacion.MunicipioNombre}?";
+                var res = MessageBox.Show(msg, "Punto fuera del municipio", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                if (res == MessageBoxResult.Yes)
+                {
+                    await AsignarUbicacionDetectadaAsync(ubicacion);
+                    SetCoordenadas(lat, lon);
+                    return true;
+                }
+                else
+                {
+                    _notifications?.ShowWarning($"Se mantuvo el municipio actual ({SelectedMunicipio.Nombre}). El punto fuera del límite no fue asignado.", "Punto Rechazado");
+                    return false;
+                }
+            }
+            catch (Exception ex)
+            {
+                _notifications?.ShowError($"Error al verificar la ubicación geográfica: {ex.Message}", "Error de Ubicación");
+                return false;
+            }
+        }
+
+        private async Task AsignarUbicacionDetectadaAsync(MunicipioUbicacionDto ubicacion)
+        {
+            _isUpdatingProgrammatically = true;
+            try
+            {
+                if (SelectedDepartamento?.Codigo != ubicacion.DepartamentoCodigo)
+                {
+                    var dep = Departamentos.FirstOrDefault(d => d.Codigo == ubicacion.DepartamentoCodigo);
+                    if (dep == null && Departamentos.Count == 0)
+                    {
+                        await CargarDatosInicialesAsync(ubicacion.MunicipioCodigo);
+                        return;
+                    }
+
+                    if (dep != null)
+                    {
+                        SelectedDepartamento = dep;
+                        var muns = await _municipioRepository.ListarMunicipiosPorDepartamentoAsync(dep.Codigo);
+                        Municipios.Clear();
+                        foreach (var m in muns)
+                        {
+                            Municipios.Add(new MunicipioItem(m.Codigo, m.Nombre));
+                        }
+                    }
+                }
+                else if (Municipios.Count == 0)
+                {
+                    var muns = await _municipioRepository.ListarMunicipiosPorDepartamentoAsync(ubicacion.DepartamentoCodigo);
+                    Municipios.Clear();
+                    foreach (var m in muns)
+                    {
+                        Municipios.Add(new MunicipioItem(m.Codigo, m.Nombre));
+                    }
+                }
+
+                var mun = Municipios.FirstOrDefault(m => m.Codigo == ubicacion.MunicipioCodigo);
+                if (mun == null)
+                {
+                    mun = new MunicipioItem(ubicacion.MunicipioCodigo, ubicacion.MunicipioNombre);
+                    Municipios.Add(mun);
+                }
+                SelectedMunicipio = mun;
+
+                MunicipioGeoJsonChanged?.Invoke(ubicacion.GeoJson);
+            }
+            finally
+            {
+                _isUpdatingProgrammatically = false;
             }
         }
 
@@ -183,9 +338,22 @@ namespace Geomatica.Desktop.ViewModels
             if (!string.IsNullOrWhiteSpace(latNorm) && double.TryParse(latNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var l)) lat = l;
             if (!string.IsNullOrWhiteSpace(lonNorm) && double.TryParse(lonNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var o)) lon = o;
 
+            if ((lat.HasValue && !lon.HasValue) || (!lat.HasValue && lon.HasValue))
+            {
+                _notifications?.ShowWarning("Debe especificar tanto latitud como longitud, o dejar ambas vacías.", "Validación");
+                return;
+            }
+
             string? geom = null;
             if (lon.HasValue && lat.HasValue)
             {
+                var estaEnMunicipio = await _municipioRepository.PuntoEstaEnMunicipioAsync(SelectedMunicipio.Codigo, lon.Value, lat.Value);
+                if (!estaEnMunicipio)
+                {
+                    _notifications?.ShowError($"Las coordenadas indicadas ({lat.Value:F6}, {lon.Value:F6}) no pertenecen al municipio seleccionado ({SelectedMunicipio.Nombre}). Corrija la ubicación antes de guardar.", "Error de Validación Espacial");
+                    return;
+                }
+
                 geom = string.Format(CultureInfo.InvariantCulture, "POINT({0} {1})", lon.Value, lat.Value);
             }
 
@@ -248,6 +416,7 @@ namespace Geomatica.Desktop.ViewModels
         {
             LatStr = lat.ToString("F6", CultureInfo.InvariantCulture);
             LonStr = lon.ToString("F6", CultureInfo.InvariantCulture);
+            CoordenadasPinChanged?.Invoke(lat, lon);
         }
 
         public record DepartamentoItem(string Codigo, string Nombre);

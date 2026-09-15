@@ -4,238 +4,319 @@ using System.Diagnostics;
 
 namespace Geomatica.Data.Repositories
 {
- public interface IMunicipioRepository
- {
- Task<IReadOnlyList<MunicipioGeoJsonDto>> PorCodigosGeoJsonAsync(IReadOnlyList<string> codigos); // mpio_cdpmp
- Task<IReadOnlyList<MunicipioGeoJsonDto>> TodosGeoJsonAsync(int? limit = null); // para carga base
+    public interface IMunicipioRepository
+    {
+        Task<IReadOnlyList<MunicipioGeoJsonDto>> PorCodigosGeoJsonAsync(IReadOnlyList<string> codigos); // mpio_cdpmp
+        Task<IReadOnlyList<MunicipioGeoJsonDto>> TodosGeoJsonAsync(int? limit = null); // para carga base
 
- Task<IReadOnlyList<DepartamentoDto>> ListarDepartamentosAsync();
- Task<IReadOnlyList<MunicipioDto>> ListarTodosMunicipiosAsync();
- Task<IReadOnlyList<MunicipioDto>> ListarMunicipiosPorDepartamentoAsync(string dptoCodigo);
- Task<EnvelopeDto?> ExtentPorDepartamentoAsync(string dptoCcdgo);
- Task<EnvelopeDto?> ExtentPorMunicipiosAsync(IReadOnlyList<string> codigos);
- }
+        Task<IReadOnlyList<DepartamentoDto>> ListarDepartamentosAsync();
+        Task<IReadOnlyList<MunicipioDto>> ListarTodosMunicipiosAsync();
+        Task<IReadOnlyList<MunicipioDto>> ListarMunicipiosPorDepartamentoAsync(string dptoCodigo);
+        Task<EnvelopeDto?> ExtentPorDepartamentoAsync(string dptoCcdgo);
+        Task<EnvelopeDto?> ExtentPorMunicipiosAsync(IReadOnlyList<string> codigos);
+        Task<MunicipioUbicacionDto?> ObtenerPorPuntoAsync(double lon, double lat);
+        Task<bool> PuntoEstaEnMunicipioAsync(string municipioCodigo, double lon, double lat);
+    }
 
- public sealed record MunicipioGeoJsonDto(string Codigo, string Nombre, string? GeoJson);
- public sealed record MunicipioDto(string Codigo, string Nombre);
- public sealed record EnvelopeDto(double West, double South, double East, double North);
- public sealed record DepartamentoDto(string Codigo, string Nombre);
+    public sealed record MunicipioGeoJsonDto(string Codigo, string Nombre, string? GeoJson);
+    public sealed record MunicipioDto(string Codigo, string Nombre);
+    public sealed record EnvelopeDto(double West, double South, double East, double North);
+    public sealed record DepartamentoDto(string Codigo, string Nombre);
+    public sealed record MunicipioUbicacionDto(
+        string MunicipioCodigo,
+        string MunicipioNombre,
+        string DepartamentoCodigo,
+        string DepartamentoNombre,
+        string? GeoJson);
 
- public sealed class MunicipioRepository : IMunicipioRepository
- {
- private readonly string _cn;
- private readonly string _debugInfo;
- private IReadOnlyList<DepartamentoDto>? _cachedDepartamentos;
- private IReadOnlyList<MunicipioDto>? _cachedTodosMunicipios;
- private readonly SemaphoreSlim _deptLock = new(1, 1);
- private readonly SemaphoreSlim _muniLock = new(1, 1);
- public MunicipioRepository(string connectionString)
- {
-  _cn = connectionString;
-  var builder = new NpgsqlConnectionStringBuilder(connectionString);
-  _debugInfo = $"Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}";
- }
+    public sealed class MunicipioRepository : IMunicipioRepository
+    {
+        private readonly string _cn;
+        private readonly string _debugInfo;
+        private IReadOnlyList<DepartamentoDto>? _cachedDepartamentos;
+        private IReadOnlyList<MunicipioDto>? _cachedTodosMunicipios;
+        private readonly SemaphoreSlim _deptLock = new(1, 1);
+        private readonly SemaphoreSlim _muniLock = new(1, 1);
 
- public async Task<IReadOnlyList<MunicipioGeoJsonDto>> PorCodigosGeoJsonAsync(IReadOnlyList<string> codigos)
- {
- if (codigos == null || codigos.Count ==0) return Array.Empty<MunicipioGeoJsonDto>();
- const string sql = @"
-  SELECT m.mpio_cdpmp AS codigo, m.mpio_cnmbr AS nombre,
-  ST_AsGeoJSON(ST_Transform(m.geom, 4326)) AS geojson
-  FROM geovisor.municipio m
-  WHERE m.mpio_cdpmp = ANY(@cods);";
+        public MunicipioRepository(string connectionString)
+        {
+            _cn = connectionString;
+            var builder = new NpgsqlConnectionStringBuilder(connectionString);
+            _debugInfo = $"Host={builder.Host};Port={builder.Port};Database={builder.Database};User={builder.Username}";
+        }
 
- Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres {_debugInfo}");
+        public async Task<IReadOnlyList<MunicipioGeoJsonDto>> PorCodigosGeoJsonAsync(IReadOnlyList<string> codigos)
+        {
+            if (codigos == null || codigos.Count == 0) return Array.Empty<MunicipioGeoJsonDto>();
+            const string sql = @"
+                SELECT m.mpio_cdpmp AS codigo, m.mpio_cnmbr AS nombre,
+                       ST_AsGeoJSON(ST_Transform(m.geom, 4326)) AS geojson
+                FROM geovisor.municipio m
+                WHERE m.mpio_cdpmp = ANY(@cods);";
 
- using var con = new NpgsqlConnection(_cn);
- await con.OpenAsync();
+            Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres {_debugInfo}");
 
- using var cmd = new NpgsqlCommand(sql, con);
- cmd.Parameters.AddWithValue("@cods", codigos);
- var list = new List<MunicipioGeoJsonDto>();
- using var rd = await cmd.ExecuteReaderAsync();
- while (await rd.ReadAsync())
- {
- list.Add(new MunicipioGeoJsonDto(
- rd.GetString(0),
- rd.GetString(1),
- rd.IsDBNull(2) ? null : rd.GetString(2)
-));
- }
- return list;
- }
+            using var con = new NpgsqlConnection(_cn);
+            await con.OpenAsync();
 
- public async Task<IReadOnlyList<MunicipioGeoJsonDto>> TodosGeoJsonAsync(int? limit = null)
- {
- var sql = @"
- SELECT m.mpio_cdpmp AS codigo, m.mpio_cnmbr AS nombre,
- ST_AsGeoJSON(ST_Transform(m.geom, 4326)) AS geojson
- FROM geovisor.municipio m";
- if (limit.HasValue)
- sql += $" LIMIT {limit.Value};";
+            using var cmd = new NpgsqlCommand(sql, con);
+            cmd.Parameters.AddWithValue("@cods", codigos);
+            var list = new List<MunicipioGeoJsonDto>();
+            using var rd = await cmd.ExecuteReaderAsync();
+            while (await rd.ReadAsync())
+            {
+                list.Add(new MunicipioGeoJsonDto(
+                    rd.GetString(0),
+                    rd.GetString(1),
+                    rd.IsDBNull(2) ? null : rd.GetString(2)
+                ));
+            }
+            return list;
+        }
 
- Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres {_debugInfo}");
+        public async Task<IReadOnlyList<MunicipioGeoJsonDto>> TodosGeoJsonAsync(int? limit = null)
+        {
+            var sql = @"
+                SELECT m.mpio_cdpmp AS codigo, m.mpio_cnmbr AS nombre,
+                       ST_AsGeoJSON(ST_Transform(m.geom, 4326)) AS geojson
+                FROM geovisor.municipio m";
+            if (limit.HasValue)
+                sql += $" LIMIT {limit.Value};";
 
- using var con = new NpgsqlConnection(_cn);
- await con.OpenAsync();
+            Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres {_debugInfo}");
 
- using var cmd = new NpgsqlCommand(sql, con);
- var list = new List<MunicipioGeoJsonDto>();
- using var rd = await cmd.ExecuteReaderAsync();
- while (await rd.ReadAsync())
- {
- list.Add(new MunicipioGeoJsonDto(
- rd.GetString(0),
- rd.GetString(1),
- rd.IsDBNull(2) ? null : rd.GetString(2)
-));
- }
- return list;
- }
+            using var con = new NpgsqlConnection(_cn);
+            await con.OpenAsync();
 
- public async Task<IReadOnlyList<DepartamentoDto>> ListarDepartamentosAsync()
- {
-  if (_cachedDepartamentos != null) return _cachedDepartamentos;
+            using var cmd = new NpgsqlCommand(sql, con);
+            var list = new List<MunicipioGeoJsonDto>();
+            using var rd = await cmd.ExecuteReaderAsync();
+            while (await rd.ReadAsync())
+            {
+                list.Add(new MunicipioGeoJsonDto(
+                    rd.GetString(0),
+                    rd.GetString(1),
+                    rd.IsDBNull(2) ? null : rd.GetString(2)
+                ));
+            }
+            return list;
+        }
 
-  await _deptLock.WaitAsync();
-  try
-  {
-   if (_cachedDepartamentos != null) return _cachedDepartamentos;
+        public async Task<IReadOnlyList<DepartamentoDto>> ListarDepartamentosAsync()
+        {
+            if (_cachedDepartamentos != null) return _cachedDepartamentos;
 
-   const string sql = @"
-   SELECT d.dpto_ccdgo AS codigo, d.dpto_cnmbr AS nombre
-   FROM geovisor.departamento d
-   ORDER BY d.dpto_cnmbr;";
+            await _deptLock.WaitAsync();
+            try
+            {
+                if (_cachedDepartamentos != null) return _cachedDepartamentos;
 
-   Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres {_debugInfo}");
+                const string sql = @"
+                    SELECT d.dpto_ccdgo AS codigo, d.dpto_cnmbr AS nombre
+                    FROM geovisor.departamento d
+                    ORDER BY d.dpto_cnmbr;";
 
-   using var con = new NpgsqlConnection(_cn);
-   await con.OpenAsync();
-   using var cmd = new NpgsqlCommand(sql, con);
-   var list = new List<DepartamentoDto>();
-   using var rd = await cmd.ExecuteReaderAsync();
-   while (await rd.ReadAsync())
-   {
-    list.Add(new DepartamentoDto(rd.IsDBNull(0)?"":rd.GetString(0), rd.IsDBNull(1)?"":rd.GetString(1)));
-   }
-   _cachedDepartamentos = list;
-   return list;
-  }
-  finally
-  {
-   _deptLock.Release();
-  }
- }
+                Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres {_debugInfo}");
 
- public async Task<IReadOnlyList<MunicipioDto>> ListarTodosMunicipiosAsync()
- {
-  if (_cachedTodosMunicipios != null) return _cachedTodosMunicipios;
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync();
+                using var cmd = new NpgsqlCommand(sql, con);
+                var list = new List<DepartamentoDto>();
+                using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync())
+                {
+                    list.Add(new DepartamentoDto(rd.IsDBNull(0) ? "" : rd.GetString(0), rd.IsDBNull(1) ? "" : rd.GetString(1)));
+                }
+                _cachedDepartamentos = list;
+                return list;
+            }
+            finally
+            {
+                _deptLock.Release();
+            }
+        }
 
-  await _muniLock.WaitAsync();
-  try
-  {
-   if (_cachedTodosMunicipios != null) return _cachedTodosMunicipios;
+        public async Task<IReadOnlyList<MunicipioDto>> ListarTodosMunicipiosAsync()
+        {
+            if (_cachedTodosMunicipios != null) return _cachedTodosMunicipios;
 
-   const string sql = @"
-   SELECT m.mpio_cdpmp AS codigo, m.mpio_cnmbr AS nombre
-   FROM geovisor.municipio m
-   ORDER BY m.mpio_cnmbr;";
+            await _muniLock.WaitAsync();
+            try
+            {
+                if (_cachedTodosMunicipios != null) return _cachedTodosMunicipios;
 
-   using var con = new NpgsqlConnection(_cn);
-   await con.OpenAsync();
-   using var cmd = new NpgsqlCommand(sql, con);
-   var list = new List<MunicipioDto>();
-   using var rd = await cmd.ExecuteReaderAsync();
-   while (await rd.ReadAsync())
-   {
-    list.Add(new MunicipioDto(
-     rd.GetString(0),
-     rd.IsDBNull(1) ? "" : rd.GetString(1)
-    ));
-   }
-   _cachedTodosMunicipios = list;
-   return list;
-  }
-  finally
-  {
-   _muniLock.Release();
-  }
- }
+                const string sql = @"
+                    SELECT m.mpio_cdpmp AS codigo, m.mpio_cnmbr AS nombre
+                    FROM geovisor.municipio m
+                    ORDER BY m.mpio_cnmbr;";
 
- public async Task<IReadOnlyList<MunicipioDto>> ListarMunicipiosPorDepartamentoAsync(string dptoCodigo)
- {
- const string sql = @"
- SELECT m.mpio_cdpmp AS codigo, m.mpio_cnmbr AS nombre
- FROM geovisor.municipio m
- WHERE m.dpto_ccdgo = @dpto
- ORDER BY m.mpio_cnmbr;";
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync();
+                using var cmd = new NpgsqlCommand(sql, con);
+                var list = new List<MunicipioDto>();
+                using var rd = await cmd.ExecuteReaderAsync();
+                while (await rd.ReadAsync())
+                {
+                    list.Add(new MunicipioDto(
+                        rd.GetString(0),
+                        rd.IsDBNull(1) ? "" : rd.GetString(1)
+                    ));
+                }
+                _cachedTodosMunicipios = list;
+                return list;
+            }
+            finally
+            {
+                _muniLock.Release();
+            }
+        }
 
- using var con = new NpgsqlConnection(_cn);
- await con.OpenAsync();
- using var cmd = new NpgsqlCommand(sql, con);
- cmd.Parameters.AddWithValue("@dpto", dptoCodigo);
+        public async Task<IReadOnlyList<MunicipioDto>> ListarMunicipiosPorDepartamentoAsync(string dptoCodigo)
+        {
+            const string sql = @"
+                SELECT m.mpio_cdpmp AS codigo, m.mpio_cnmbr AS nombre
+                FROM geovisor.municipio m
+                WHERE m.dpto_ccdgo = @dpto
+                ORDER BY m.mpio_cnmbr;";
 
- var list = new List<MunicipioDto>();
- using var rd = await cmd.ExecuteReaderAsync();
- while (await rd.ReadAsync())
- {
- list.Add(new MunicipioDto(
- rd.GetString(0),
- rd.IsDBNull(1) ? "" : rd.GetString(1)
- ));
- }
- return list;
- }
+            using var con = new NpgsqlConnection(_cn);
+            await con.OpenAsync();
+            using var cmd = new NpgsqlCommand(sql, con);
+            cmd.Parameters.AddWithValue("@dpto", dptoCodigo);
 
- public async Task<EnvelopeDto?> ExtentPorDepartamentoAsync(string dptoCcdgo)
- {
- const string sql = @"
- SELECT ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e)
- FROM (
- SELECT ST_Extent(m.geom)::box2d AS e
- FROM geovisor.municipio m
- WHERE m.dpto_ccdgo = @dpto
- ) q;";
+            var list = new List<MunicipioDto>();
+            using var rd = await cmd.ExecuteReaderAsync();
+            while (await rd.ReadAsync())
+            {
+                list.Add(new MunicipioDto(
+                    rd.GetString(0),
+                    rd.IsDBNull(1) ? "" : rd.GetString(1)
+                ));
+            }
+            return list;
+        }
 
- Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres {_debugInfo}");
+        public async Task<EnvelopeDto?> ExtentPorDepartamentoAsync(string dptoCcdgo)
+        {
+            const string sql = @"
+                SELECT ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e)
+                FROM (
+                    SELECT ST_Extent(m.geom)::box2d AS e
+                    FROM geovisor.municipio m
+                    WHERE m.dpto_ccdgo = @dpto
+                ) q;";
 
- using var con = new NpgsqlConnection(_cn);
- await con.OpenAsync();
- using var cmd = new NpgsqlCommand(sql, con);
- cmd.Parameters.AddWithValue("@dpto", dptoCcdgo);
+            Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres {_debugInfo}");
 
- using var rd = await cmd.ExecuteReaderAsync();
- if (await rd.ReadAsync() && !rd.IsDBNull(0))
- {
- return new EnvelopeDto(rd.GetDouble(0), rd.GetDouble(1), rd.GetDouble(2), rd.GetDouble(3));
- }
- return null;
- }
+            using var con = new NpgsqlConnection(_cn);
+            await con.OpenAsync();
+            using var cmd = new NpgsqlCommand(sql, con);
+            cmd.Parameters.AddWithValue("@dpto", dptoCcdgo);
 
- public async Task<EnvelopeDto?> ExtentPorMunicipiosAsync(IReadOnlyList<string> codigos)
- {
- if (codigos == null || codigos.Count ==0) return null;
- const string sql = @"
- SELECT ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e)
- FROM (
- SELECT ST_Extent(m.geom)::box2d AS e
- FROM geovisor.municipio m
- WHERE m.mpio_cdpmp = ANY(@cods)
- ) q;";
+            using var rd = await cmd.ExecuteReaderAsync();
+            if (await rd.ReadAsync() && !rd.IsDBNull(0))
+            {
+                return new EnvelopeDto(rd.GetDouble(0), rd.GetDouble(1), rd.GetDouble(2), rd.GetDouble(3));
+            }
+            return null;
+        }
 
- Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres {_debugInfo}");
+        public async Task<EnvelopeDto?> ExtentPorMunicipiosAsync(IReadOnlyList<string> codigos)
+        {
+            if (codigos == null || codigos.Count == 0) return null;
+            const string sql = @"
+                SELECT ST_XMin(e), ST_YMin(e), ST_XMax(e), ST_YMax(e)
+                FROM (
+                    SELECT ST_Extent(m.geom)::box2d AS e
+                    FROM geovisor.municipio m
+                    WHERE m.mpio_cdpmp = ANY(@cods)
+                ) q;";
 
- using var con = new NpgsqlConnection(_cn);
- await con.OpenAsync();
- using var cmd = new NpgsqlCommand(sql, con);
- cmd.Parameters.Add("@cods", NpgsqlDbType.Array | NpgsqlDbType.Text).Value = codigos.ToArray();
+            Debug.WriteLine($"[MunicipioRepository] Conectando a Postgres {_debugInfo}");
 
- using var rd = await cmd.ExecuteReaderAsync();
- if (await rd.ReadAsync() && !rd.IsDBNull(0))
- {
- return new EnvelopeDto(rd.GetDouble(0), rd.GetDouble(1), rd.GetDouble(2), rd.GetDouble(3));
- }
- return null;
- }
- }
+            using var con = new NpgsqlConnection(_cn);
+            await con.OpenAsync();
+            using var cmd = new NpgsqlCommand(sql, con);
+            cmd.Parameters.Add("@cods", NpgsqlDbType.Array | NpgsqlDbType.Text).Value = codigos.ToArray();
+
+            using var rd = await cmd.ExecuteReaderAsync();
+            if (await rd.ReadAsync() && !rd.IsDBNull(0))
+            {
+                return new EnvelopeDto(rd.GetDouble(0), rd.GetDouble(1), rd.GetDouble(2), rd.GetDouble(3));
+            }
+            return null;
+        }
+
+        public async Task<MunicipioUbicacionDto?> ObtenerPorPuntoAsync(double lon, double lat)
+        {
+            const string sql = @"
+                SELECT m.mpio_cdpmp AS muni_codigo,
+                       m.mpio_cnmbr AS muni_nombre,
+                       d.dpto_ccdgo AS dpto_codigo,
+                       d.dpto_cnmbr AS dpto_nombre,
+                       ST_AsGeoJSON(ST_Transform(m.geom, 4326)) AS geojson
+                FROM geovisor.municipio m
+                JOIN geovisor.departamento d ON m.dpto_ccdgo = d.dpto_ccdgo
+                WHERE ST_Intersects(m.geom, ST_Transform(ST_SetSRID(ST_MakePoint(@lon, @lat), 4326), ST_SRID(m.geom)))
+                LIMIT 1;";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync();
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("@lon", lon);
+                cmd.Parameters.AddWithValue("@lat", lat);
+
+                using var rd = await cmd.ExecuteReaderAsync();
+                if (await rd.ReadAsync())
+                {
+                    return new MunicipioUbicacionDto(
+                        rd.GetString(0),
+                        rd.GetString(1),
+                        rd.GetString(2),
+                        rd.GetString(3),
+                        rd.IsDBNull(4) ? null : rd.GetString(4)
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[MunicipioRepository] Error en ObtenerPorPuntoAsync: {ex.Message}");
+            }
+
+            return null;
+        }
+
+        public async Task<bool> PuntoEstaEnMunicipioAsync(string municipioCodigo, double lon, double lat)
+        {
+            if (string.IsNullOrWhiteSpace(municipioCodigo)) return false;
+
+            const string sql = @"
+                SELECT EXISTS (
+                    SELECT 1 FROM geovisor.municipio m
+                    WHERE m.mpio_cdpmp = @cod
+                      AND ST_Intersects(m.geom, ST_Transform(ST_SetSRID(ST_MakePoint(@lon, @lat), 4326), ST_SRID(m.geom)))
+                );";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync();
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("@cod", municipioCodigo);
+                cmd.Parameters.AddWithValue("@lon", lon);
+                cmd.Parameters.AddWithValue("@lat", lat);
+
+                var result = await cmd.ExecuteScalarAsync();
+                return result is bool b && b;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[MunicipioRepository] Error en PuntoEstaEnMunicipioAsync: {ex.Message}");
+                return false;
+            }
+        }
+    }
 }
+
