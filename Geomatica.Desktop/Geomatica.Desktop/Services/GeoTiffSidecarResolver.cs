@@ -24,15 +24,19 @@ public static class GeoTiffSidecarResolver
     public static string ObtenerRutaRasterCache(string tifPath)
         => Path.Combine(ObtenerDirectorioCacheRaster(tifPath), Path.GetFileName(tifPath));
 
-    public static async Task AsegurarAuxXmlGeorreferenciadoAsync(string tifPath)
+    public static async Task AsegurarAuxXmlGeorreferenciadoAsync(string tifPath, IProgress<(int porcentaje, string detalle)>? progress = null)
     {
         var directory = Path.GetDirectoryName(tifPath);
         var name = Path.GetFileNameWithoutExtension(tifPath);
         if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(name)) return;
 
+        progress?.Report((10, "Buscando archivos sidecar (.prj / .tfw)..."));
+
         var prjPath = Path.Combine(directory, name + ".prj");
         var tfwPath = BuscarWorldFile(directory, name);
         if (!File.Exists(prjPath) || tfwPath == null) return;
+
+        progress?.Report((30, "Leyendo parámetros de georreferenciación y matriz afín..."));
 
         var wkt = await File.ReadAllTextAsync(prjPath);
         var values = await LeerCoeficientesAsync(tfwPath);
@@ -44,8 +48,10 @@ public static class GeoTiffSidecarResolver
         var f = values[5];
 
         var cacheRasterPath = ObtenerRutaRasterCache(tifPath);
+        progress?.Report((50, "Sincronizando ráster en memoria caché local..."));
         MaterializarCacheRaster(tifPath, cacheRasterPath, prjPath, tfwPath);
 
+        progress?.Report((80, "Generando metadatos espaciales PAM (.aux.xml)..."));
         var cacheAuxXmlPath = cacheRasterPath + ".aux.xml";
         var escapedWkt = SecurityElement.Escape(wkt) ?? string.Empty;
         var geoTransform = string.Join(", ", new[]
@@ -55,6 +61,7 @@ public static class GeoTiffSidecarResolver
         var auxXml = $"<PAMDataset>\r\n  <SRS>{escapedWkt}</SRS>\r\n  <GeoTransform>{geoTransform}</GeoTransform>\r\n</PAMDataset>\r\n";
 
         await File.WriteAllTextAsync(cacheAuxXmlPath, auxXml);
+        progress?.Report((100, "Caché de ráster lista para renderizado."));
     }
 
     private static void MaterializarCacheRaster(string tifPath, string cacheRasterPath, string prjPath, string tfwPath)

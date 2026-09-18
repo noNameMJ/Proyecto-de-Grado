@@ -51,7 +51,7 @@ namespace Geomatica.Desktop.Services
 
     public static class LasFileReader
     {
-        public static LasCloudData Read(string filePath, int maxPointsToSample = 80_000)
+        public static LasCloudData Read(string filePath, int maxPointsToSample = 80_000, IProgress<(int porcentaje, string detalle)>? progress = null)
         {
             if (!File.Exists(filePath))
                 throw new FileNotFoundException($"El archivo LAS no existe: {filePath}");
@@ -150,6 +150,10 @@ namespace Geomatica.Desktop.Services
 
             int pointsRead = 0;
             int sampledCount = 0;
+            int ultimoPorcentajeReportado = -1;
+            long dataLength = Math.Max(1, fs.Length - offsetToPoints);
+
+            progress?.Report((5, $"Analizando encabezado LAS (Total: {totalPoints:N0} puntos)..."));
 
             while (fs.Position < fs.Length && sampledCount < maxPointsToSample)
             {
@@ -220,8 +224,20 @@ namespace Geomatica.Desktop.Services
                 }
 
                 pointsRead++;
+
+                if (progress != null && (pointsRead % 10_000 == 0 || sampledCount == maxPointsToSample))
+                {
+                    double ratio = Math.Clamp((double)(fs.Position - offsetToPoints) / dataLength, 0.0, 1.0);
+                    int pct = 5 + (int)(ratio * 90.0); // Rango 5% a 95%
+                    if (pct != ultimoPorcentajeReportado)
+                    {
+                        ultimoPorcentajeReportado = pct;
+                        progress.Report((pct, $"{sampledCount:N0} puntos procesados ({pct}%)"));
+                    }
+                }
             }
 
+            progress?.Report((100, $"Nube de puntos cargada ({sampledCount:N0} puntos)."));
             return cloud;
         }
 

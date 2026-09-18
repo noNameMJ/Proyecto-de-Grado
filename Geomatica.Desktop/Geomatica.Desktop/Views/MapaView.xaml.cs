@@ -421,6 +421,24 @@ namespace Geomatica.Desktop.Views
                     }
                 });
             }
+
+            if (e.PropertyName == nameof(ViewModels.MapaViewModel.IsModo3D) && sender is ViewModels.MapaViewModel vm3D)
+            {
+                if (vm3D.IsModo3D && _controlSceneView != null)
+                {
+                    Dispatcher.InvokeAsync(() =>
+                    {
+                        try
+                        {
+                            vm3D.AttachSceneView(_controlSceneView);
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[MapaView] Error al AttachSceneView en IsModo3D: {ex}");
+                        }
+                    });
+                }
+            }
         }
 
         private async void Vm_HomeRequested(object? sender, System.EventArgs e)
@@ -624,7 +642,10 @@ namespace Geomatica.Desktop.Views
             catch (Exception ex)
             {
                 Debug.WriteLine($"[MapaView] Error cargando proyectos: {ex}");
-                await Dispatcher.InvokeAsync(() => vm.Filtros.NotificarResultadosCargados());
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    vm.Filtros.NotificarErrorConexion($"No se pudo consultar PostgreSQL ({ex.Message}). Verifique VPN o conexión.");
+                });
             }
         }
     }

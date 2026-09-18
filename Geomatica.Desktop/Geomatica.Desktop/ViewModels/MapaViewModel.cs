@@ -22,97 +22,6 @@ using Geomatica.Desktop.Services;
 
 namespace Geomatica.Desktop.ViewModels
 {
-    public partial class CapaUsuarioItem : ObservableObject
-    {
-        public string Nombre { get; set; } = "";
-        public string RutaCompleta { get; set; } = "";
-        public string TipoIcono { get; set; } = "🗺️";
-        public string TipoTexto { get; set; } = "Capa Ráster";
-        public Layer? Capa { get; set; }
-        public Envelope? ExtentParaZoom { get; set; }
-
-        // Elementos y propiedades 3D propios de esta capa (para nubes LAS/LAZ y SLPK)
-        public GraphicsOverlay? OverlayPuntos3D { get; set; }
-        public GraphicsOverlay? OverlayGuia3D { get; set; }
-        public List<(MapPoint PtWgs84, System.Drawing.Color Color)>? PuntosMuestreados3D { get; set; }
-        public double CentroZ { get; set; }
-        public double RadioMetros { get; set; } = 150.0;
-        public string CrsNombre { get; set; } = "";
-        public string InfoDetalle3D { get; set; } = "";
-
-        [ObservableProperty] private double offsetZ3D = 0.0;
-        [ObservableProperty] private double tamanoPunto3D = 4.5;
-
-        [ObservableProperty]
-        private bool isVisible = true;
-
-        public Action<bool>? OnVisibilityChangedAction { get; set; }
-        public Action<double>? OnOpacityChangedAction { get; set; }
-
-        partial void OnIsVisibleChanged(bool value)
-        {
-            if (Capa != null)
-            {
-                Capa.IsVisible = value;
-            }
-            if (OverlayPuntos3D != null)
-            {
-                OverlayPuntos3D.IsVisible = value;
-            }
-            if (OverlayGuia3D != null)
-            {
-                OverlayGuia3D.IsVisible = value;
-            }
-            OnVisibilityChangedAction?.Invoke(value);
-        }
-
-        [ObservableProperty]
-        private double opacidad = 1.0;
-
-        partial void OnOpacidadChanged(double value)
-        {
-            if (Capa != null)
-            {
-                Capa.Opacity = value;
-            }
-            if (OverlayPuntos3D != null)
-            {
-                OverlayPuntos3D.Opacity = value;
-            }
-            if (OverlayGuia3D != null)
-            {
-                OverlayGuia3D.Opacity = value;
-            }
-            OnOpacityChangedAction?.Invoke(value);
-        }
-
-        public void ReconstruirPuntos()
-        {
-            if (OverlayPuntos3D == null || PuntosMuestreados3D == null || PuntosMuestreados3D.Count == 0) return;
-
-            OverlayPuntos3D.Graphics.Clear();
-            var graphics = new List<Graphic>(PuntosMuestreados3D.Count);
-            double tamano = TamanoPunto3D;
-            double offset = OffsetZ3D;
-
-            foreach (var item in PuntosMuestreados3D)
-            {
-                var basePt = item.PtWgs84;
-                var ptConOffset = (offset != 0.0)
-                    ? new MapPoint(basePt.X, basePt.Y, basePt.Z + offset, SpatialReferences.Wgs84)
-                    : basePt;
-
-                var symbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, item.Color, tamano);
-                graphics.Add(new Graphic(ptConOffset, symbol));
-            }
-
-            OverlayPuntos3D.Graphics.AddRange(graphics);
-        }
-
-        public IRelayCommand? QuitarCommand { get; set; }
-        public IRelayCommand? ZoomCommand { get; set; }
-    }
-
     public partial class MapaViewModel : ObservableObject
     {
         private readonly IProyectoRepository _proyectos;
@@ -149,9 +58,9 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty] private bool isSinConexionInternet;
         [ObservableProperty] private string avisoSinConexionTexto = "Sin conexión a internet: funcionando en modo offline con el mapa base predeterminado.";
 
-        // Herramientas de Medición SIG
-        public GraphicsOverlay OverlayMedicion { get; } = new() { Id = "OverlayMedicion" };
-        private readonly List<MapPoint> _puntosMedicion = new();
+        // Herramientas de Medición SIG (Desacopladas en MapaMedicionController)
+        private readonly MapaMedicionController _medicionController = new();
+        public GraphicsOverlay OverlayMedicion => _medicionController.OverlayMedicion;
         [ObservableProperty] private bool isHerramientasMedicionVisible;
         [ObservableProperty] private string modoMedicion = "Ninguno"; // "Ninguno", "Distancia", "Area"
         [ObservableProperty] private string resultadoMedicion = "";
@@ -161,6 +70,12 @@ namespace Geomatica.Desktop.ViewModels
         // Visualización de Coordenadas y Escala en Vivo
         [ObservableProperty] private string coordenadasCursorTexto = "Lat: -- | Lon: --";
         [ObservableProperty] private string escalaMapaTexto = "Escala: 1:--";
+
+        // Indicador de Progreso Determinista para Operaciones Asíncronas Pesadas (LiDAR, Rasters)
+        [ObservableProperty] private bool isOperacionEnProgreso;
+        [ObservableProperty] private double progresoPorcentaje;
+        [ObservableProperty] private string progresoTitulo = "";
+        [ObservableProperty] private string progresoDetalle = "";
 
         // Visor 3D y Nubes de Puntos
         [ObservableProperty] private bool isModo3D;
@@ -317,8 +232,23 @@ namespace Geomatica.Desktop.ViewModels
 
                 if (ext == ".shp")
                 {
+                    var validacionShp = ShapefileValidator.Validar(path);
+                    if (!validacionShp.PuedeCargar)
+                    {
+                        _notifications?.ShowError(validacionShp.MensajeError ?? "El archivo Shapefile no es válido.", "Shapefile Incompleto");
+                        return;
+                    }
+                    if (!string.IsNullOrEmpty(validacionShp.MensajeAdvertencia))
+                    {
+                        _notifications?.ShowWarning(validacionShp.MensajeAdvertencia, "Advertencia Shapefile");
+                    }
                     var shapefile = await ShapefileFeatureTable.OpenAsync(path);
                     layer = new FeatureLayer(shapefile);
+                }
+                else if (ext == ".gpkg")
+                {
+                    await CargarGeoPackageAsync(path);
+                    return;
                 }
                 else if (ext == ".kml" || ext == ".kmz")
                 {
@@ -422,6 +352,7 @@ namespace Geomatica.Desktop.ViewModels
                     _rasterExtentsSeguros.Remove(item.Capa);
                 }
                 CapasAdicionales.Remove(item);
+                item.Dispose();
                 if (CapasAdicionales.Count == 0)
                 {
                     IsPanelCapasVisible = false;
@@ -455,8 +386,137 @@ namespace Geomatica.Desktop.ViewModels
     }
  }
 
+    private async Task CargarGeoPackageAsync(string path)
+    {
+        if (Map == null) return;
+        try
+        {
+            RasterDiagnostics.Log($"Abriendo contenedor GeoPackage: {path}");
+            var gpkg = await GeoPackage.OpenAsync(path);
+            int capasCargadas = 0;
+            Layer? primeraCapa = null;
+
+            // 1. Capas vectoriales (GeoPackageFeatureTables)
+            foreach (var table in gpkg.GeoPackageFeatureTables)
+            {
+                var featureLayer = new FeatureLayer(table)
+                {
+                    Name = $"{Path.GetFileNameWithoutExtension(path)} - {table.TableName}",
+                    ShowInLegend = false
+                };
+                await Application.Current.Dispatcher.InvokeAsync(() => Map.OperationalLayers.Add(featureLayer));
+                await featureLayer.LoadAsync();
+
+                var itemCapa = new CapaUsuarioItem
+                {
+                    Nombre = featureLayer.Name,
+                    RutaCompleta = path,
+                    TipoIcono = "📦",
+                    TipoTexto = "Vectorial GeoPackage",
+                    Capa = featureLayer,
+                    ContenedorGeoPackage = gpkg,
+                    ExtentParaZoom = featureLayer.FullExtent,
+                    IsVisible = true,
+                    Opacidad = 1.0
+                };
+                itemCapa.QuitarCommand = new RelayCommand(() =>
+                {
+                    Map.OperationalLayers.Remove(featureLayer);
+                    CapasAdicionales.Remove(itemCapa);
+                    itemCapa.Dispose();
+                    if (CapasAdicionales.Count == 0) IsPanelCapasVisible = false;
+                });
+                itemCapa.ZoomCommand = new RelayCommand(async () =>
+                {
+                    if (itemCapa.Capa != null) await ZoomCapaSeguraAsync(itemCapa.Capa, 50, "manual");
+                });
+
+                CapasAdicionales.Add(itemCapa);
+                if (primeraCapa == null) primeraCapa = featureLayer;
+                capasCargadas++;
+            }
+
+            // 2. Capas ráster (GeoPackageRasters)
+            foreach (var raster in gpkg.GeoPackageRasters)
+            {
+                var rasterLayer = new RasterLayer(raster)
+                {
+                    Name = $"{Path.GetFileNameWithoutExtension(path)} - Ráster {capasCargadas + 1}",
+                    ShowInLegend = false,
+                    IsVisible = true,
+                    Opacity = 1.0
+                };
+                await Application.Current.Dispatcher.InvokeAsync(() => Map.OperationalLayers.Add(rasterLayer));
+                await rasterLayer.LoadAsync();
+
+                var itemCapa = new CapaUsuarioItem
+                {
+                    Nombre = rasterLayer.Name,
+                    RutaCompleta = path,
+                    TipoIcono = "📦",
+                    TipoTexto = "Ráster GeoPackage",
+                    Capa = rasterLayer,
+                    ContenedorGeoPackage = gpkg,
+                    ExtentParaZoom = rasterLayer.FullExtent,
+                    IsVisible = true,
+                    Opacidad = 1.0
+                };
+                itemCapa.QuitarCommand = new RelayCommand(() =>
+                {
+                    Map.OperationalLayers.Remove(rasterLayer);
+                    CapasAdicionales.Remove(itemCapa);
+                    itemCapa.Dispose();
+                    if (CapasAdicionales.Count == 0) IsPanelCapasVisible = false;
+                });
+                itemCapa.ZoomCommand = new RelayCommand(async () =>
+                {
+                    if (itemCapa.Capa != null) await ZoomCapaSeguraAsync(itemCapa.Capa, 50, "manual");
+                });
+
+                CapasAdicionales.Add(itemCapa);
+                if (primeraCapa == null) primeraCapa = rasterLayer;
+                capasCargadas++;
+            }
+
+            if (capasCargadas == 0)
+            {
+                gpkg.Close();
+                _notifications?.ShowWarning($"El GeoPackage '{Path.GetFileName(path)}' no contiene capas vectoriales ni rásteres.", "GeoPackage Vacío");
+                return;
+            }
+
+            IsPanelCapasVisible = true;
+            IsSelectorMapasBaseVisible = false;
+            IsHerramientasMedicionVisible = false;
+
+            if (primeraCapa != null)
+            {
+                await Task.Delay(200);
+                await ZoomCapaSeguraAsync(primeraCapa, 20, "geopackage inicial");
+            }
+
+            _notifications?.ShowSuccess($"GeoPackage '{Path.GetFileName(path)}' cargado exitosamente ({capasCargadas} capa(s)).", "GeoPackage");
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error($"Error cargando GeoPackage: {path}", ex);
+            _notifications?.ShowError($"Error al abrir GeoPackage: {ex.Message}", "Error GeoPackage");
+        }
+    }
+
     private async Task<Layer?> CrearRasterLayerValidadoAsync(string path)
     {
+        IsOperacionEnProgreso = true;
+        ProgresoPorcentaje = 0;
+        ProgresoTitulo = $"Cargando ráster: {Path.GetFileName(path)}";
+        ProgresoDetalle = "Verificando archivo y metadatos...";
+
+        IProgress<(int porcentaje, string detalle)> progress = new Progress<(int porcentaje, string detalle)>(p =>
+        {
+            ProgresoPorcentaje = p.porcentaje;
+            ProgresoDetalle = p.detalle;
+        });
+
         try
         {
             if (!File.Exists(path))
@@ -481,11 +541,13 @@ namespace Geomatica.Desktop.ViewModels
 
             try
             {
+                progress.Report((15, "Intentando lectura directa del GeoTIFF con ArcGIS Runtime..."));
                 var directRaster = new Raster(path);
                 await directRaster.LoadAsync();
                 if (directRaster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.Loaded && directRaster.RasterInfo?.SpatialReference != null)
                 {
                     raster = directRaster;
+                    progress.Report((70, "GeoTIFF leído correctamente con referencia espacial embebida."));
                     RasterDiagnostics.Log($"Direct Raster load succeeded with SpatialReference={raster.RasterInfo.SpatialReference}");
                 }
                 else
@@ -502,10 +564,11 @@ namespace Geomatica.Desktop.ViewModels
             if (raster == null)
             {
                 RasterDiagnostics.Log($"Attempting sidecar resolution for: {path}");
+                progress.Report((35, "Procesando sidecars y caché de georreferenciación..."));
                 
                 try
                 {
-                    await GeoTiffSidecarResolver.AsegurarAuxXmlGeorreferenciadoAsync(path);
+                    await GeoTiffSidecarResolver.AsegurarAuxXmlGeorreferenciadoAsync(path, progress);
                 }
                 catch (Exception ex)
                 {
@@ -705,6 +768,10 @@ namespace Geomatica.Desktop.ViewModels
                 MessageBoxButton.OK,
                 MessageBoxImage.Error);
             return null;
+        }
+        finally
+        {
+            IsOperacionEnProgreso = false;
         }
     }
 
@@ -996,10 +1063,14 @@ namespace Geomatica.Desktop.ViewModels
     // SECCIÓN: VISOR 3D Y NUBES DE PUNTOS
     // ==========================================
 
+    private static readonly Camera CamColombia3D = new Camera(4.680486, -74.146592, 1_800_000.0, 0.0, 0.0, 0.0);
+    private static readonly MapPoint CentroColombia = new MapPoint(-74.146592, 4.680486, SpatialReferences.Wgs84);
+
     private void SetupScene()
     {
         var basemapStyle = MapaBaseSeleccionado?.Style ?? BasemapStyle.ArcGISTopographic;
         var newScene = new Scene(basemapStyle);
+        newScene.InitialViewpoint = new Viewpoint(CentroColombia, CamColombia3D);
 
         try
         {
@@ -1014,9 +1085,12 @@ namespace Geomatica.Desktop.ViewModels
         }
 
         Scene = newScene;
+        _ = PrecalentarEscena3DAsync(newScene);
+
         if (_ownerSceneView != null)
         {
             _ownerSceneView.Scene = newScene;
+            _ = _ownerSceneView.SetViewpointCameraAsync(CamColombia3D);
             if (_ownerSceneView.GraphicsOverlays != null)
             {
                 foreach (var capa in Capas3D)
@@ -1027,6 +1101,31 @@ namespace Geomatica.Desktop.ViewModels
                         _ownerSceneView.GraphicsOverlays.Add(capa.OverlayPuntos3D);
                 }
             }
+        }
+    }
+
+    private async Task PrecalentarEscena3DAsync(Scene scene)
+    {
+        try
+        {
+            await scene.LoadAsync();
+            if (scene.BaseSurface != null)
+            {
+                await scene.BaseSurface.LoadAsync();
+                foreach (var src in scene.BaseSurface.ElevationSources)
+                {
+                    try { await src.LoadAsync(); } catch { }
+                }
+            }
+            if (_ownerSceneView != null)
+            {
+                _ = _ownerSceneView.SetViewpointCameraAsync(CamColombia3D);
+            }
+            AppLogger.Info("[MapaViewModel] Escena 3D y superficie de elevación precargadas y listas en Colombia.");
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Warn($"[MapaViewModel] Advertencia al precargar escena 3D: {ex.Message}");
         }
     }
 
@@ -1068,6 +1167,10 @@ namespace Geomatica.Desktop.ViewModels
             if (_ownerSceneView.Scene != Scene)
             {
                 _ownerSceneView.Scene = Scene;
+            }
+            if (Capas3D.Count == 0)
+            {
+                _ = _ownerSceneView.SetViewpointCameraAsync(CamColombia3D);
             }
             if (_ownerSceneView.GraphicsOverlays != null)
             {
@@ -1158,7 +1261,7 @@ namespace Geomatica.Desktop.ViewModels
         if (_ownerSceneView == null) return;
         try
         {
-            if (HasCapa3DActiva && UltimoExtent3D != null)
+            if (HasCapa3DActiva && (Capa3DSeleccionada != null || UltimoExtent3D != null))
             {
                 await VistaPerspectiva3DAsync();
                 return;
@@ -1167,7 +1270,7 @@ namespace Geomatica.Desktop.ViewModels
             var currentCam = _ownerSceneView.Camera;
             if (currentCam != null)
             {
-                var newCam = currentCam.RotateTo(currentCam.Heading, 45.0, currentCam.Roll);
+                var newCam = currentCam.RotateTo(0.0, 45.0, 0.0);
                 await _ownerSceneView.SetViewpointCameraAsync(newCam, TimeSpan.FromSeconds(0.8));
             }
         }
@@ -1212,6 +1315,114 @@ namespace Geomatica.Desktop.ViewModels
         catch { }
     }
 
+    public static double CalcularRadioMetros(Envelope? extent)
+    {
+        if (extent == null) return 150.0;
+
+        try
+        {
+            if (extent.SpatialReference != null && extent.SpatialReference.Wkid == 4326)
+            {
+                double latCenter = (extent.YMin + extent.YMax) / 2.0;
+                double rad = latCenter * Math.PI / 180.0;
+                double metersPerDegLon = 111_320.0 * Math.Cos(rad);
+                double metersPerDegLat = 111_320.0;
+
+                double dx = extent.Width * metersPerDegLon;
+                double dy = extent.Height * metersPerDegLat;
+                double dz = extent.HasZ ? extent.Depth : 0.0;
+                double r = Math.Sqrt(dx * dx + dy * dy + dz * dz) / 2.0;
+                return Math.Max(r, 40.0);
+            }
+            else
+            {
+                double dx = extent.Width;
+                double dy = extent.Height;
+                double dz = extent.HasZ ? extent.Depth : 0.0;
+                double r = Math.Sqrt(dx * dx + dy * dy + dz * dz) / 2.0;
+                return Math.Max(r, 40.0);
+            }
+        }
+        catch
+        {
+            return 150.0;
+        }
+    }
+
+    private async Task AsegurarSceneViewListoAsync(int timeoutMs = 4000)
+    {
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        while (sw.ElapsedMilliseconds < timeoutMs)
+        {
+            if (_ownerSceneView != null && _ownerSceneView.ActualWidth > 50 && _ownerSceneView.ActualHeight > 50)
+            {
+                // 1. Asegurar que la Scene esté cargada en ArcGIS Runtime (crucial en la primera capa 3D)
+                if (_ownerSceneView.Scene != null && _ownerSceneView.Scene.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
+                {
+                    try
+                    {
+                        await _ownerSceneView.Scene.LoadAsync();
+                    }
+                    catch { }
+                }
+
+                // 2. Asegurar que la superficie de elevación esté cargada
+                if (_ownerSceneView.Scene?.BaseSurface != null)
+                {
+                    if (_ownerSceneView.Scene.BaseSurface.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
+                    {
+                        try
+                        {
+                            await _ownerSceneView.Scene.BaseSurface.LoadAsync();
+                        }
+                        catch { }
+                    }
+
+                    foreach (var src in _ownerSceneView.Scene.BaseSurface.ElevationSources)
+                    {
+                        if (src.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
+                        {
+                            try { await src.LoadAsync(); } catch { }
+                        }
+                    }
+                }
+
+                // 3. Si la cámara aún está en el origen mundial o sin posición, anclarla primero en Colombia
+                if (_ownerSceneView.Camera == null ||
+                    (Math.Abs(_ownerSceneView.Camera.Location.X) < 1.0 && Math.Abs(_ownerSceneView.Camera.Location.Y) < 1.0))
+                {
+                    _ownerSceneView.SetViewpointCamera(CamColombia3D);
+                }
+
+                // 4. Sincronizar GraphicsOverlays si aún no estuvieran en el SceneView
+                if (_ownerSceneView.GraphicsOverlays != null)
+                {
+                    foreach (var capa in Capas3D)
+                    {
+                        if (capa.OverlayGuia3D != null && !_ownerSceneView.GraphicsOverlays.Contains(capa.OverlayGuia3D))
+                            _ownerSceneView.GraphicsOverlays.Add(capa.OverlayGuia3D);
+                        if (capa.OverlayPuntos3D != null && !_ownerSceneView.GraphicsOverlays.Contains(capa.OverlayPuntos3D))
+                            _ownerSceneView.GraphicsOverlays.Add(capa.OverlayPuntos3D);
+                    }
+                }
+
+                // 5. Permitir que WPF y el despachador de renderizado completen el ciclo de presentación
+                if (Application.Current != null)
+                {
+                    try
+                    {
+                        await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
+                    }
+                    catch { }
+                }
+
+                await Task.Delay(150);
+                return;
+            }
+            await Task.Delay(40);
+        }
+    }
+
     [RelayCommand]
     public async Task ZoomCapa3DAsync()
     {
@@ -1221,8 +1432,10 @@ namespace Geomatica.Desktop.ViewModels
             return;
         }
 
-        if (UltimoExtent3D != null && _ownerSceneView != null)
+        if (UltimoExtent3D != null)
         {
+            await AsegurarSceneViewListoAsync();
+            if (_ownerSceneView == null) return;
             try
             {
                 var center = UltimoExtent3D.GetCenter();
@@ -1230,12 +1443,65 @@ namespace Geomatica.Desktop.ViewModels
                     ? GeometryEngine.Project(center, SpatialReferences.Wgs84) as MapPoint ?? center
                     : center;
 
-                double targetZ = UltimoCentroZ3D + OffsetZ3D;
-                var lookAtTarget = new MapPoint(wgs84Center.X, wgs84Center.Y, targetZ, SpatialReferences.Wgs84);
-                double distance = Math.Clamp(UltimoRadioMetros3D * 2.2, 120.0, 15_000.0);
+                double groundElev = double.NaN;
+                if (_ownerSceneView.Scene?.BaseSurface != null)
+                {
+                    try
+                    {
+                        var elev = await _ownerSceneView.Scene.BaseSurface.GetElevationAsync(wgs84Center);
+                        if (!double.IsNaN(elev)) groundElev = elev;
+                    }
+                    catch { }
+                }
 
-                var camera = new Camera(lookAtTarget, distance, 0.0, 50.0, 0.0);
-                await _ownerSceneView.SetViewpointCameraAsync(camera, TimeSpan.FromSeconds(1.2));
+                double targetZ = UltimoCentroZ3D + OffsetZ3D;
+                if (!double.IsNaN(groundElev) && targetZ < groundElev)
+                {
+                    targetZ = groundElev + Math.Max(2.0, UltimoCentroZ3D) + OffsetZ3D;
+                }
+                else if (targetZ <= 0.0)
+                {
+                    targetZ = 960.0 + OffsetZ3D;
+                }
+
+                double radio = UltimoRadioMetros3D > 0 ? UltimoRadioMetros3D : CalcularRadioMetros(UltimoExtent3D);
+                double distance = Math.Clamp(radio * 2.5, 50.0, 30_000.0);
+
+                // Perspectiva inclinada a 45° con validación de relieve
+                double pitch = 45.0;
+                double pitchRad = pitch * Math.PI / 180.0;
+                double groundDistSouth = distance * Math.Sin(pitchRad);
+                double eyeLat = wgs84Center.Y - (groundDistSouth / 111_320.0);
+                double eyeLon = wgs84Center.X;
+                double eyeAltitude = targetZ + distance * Math.Cos(pitchRad);
+
+                if (_ownerSceneView.Scene?.BaseSurface != null)
+                {
+                    try
+                    {
+                        var eyeTerrainElev = await _ownerSceneView.Scene.BaseSurface.GetElevationAsync(new MapPoint(eyeLon, eyeLat, SpatialReferences.Wgs84));
+                        if (!double.IsNaN(eyeTerrainElev) && eyeAltitude < eyeTerrainElev + 25.0)
+                        {
+                            double neededAlt = eyeTerrainElev + 35.0;
+                            distance = Math.Max(distance, (neededAlt - targetZ) / Math.Cos(pitchRad));
+                            distance = Math.Clamp(distance, 50.0, 40_000.0);
+                        }
+                    }
+                    catch { }
+                }
+
+                var lookAtTarget = new MapPoint(wgs84Center.X, wgs84Center.Y, targetZ, SpatialReferences.Wgs84);
+                var camera = new Camera(lookAtTarget, distance, 0.0, pitch, 0.0);
+
+                if (_ownerSceneView.Camera == null ||
+                    (Math.Abs(_ownerSceneView.Camera.Location.X) < 1.0 && Math.Abs(_ownerSceneView.Camera.Location.Y) < 1.0))
+                {
+                    _ownerSceneView.SetViewpointCamera(camera);
+                }
+                else
+                {
+                    await _ownerSceneView.SetViewpointCameraAsync(camera, TimeSpan.FromSeconds(0.8));
+                }
             }
             catch (Exception ex)
             {
@@ -1249,7 +1515,9 @@ namespace Geomatica.Desktop.ViewModels
     {
         var targetItem = Capa3DSeleccionada;
         var extent = targetItem?.ExtentParaZoom ?? UltimoExtent3D;
-        if (_ownerSceneView == null || extent == null) return;
+        if (extent == null) return;
+        await AsegurarSceneViewListoAsync();
+        if (_ownerSceneView == null) return;
         try
         {
             var center = extent.GetCenter();
@@ -1257,11 +1525,26 @@ namespace Geomatica.Desktop.ViewModels
                 ? GeometryEngine.Project(center, SpatialReferences.Wgs84) as MapPoint ?? center
                 : center;
 
-            double targetZ = (targetItem?.CentroZ ?? UltimoCentroZ3D) + (targetItem?.OffsetZ3D ?? OffsetZ3D);
-            var lookAtTarget = new MapPoint(wgs84Center.X, wgs84Center.Y, targetZ, SpatialReferences.Wgs84);
-            double radio = targetItem?.RadioMetros ?? UltimoRadioMetros3D;
-            double distance = Math.Clamp(radio * 1.8, 100.0, 12_000.0);
+            double groundElev = double.NaN;
+            if (_ownerSceneView.Scene?.BaseSurface != null)
+            {
+                try
+                {
+                    var elev = await _ownerSceneView.Scene.BaseSurface.GetElevationAsync(wgs84Center);
+                    if (!double.IsNaN(elev)) groundElev = elev;
+                }
+                catch { }
+            }
 
+            double rawZ = (targetItem?.CentroZ ?? UltimoCentroZ3D) + (targetItem?.OffsetZ3D ?? OffsetZ3D);
+            double targetZ = (!double.IsNaN(groundElev) && rawZ < groundElev)
+                ? groundElev + 5.0 + (targetItem?.OffsetZ3D ?? OffsetZ3D)
+                : (rawZ <= 0.0 ? 960.0 : rawZ);
+
+            double radio = targetItem?.RadioMetros ?? (UltimoRadioMetros3D > 0 ? UltimoRadioMetros3D : CalcularRadioMetros(extent));
+            double distance = Math.Clamp(radio * 2.0, 50.0, 25_000.0);
+
+            var lookAtTarget = new MapPoint(wgs84Center.X, wgs84Center.Y, targetZ, SpatialReferences.Wgs84);
             var camera = new Camera(lookAtTarget, distance, 0.0, 0.0, 0.0);
             await _ownerSceneView.SetViewpointCameraAsync(camera, TimeSpan.FromSeconds(0.9));
         }
@@ -1271,44 +1554,137 @@ namespace Geomatica.Desktop.ViewModels
     [RelayCommand]
     public async Task VistaPerspectiva3DAsync()
     {
-        var targetItem = Capa3DSeleccionada;
-        var extent = targetItem?.ExtentParaZoom ?? UltimoExtent3D;
-        if (_ownerSceneView == null || extent == null) return;
-        try
+        if (Capa3DSeleccionada != null)
         {
-            var center = extent.GetCenter();
-            var wgs84Center = (center.SpatialReference != null && center.SpatialReference.Wkid != 4326)
-                ? GeometryEngine.Project(center, SpatialReferences.Wgs84) as MapPoint ?? center
-                : center;
-
-            double targetZ = (targetItem?.CentroZ ?? UltimoCentroZ3D) + (targetItem?.OffsetZ3D ?? OffsetZ3D);
-            var lookAtTarget = new MapPoint(wgs84Center.X, wgs84Center.Y, targetZ, SpatialReferences.Wgs84);
-            double radio = targetItem?.RadioMetros ?? UltimoRadioMetros3D;
-            double distance = Math.Clamp(radio * 2.5, 1.5, 25_000.0);
-
-            var camera = new Camera(lookAtTarget, distance, 320.0, 45.0, 0.0);
-            await _ownerSceneView.SetViewpointCameraAsync(camera, TimeSpan.FromSeconds(0.9));
+            await ZoomACapa3DAsync(Capa3DSeleccionada);
+            return;
         }
-        catch { }
+
+        if (UltimoExtent3D != null)
+        {
+            await ZoomCapa3DAsync();
+            return;
+        }
+
+        if (_ownerSceneView != null)
+        {
+            var currentCam = _ownerSceneView.Camera;
+            if (currentCam != null)
+            {
+                var newCam = currentCam.RotateTo(0.0, 45.0, 0.0);
+                await _ownerSceneView.SetViewpointCameraAsync(newCam, TimeSpan.FromSeconds(0.8));
+            }
+        }
     }
 
     public async Task ZoomACapa3DAsync(CapaUsuarioItem item)
     {
         Capa3DSeleccionada = item;
-        if (_ownerSceneView == null || item.ExtentParaZoom == null) return;
+        if (item.ExtentParaZoom == null) return;
+
         try
         {
-            var center = item.ExtentParaZoom.GetCenter();
+            if (!IsModo3D)
+            {
+                IsModo3D = true;
+                Modo3DTextoIcono = "🗺️ 2D";
+            }
+
+            if (Scene == null)
+            {
+                SetupScene();
+            }
+
+            // 1. Asegurar que SceneView esté adjunto y con dimensiones válidas en el árbol visual
+            await AsegurarSceneViewListoAsync();
+            if (_ownerSceneView == null) return;
+
+            var extent = item.ExtentParaZoom;
+            var center = extent.GetCenter();
             var wgs84Center = (center.SpatialReference != null && center.SpatialReference.Wkid != 4326)
                 ? GeometryEngine.Project(center, SpatialReferences.Wgs84) as MapPoint ?? center
                 : center;
 
-            double targetZ = item.CentroZ + item.OffsetZ3D;
-            var lookAtTarget = new MapPoint(wgs84Center.X, wgs84Center.Y, targetZ, SpatialReferences.Wgs84);
-            double distance = Math.Clamp(item.RadioMetros * 2.5, 1.5, 25_000.0);
+            // 2. Determinar radio en metros
+            double radio = item.RadioMetros;
+            if (radio <= 0.0)
+            {
+                radio = CalcularRadioMetros(extent);
+                item.RadioMetros = radio;
+            }
 
-            var camera = new Camera(lookAtTarget, distance, 0.0, 50.0, 0.0);
-            await _ownerSceneView.SetViewpointCameraAsync(camera, TimeSpan.FromSeconds(1.2));
+            // 3. Consultar la elevación del terreno en la superficie base 3D
+            double groundElev = double.NaN;
+            if (_ownerSceneView.Scene?.BaseSurface != null)
+            {
+                try
+                {
+                    if (_ownerSceneView.Scene.BaseSurface.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
+                    {
+                        await _ownerSceneView.Scene.BaseSurface.LoadAsync();
+                    }
+                    var elev = await _ownerSceneView.Scene.BaseSurface.GetElevationAsync(wgs84Center);
+                    if (!double.IsNaN(elev))
+                    {
+                        groundElev = elev;
+                    }
+                }
+                catch { }
+            }
+
+            // 4. Calcular elevación Z objetivo segura (evitar que quede bajo tierra)
+            double targetZ = item.CentroZ + item.OffsetZ3D;
+            if (!double.IsNaN(groundElev))
+            {
+                if (targetZ < groundElev)
+                {
+                    targetZ = groundElev + Math.Max(2.0, item.CentroZ) + item.OffsetZ3D;
+                }
+            }
+            else if (targetZ <= 0.0)
+            {
+                targetZ = 960.0 + item.OffsetZ3D;
+            }
+
+            // 5. Distancia óptima para perspectiva 3D inclinada a 45°
+            double distance = Math.Clamp(radio * 2.5, 50.0, 30_000.0);
+
+            // 6. Verificar y evitar colisión de la cámara con relieve elevado al sur
+            double pitch = 45.0;
+            double pitchRad = pitch * Math.PI / 180.0;
+            double groundDistSouth = distance * Math.Sin(pitchRad);
+            double eyeLat = wgs84Center.Y - (groundDistSouth / 111_320.0);
+            double eyeLon = wgs84Center.X;
+            double eyeAltitude = targetZ + distance * Math.Cos(pitchRad);
+
+            if (_ownerSceneView.Scene?.BaseSurface != null)
+            {
+                try
+                {
+                    var eyeTerrainElev = await _ownerSceneView.Scene.BaseSurface.GetElevationAsync(new MapPoint(eyeLon, eyeLat, SpatialReferences.Wgs84));
+                    if (!double.IsNaN(eyeTerrainElev) && eyeAltitude < eyeTerrainElev + 25.0)
+                    {
+                        double neededAlt = eyeTerrainElev + 35.0;
+                        distance = Math.Max(distance, (neededAlt - targetZ) / Math.Cos(pitchRad));
+                        distance = Math.Clamp(distance, 50.0, 40_000.0);
+                    }
+                }
+                catch { }
+            }
+
+            var lookAtTarget = new MapPoint(wgs84Center.X, wgs84Center.Y, targetZ, SpatialReferences.Wgs84);
+            var camera45 = new Camera(lookAtTarget, distance, 0.0, pitch, 0.0);
+
+            // Si la cámara aún está en el origen mundial o sin posición, aplicar directamente para evitar deriva
+            if (_ownerSceneView.Camera == null ||
+                (Math.Abs(_ownerSceneView.Camera.Location.X) < 1.0 && Math.Abs(_ownerSceneView.Camera.Location.Y) < 1.0))
+            {
+                _ownerSceneView.SetViewpointCamera(camera45);
+            }
+            else
+            {
+                await _ownerSceneView.SetViewpointCameraAsync(camera45, TimeSpan.FromSeconds(0.8));
+            }
         }
         catch (Exception ex)
         {
@@ -1375,6 +1751,7 @@ namespace Geomatica.Desktop.ViewModels
 
     private async Task EnfocarCamaraModo3DAsync()
     {
+        await AsegurarSceneViewListoAsync();
         if (_ownerSceneView == null) return;
 
         if (Capa3DSeleccionada != null)
@@ -1391,23 +1768,39 @@ namespace Geomatica.Desktop.ViewModels
 
         if (LastViewpoint != null)
         {
-            var targetGeo = LastViewpoint.TargetGeometry as MapPoint;
-            if (targetGeo != null)
+            MapPoint? targetPt = LastViewpoint.TargetGeometry as MapPoint;
+            if (targetPt == null && LastViewpoint.TargetGeometry?.Extent != null)
             {
-                var wgs84 = (targetGeo.SpatialReference != null && targetGeo.SpatialReference.Wkid != 4326)
-                    ? GeometryEngine.Project(targetGeo, SpatialReferences.Wgs84) as MapPoint ?? targetGeo
-                    : targetGeo;
+                targetPt = LastViewpoint.TargetGeometry.Extent.GetCenter();
+            }
 
-                double alt = LastViewpoint.TargetScale > 0 ? Math.Max(2000.0, LastViewpoint.TargetScale * 0.7) : 25_000.0;
-                var cam = new Camera(wgs84.Y, wgs84.X, alt, 0.0, 45.0, 0.0);
+            if (targetPt != null)
+            {
+                var wgs84 = (targetPt.SpatialReference != null && targetPt.SpatialReference.Wkid != 4326)
+                    ? GeometryEngine.Project(targetPt, SpatialReferences.Wgs84) as MapPoint ?? targetPt
+                    : targetPt;
+
+                double groundElev = 0.0;
+                if (_ownerSceneView.Scene?.BaseSurface != null)
+                {
+                    try
+                    {
+                        var elev = await _ownerSceneView.Scene.BaseSurface.GetElevationAsync(wgs84);
+                        if (!double.IsNaN(elev)) groundElev = elev;
+                    }
+                    catch { }
+                }
+
+                double altOffset = LastViewpoint.TargetScale > 0 ? Math.Clamp(LastViewpoint.TargetScale * 0.7, 1000.0, 150_000.0) : 15_000.0;
+                double eyeAlt = groundElev + altOffset;
+                var cam = new Camera(wgs84.Y, wgs84.X, eyeAlt, 0.0, 45.0, 0.0);
                 await _ownerSceneView.SetViewpointCameraAsync(cam, TimeSpan.FromSeconds(1.0));
                 return;
             }
         }
 
         // Vista regional inicial de Colombia en 3D
-        var camColombia = new Camera(4.680486, -74.146592, 1_800_000.0, 0.0, 45.0, 0.0);
-        await _ownerSceneView.SetViewpointCameraAsync(camColombia, TimeSpan.FromSeconds(1.0));
+        await _ownerSceneView.SetViewpointCameraAsync(CamColombia3D, TimeSpan.FromSeconds(1.0));
     }
 
     private async Task CargarSlpk3DAsync(string path)
@@ -1431,6 +1824,33 @@ namespace Geomatica.Desktop.ViewModels
             slpkLayer.Name = Path.GetFileNameWithoutExtension(path);
             Scene?.OperationalLayers.Add(slpkLayer);
 
+            // Esperar brevemente a que el runtime calcule el FullExtent si aún no está disponible
+            for (int i = 0; i < 10 && slpkLayer.FullExtent == null; i++)
+            {
+                await Task.Delay(100);
+            }
+
+            var extent = slpkLayer.FullExtent;
+            double radio = CalcularRadioMetros(extent);
+            double centroZ = 0.0;
+            if (extent != null && extent.HasZ && !double.IsNaN(extent.ZMin) && (extent.ZMin != 0 || extent.ZMax != 0))
+            {
+                centroZ = (extent.ZMin + extent.ZMax) / 2.0;
+            }
+            else if (extent != null && Scene?.BaseSurface != null)
+            {
+                try
+                {
+                    var c = extent.GetCenter();
+                    var wgs84Center = (c.SpatialReference != null && c.SpatialReference.Wkid != 4326)
+                        ? GeometryEngine.Project(c, SpatialReferences.Wgs84) as MapPoint ?? c
+                        : c;
+                    var elev = await Scene.BaseSurface.GetElevationAsync(wgs84Center);
+                    if (!double.IsNaN(elev)) centroZ = elev;
+                }
+                catch { }
+            }
+
             var itemCapa = new CapaUsuarioItem
             {
                 Nombre = Path.GetFileName(path),
@@ -1438,7 +1858,9 @@ namespace Geomatica.Desktop.ViewModels
                 Capa = slpkLayer,
                 TipoIcono = "☁️",
                 TipoTexto = "Nube de Puntos 3D (SLPK)",
-                ExtentParaZoom = slpkLayer.FullExtent,
+                ExtentParaZoom = extent,
+                RadioMetros = radio,
+                CentroZ = centroZ,
                 InfoDetalle3D = $"Paquete de Escena 3D (.slpk)\nCapa: {slpkLayer.Name}"
             };
             itemCapa.QuitarCommand = new RelayCommand(() =>
@@ -1446,6 +1868,7 @@ namespace Geomatica.Desktop.ViewModels
                 Scene?.OperationalLayers.Remove(slpkLayer);
                 CapasAdicionales.Remove(itemCapa);
                 Capas3D.Remove(itemCapa);
+                itemCapa.Dispose();
                 SincronizarEstadoCapas3D();
             });
             itemCapa.ZoomCommand = new AsyncRelayCommand(async () => await ZoomACapa3DAsync(itemCapa));
@@ -1461,9 +1884,9 @@ namespace Geomatica.Desktop.ViewModels
                 Modo3DTextoIcono = "🗺️ 2D";
             }
 
-            if (slpkLayer.FullExtent != null)
+            if (extent != null)
             {
-                await Task.Delay(200);
+                await AsegurarSceneViewListoAsync();
                 await ZoomACapa3DAsync(itemCapa);
             }
 
@@ -1483,6 +1906,11 @@ namespace Geomatica.Desktop.ViewModels
         if (_anclajeLocalActual3D.HasValue)
         {
             return _anclajeLocalActual3D.Value;
+        }
+
+        if (Scene == null)
+        {
+            SetupScene();
         }
 
         double lon = -73.1210; // Campus Principal UIS, Bucaramanga
@@ -1515,6 +1943,10 @@ namespace Geomatica.Desktop.ViewModels
         {
             if (Scene?.BaseSurface != null)
             {
+                if (Scene.BaseSurface.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
+                {
+                    try { await Scene.BaseSurface.LoadAsync(); } catch { }
+                }
                 var testPt = new MapPoint(lon, lat, SpatialReferences.Wgs84);
                 var elev = await Scene.BaseSurface.GetElevationAsync(testPt);
                 if (!double.IsNaN(elev) && elev > -100.0)
@@ -1531,15 +1963,35 @@ namespace Geomatica.Desktop.ViewModels
 
     private async Task CargarNubePuntosLas3DAsync(string path)
     {
+        IsOperacionEnProgreso = true;
+        ProgresoPorcentaje = 0;
+        ProgresoTitulo = $"Cargando nube LiDAR: {Path.GetFileName(path)}";
+        ProgresoDetalle = "Iniciando procesamiento en segundo plano...";
+
+        IProgress<(int porcentaje, string detalle)> progress = new Progress<(int porcentaje, string detalle)>(p =>
+        {
+            ProgresoPorcentaje = p.porcentaje;
+            ProgresoDetalle = p.detalle;
+        });
+
         try
         {
             _notifications?.ShowInfo($"Procesando nube de puntos LiDAR '{Path.GetFileName(path)}'...", "Cargando 3D");
 
-            var cloud = await Task.Run(() => LasFileReader.Read(path, maxPointsToSample: 75_000));
-
-            if (cloud.SampledPointsCount == 0)
+            (double lon, double lat, double alt)? anclaje = null;
+            try
             {
-                _notifications?.ShowWarning("El archivo LAS no contiene puntos legibles.", "Sin Puntos");
+                if (Scene == null) SetupScene();
+                anclaje = await ObtenerAnclajeLocal3DAsync();
+            }
+            catch { }
+
+            // Procesar completamente en segundo plano (lectura, submuestreo, reproyección WGS84 y cálculo de huella)
+            var result = await LidarBackgroundWorker.ProcesarNubeLidarAsync(path, anclaje, maxPointsToSample: 75_000, progress);
+
+            if (result.SampledPointsCount == 0)
+            {
+                _notifications?.ShowWarning("El archivo LiDAR no contiene puntos legibles o requiere descompresión.", "Sin Puntos");
                 return;
             }
 
@@ -1557,128 +2009,19 @@ namespace Geomatica.Desktop.ViewModels
                 SceneProperties = { SurfacePlacement = SurfacePlacement.Absolute }
             };
 
-            double radioMetros = cloud.RadioAproximadoMetros;
-            Envelope envelopeWgs84;
-            double centroZWgs84;
-            var cachedList = new List<(MapPoint PtWgs84, System.Drawing.Color Color)>(cloud.SampledPointsCount);
+            // 2. Huella y centro WGS84 ya calculados por el trabajador en segundo plano
+            var lineSymbol = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.FromArgb(235, 255, 193, 7), 2.5);
+            var fillSymbol = new SimpleFillSymbol(SimpleFillSymbolStyle.Solid, System.Drawing.Color.FromArgb(40, 255, 193, 7), lineSymbol);
+            overlayGuia.Graphics.Add(new Graphic(result.FootprintWgs84, fillSymbol));
 
-            if (cloud.EsCoordenadasLocales)
+            var pinSymbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Cross, System.Drawing.Color.FromArgb(240, 220, 53, 69), 14.0);
+            overlayGuia.Graphics.Add(new Graphic(result.CenterWgs84, pinSymbol));
+
+            // 3. Agregar puntos precalculados a la capa gráfica
+            var initialGraphics = new List<Graphic>(result.PuntosMuestreadosWgs84.Count);
+            foreach (var item in result.PuntosMuestreadosWgs84)
             {
-                // Nube de puntos en coordenadas locales de escáner (sin georreferenciación global o relativa al instrumento)
-                var (anchorLon, anchorLat, anchorAlt) = await ObtenerAnclajeLocal3DAsync();
-
-                double cosLat = Math.Cos(anchorLat * Math.PI / 180.0);
-                double metersPerDegLat = 111_320.0;
-                double metersPerDegLon = 111_320.0 * (cosLat > 0.01 ? cosLat : 1.0);
-
-                // Elevar la base de la nube 0.5m sobre el terreno para que no colisione con el relieve
-                double zOffsetBase = (cloud.MinZ < 0) ? Math.Abs(cloud.MinZ) + 0.5 : 0.5;
-
-                // Footprint y centro
-                double minLon = anchorLon + (cloud.MinX / metersPerDegLon);
-                double maxLon = anchorLon + (cloud.MaxX / metersPerDegLon);
-                double minLat = anchorLat + (cloud.MinY / metersPerDegLat);
-                double maxLat = anchorLat + (cloud.MaxY / metersPerDegLat);
-
-                envelopeWgs84 = new Envelope(minLon, minLat, maxLon, maxLat, SpatialReferences.Wgs84);
-                centroZWgs84 = anchorAlt + zOffsetBase + cloud.CentroZ;
-
-                var footprintPoly = new Polygon(new PointCollection(SpatialReferences.Wgs84)
-                {
-                    new MapPoint(minLon, minLat, SpatialReferences.Wgs84),
-                    new MapPoint(maxLon, minLat, SpatialReferences.Wgs84),
-                    new MapPoint(maxLon, maxLat, SpatialReferences.Wgs84),
-                    new MapPoint(minLon, maxLat, SpatialReferences.Wgs84),
-                    new MapPoint(minLon, minLat, SpatialReferences.Wgs84)
-                }, SpatialReferences.Wgs84);
-
-                var lineSymbol = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.FromArgb(235, 255, 193, 7), 2.5);
-                var fillSymbol = new SimpleFillSymbol(SimpleFillSymbolStyle.Solid, System.Drawing.Color.FromArgb(40, 255, 193, 7), lineSymbol);
-                overlayGuia.Graphics.Add(new Graphic(footprintPoly, fillSymbol));
-
-                double centerLon = anchorLon + (cloud.CentroX / metersPerDegLon);
-                double centerLat = anchorLat + (cloud.CentroY / metersPerDegLat);
-                var centerWgs84 = new MapPoint(centerLon, centerLat, SpatialReferences.Wgs84);
-                var pinSymbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Cross, System.Drawing.Color.FromArgb(240, 220, 53, 69), 14.0);
-                overlayGuia.Graphics.Add(new Graphic(centerWgs84, pinSymbol));
-
-                // Puntos
-                foreach (var pt in cloud.Points)
-                {
-                    double ptLon = anchorLon + (pt.X / metersPerDegLon);
-                    double ptLat = anchorLat + (pt.Y / metersPerDegLat);
-                    double ptAlt = anchorAlt + zOffsetBase + pt.Z;
-
-                    var wgs84Point = new MapPoint(ptLon, ptLat, ptAlt, SpatialReferences.Wgs84);
-                    var color = System.Drawing.Color.FromArgb(240, pt.R, pt.G, pt.B);
-                    cachedList.Add((wgs84Point, color));
-                }
-            }
-            else
-            {
-                // Nube con sistema de coordenadas georreferenciado (WGS84 o Proyectado)
-                var targetSr = cloud.SpatialReference ?? SpatialReferences.Wgs84;
-
-                if (targetSr.Wkid == 4326 || (cloud.MinX >= -180 && cloud.MaxX <= 180 && cloud.MinY >= -90 && cloud.MaxY <= 90))
-                {
-                    double latRad = cloud.CentroY * Math.PI / 180.0;
-                    double dx = (cloud.MaxX - cloud.MinX) * 111_320.0 * Math.Cos(latRad);
-                    double dy = (cloud.MaxY - cloud.MinY) * 111_320.0;
-                    radioMetros = Math.Sqrt(dx * dx + dy * dy + cloud.AlturaRango * cloud.AlturaRango) / 2.0;
-                }
-
-                var envelopeOriginal = new Envelope(cloud.MinX, cloud.MinY, cloud.MaxX, cloud.MaxY, targetSr);
-                envelopeWgs84 = (targetSr.Wkid == 4326)
-                    ? envelopeOriginal
-                    : GeometryEngine.Project(envelopeOriginal, SpatialReferences.Wgs84) as Envelope ?? envelopeOriginal;
-
-                centroZWgs84 = cloud.CentroZ;
-
-                var polyPoints = new PointCollection(targetSr)
-                {
-                    new MapPoint(cloud.MinX, cloud.MinY, targetSr),
-                    new MapPoint(cloud.MaxX, cloud.MinY, targetSr),
-                    new MapPoint(cloud.MaxX, cloud.MaxY, targetSr),
-                    new MapPoint(cloud.MinX, cloud.MaxY, targetSr),
-                    new MapPoint(cloud.MinX, cloud.MinY, targetSr)
-                };
-                var footprintPoly = new Polygon(polyPoints, targetSr);
-                var footprintWgs84 = (targetSr.Wkid == 4326)
-                    ? footprintPoly
-                    : GeometryEngine.Project(footprintPoly, SpatialReferences.Wgs84) as Polygon ?? footprintPoly;
-
-                var lineSymbol = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.FromArgb(235, 255, 193, 7), 2.5);
-                var fillSymbol = new SimpleFillSymbol(SimpleFillSymbolStyle.Solid, System.Drawing.Color.FromArgb(40, 255, 193, 7), lineSymbol);
-                overlayGuia.Graphics.Add(new Graphic(footprintWgs84, fillSymbol));
-
-                var centerPoint = new MapPoint(cloud.CentroX, cloud.CentroY, targetSr);
-                var centerWgs84 = (targetSr.Wkid == 4326)
-                    ? centerPoint
-                    : GeometryEngine.Project(centerPoint, SpatialReferences.Wgs84) as MapPoint ?? centerPoint;
-                var pinSymbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Cross, System.Drawing.Color.FromArgb(240, 220, 53, 69), 14.0);
-                overlayGuia.Graphics.Add(new Graphic(centerWgs84, pinSymbol));
-
-                foreach (var pt in cloud.Points)
-                {
-                    var mapPoint = new MapPoint(pt.X, pt.Y, pt.Z, targetSr);
-                    var wgs84Point = (targetSr.Wkid == 4326)
-                        ? mapPoint
-                        : GeometryEngine.Project(mapPoint, SpatialReferences.Wgs84) as MapPoint ?? mapPoint;
-
-                    var color = System.Drawing.Color.FromArgb(240, pt.R, pt.G, pt.B);
-                    cachedList.Add((wgs84Point, color));
-                }
-            }
-
-            radioMetros = Math.Max(0.4, radioMetros);
-
-            // Determinar tamaño de punto inicial óptimo según radio de la nube
-            double tamanoPunto = (radioMetros < 15.0) ? 5.5 : (radioMetros < 100.0 ? 5.0 : 4.5);
-
-            var initialGraphics = new List<Graphic>(cachedList.Count);
-            foreach (var item in cachedList)
-            {
-                var symbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, item.Color, tamanoPunto);
+                var symbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, item.Color, result.TamanoPuntoRecomendado);
                 initialGraphics.Add(new Graphic(item.PtWgs84, symbol));
             }
             overlayPuntos.Graphics.AddRange(initialGraphics);
@@ -1692,26 +2035,21 @@ namespace Geomatica.Desktop.ViewModels
 
             var itemCapa = new CapaUsuarioItem
             {
-                Nombre = Path.GetFileName(path),
+                Nombre = result.NombreArchivo,
                 RutaCompleta = path,
                 Capa = null,
                 TipoIcono = "☁️",
-                TipoTexto = "Nube de Puntos (LAS)",
+                TipoTexto = "Nube de Puntos (LAS/LAZ)",
                 OverlayGuia3D = overlayGuia,
                 OverlayPuntos3D = overlayPuntos,
-                PuntosMuestreados3D = cachedList,
-                CentroZ = centroZWgs84,
-                RadioMetros = radioMetros,
-                CrsNombre = cloud.CrsNombre,
-                ExtentParaZoom = envelopeWgs84,
-                InfoDetalle3D = $"Archivo: {cloud.TotalPoints:N0} pts (muestra: {cloud.SampledPointsCount:N0})\n" +
-                                $"CRS: {cloud.CrsNombre}\n" +
-                                $"Dim: {cloud.AnchoMetros:F1}m × {cloud.LargoMetros:F1}m (R: {cloud.RadioAproximadoMetros:F1}m)\n" +
-                                $"Elevación Z: {cloud.MinZ:F2} m a {cloud.MaxZ:F2} m (Δ {cloud.AlturaRango:F2} m)\n" +
-                                $"Colores: {(cloud.HasRgbColors ? "RGB Fotogramétrico" : "Rampa Hipsométrica")}" +
-                                (cloud.EsCoordenadasLocales ? "\n(Anclado en entorno 3D local 1:1 en metros)" : ""),
+                PuntosMuestreados3D = result.PuntosMuestreadosWgs84,
+                CentroZ = result.CentroZWgs84,
+                RadioMetros = result.RadioMetros,
+                CrsNombre = result.CrsNombre,
+                ExtentParaZoom = result.EnvelopeWgs84,
+                InfoDetalle3D = result.InfoDetalle3D,
                 OffsetZ3D = 0.0,
-                TamanoPunto3D = tamanoPunto
+                TamanoPunto3D = result.TamanoPuntoRecomendado
             };
 
             itemCapa.QuitarCommand = new RelayCommand(() =>
@@ -1721,10 +2059,9 @@ namespace Geomatica.Desktop.ViewModels
                     _ownerSceneView.GraphicsOverlays.Remove(overlayGuia);
                     _ownerSceneView.GraphicsOverlays.Remove(overlayPuntos);
                 }
-                overlayGuia.Graphics.Clear();
-                overlayPuntos.Graphics.Clear();
                 CapasAdicionales.Remove(itemCapa);
                 Capas3D.Remove(itemCapa);
+                itemCapa.Dispose();
                 if (Capas3D.Count == 0)
                 {
                     _anclajeLocalActual3D = null;
@@ -1745,17 +2082,24 @@ namespace Geomatica.Desktop.ViewModels
                 Modo3DTextoIcono = "🗺️ 2D";
             }
 
-            await Task.Delay(250);
+            await AsegurarSceneViewListoAsync();
             await ZoomACapa3DAsync(itemCapa);
 
             _notifications?.ShowSuccess(
-                $"Nube de puntos renderizada: {cloud.SampledPointsCount:N0} puntos ({cloud.CrsNombre}). Capas 3D activas: {Capas3D.Count}.",
+                $"Nube de puntos renderizada: {result.SampledPointsCount:N0} puntos ({result.CrsNombre}). Capas 3D activas: {Capas3D.Count}.",
                 "Visor 3D");
         }
         catch (Exception ex)
         {
-            AppLogger.Error($"Error al leer nube de puntos LAS '{path}'", ex);
+            AppLogger.Error($"Error al leer nube de puntos LAS/LAZ '{path}'", ex);
             _notifications?.ShowError($"Error al cargar archivo LiDAR: {ex.Message}", "Error LAS 3D");
+        }
+        finally
+        {
+            IsOperacionEnProgreso = false;
+            ProgresoPorcentaje = 0;
+            ProgresoTitulo = "";
+            ProgresoDetalle = "";
         }
     }
 
@@ -1868,8 +2212,7 @@ namespace Geomatica.Desktop.ViewModels
                 if (item.OverlayGuia3D != null) _ownerSceneView.GraphicsOverlays.Remove(item.OverlayGuia3D);
                 if (item.OverlayPuntos3D != null) _ownerSceneView.GraphicsOverlays.Remove(item.OverlayPuntos3D);
             }
-            item.OverlayGuia3D?.Graphics.Clear();
-            item.OverlayPuntos3D?.Graphics.Clear();
+            item.Dispose();
         }
         CapasAdicionales.Clear();
         Capas3D.Clear();
@@ -2013,8 +2356,7 @@ namespace Geomatica.Desktop.ViewModels
     [RelayCommand]
     public void LimpiarMedicion()
     {
-        _puntosMedicion.Clear();
-        OverlayMedicion.Graphics.Clear();
+        _medicionController.Limpiar();
         ResultadoMedicion = "";
         DetalleMedicion = "";
         HasResultadoMedicion = false;
@@ -2036,102 +2378,10 @@ namespace Geomatica.Desktop.ViewModels
     {
         if (ModoMedicion == "Ninguno") return;
 
-        var puntoWgs84 = GeometryEngine.Project(punto, SpatialReferences.Wgs84) as MapPoint ?? punto;
-        _puntosMedicion.Add(puntoWgs84);
-
-        OverlayMedicion.Graphics.Clear();
-
-        var puntoSymbol = new SimpleMarkerSymbol(
-            SimpleMarkerSymbolStyle.Circle,
-            System.Drawing.Color.FromArgb(255, 24, 134, 75),
-            8);
-        var lineSymbol = new SimpleLineSymbol(
-            SimpleLineSymbolStyle.Solid,
-            System.Drawing.Color.FromArgb(230, 24, 134, 75),
-            3);
-
-        // Dibujar vértices
-        foreach (var p in _puntosMedicion)
-        {
-            OverlayMedicion.Graphics.Add(new Graphic(p, puntoSymbol));
-        }
-
-        if (ModoMedicion == "Distancia")
-        {
-            if (_puntosMedicion.Count >= 2)
-            {
-                var polyline = new Polyline(_puntosMedicion, SpatialReferences.Wgs84);
-                OverlayMedicion.Graphics.Add(new Graphic(polyline, lineSymbol));
-
-                var longitudMetros = GeometryEngine.LengthGeodetic(polyline, LinearUnits.Meters, GeodeticCurveType.Geodesic);
-                if (longitudMetros >= 1000)
-                {
-                    var km = longitudMetros / 1000.0;
-                    ResultadoMedicion = $"{km:F2} km";
-                    DetalleMedicion = $"{longitudMetros:N0} metros ({_puntosMedicion.Count} puntos)";
-                }
-                else
-                {
-                    ResultadoMedicion = $"{longitudMetros:F1} m";
-                    DetalleMedicion = $"{_puntosMedicion.Count} puntos marcados";
-                }
-                HasResultadoMedicion = true;
-            }
-            else
-            {
-                ResultadoMedicion = "1 punto marcado";
-                DetalleMedicion = "Haga clic en otro punto para calcular la distancia";
-                HasResultadoMedicion = true;
-            }
-        }
-        else if (ModoMedicion == "Area")
-        {
-            if (_puntosMedicion.Count >= 3)
-            {
-                var polygon = new Polygon(_puntosMedicion, SpatialReferences.Wgs84);
-                var fillSymbol = new SimpleFillSymbol(
-                    SimpleFillSymbolStyle.Solid,
-                    System.Drawing.Color.FromArgb(80, 24, 134, 75),
-                    lineSymbol);
-
-                OverlayMedicion.Graphics.Add(new Graphic(polygon, fillSymbol));
-
-                var areaM2 = Math.Abs(GeometryEngine.AreaGeodetic(polygon, AreaUnits.SquareMeters, GeodeticCurveType.Geodesic));
-                var ha = areaM2 / 10_000.0;
-                var km2 = areaM2 / 1_000_000.0;
-
-                if (areaM2 >= 1_000_000)
-                {
-                    ResultadoMedicion = $"{km2:F2} km²";
-                    DetalleMedicion = $"{ha:N1} ha | {areaM2:N0} m² ({_puntosMedicion.Count} vértices)";
-                }
-                else if (areaM2 >= 10_000)
-                {
-                    ResultadoMedicion = $"{ha:F2} ha";
-                    DetalleMedicion = $"{areaM2:N0} m² ({_puntosMedicion.Count} vértices)";
-                }
-                else
-                {
-                    ResultadoMedicion = $"{areaM2:N1} m²";
-                    DetalleMedicion = $"{_puntosMedicion.Count} vértices";
-                }
-                HasResultadoMedicion = true;
-            }
-            else if (_puntosMedicion.Count == 2)
-            {
-                var polyline = new Polyline(_puntosMedicion, SpatialReferences.Wgs84);
-                OverlayMedicion.Graphics.Add(new Graphic(polyline, lineSymbol));
-                ResultadoMedicion = "2 vértices marcados";
-                DetalleMedicion = "Agregue al menos 3 vértices para calcular el área";
-                HasResultadoMedicion = true;
-            }
-            else
-            {
-                ResultadoMedicion = "1 vértice marcado";
-                DetalleMedicion = "Agregue al menos 3 vértices para calcular el área";
-                HasResultadoMedicion = true;
-            }
-        }
+        var res = _medicionController.ProcesarNuevoPunto(punto, ModoMedicion);
+        ResultadoMedicion = res.Resultado;
+        DetalleMedicion = res.Detalle;
+        HasResultadoMedicion = res.HasResultado;
     }
 
     public void ActualizarCoordenadasCursor(double lat, double lon)

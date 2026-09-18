@@ -29,6 +29,26 @@
                 </DockPanel>
 
                 <Separator Style="{StaticResource ModernSeparator}" Margin="0,0,0,14"/>
+
+                <!-- Tarjeta de Desconexión / Reconexión a PostgreSQL -->
+                <Border Background="#FFF8F8" BorderBrush="#FFCDD2" BorderThickness="1" CornerRadius="6"
+                        Padding="10,8" Margin="0,0,0,12"
+                        Visibility="{Binding IsErrorConexionDb, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,4">
+                            <TextBlock Text="⚡" FontSize="13" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Error de Base de Datos" FontWeight="Bold" FontSize="11"
+                                       Foreground="#C62828" FontFamily="{StaticResource AppFont}" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <TextBlock Text="{Binding MensajeErrorConexion}" FontSize="10" 
+                                   Foreground="#B71C1C" FontFamily="{StaticResource AppFont}" TextWrapping="Wrap" Margin="0,0,0,8"/>
+                        <Button Content="🔄 Reintentar Conexión" Command="{Binding ReintentarConexionCommand}"
+                                IsEnabled="{Binding IsReintentandoConexion, Converter={StaticResource BoolToVis}, ConverterParameter=invert}"
+                                Style="{StaticResource OutlineButton}" FontSize="11" Padding="8,4" HorizontalAlignment="Stretch"/>
+                        <ProgressBar IsIndeterminate="True" Height="3" Margin="0,4,0,0"
+                                     Visibility="{Binding IsReintentandoConexion, Converter={StaticResource BoolToVis}}"/>
+                    </StackPanel>
+                </Border>
             </StackPanel>
 
             <!-- Filtros -->

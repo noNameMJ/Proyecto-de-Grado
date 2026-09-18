@@ -56,7 +56,11 @@
 
             <!-- Visor Geográfico (2D MapView / 3D SceneView) -->
             <Grid Grid.Row="0">
-                <!-- Visor 2D (MapView) -->
+                <!-- Visor 3D (SceneView) activo en segundo plano para inicialización inmediata en Colombia -->
+                <esri:SceneView x:Name="controlSceneView" Scene="{Binding Scene}"
+                                IsHitTestVisible="{Binding IsModo3D}"/>
+
+                <!-- Visor 2D (MapView) sobre el visor 3D en modo 2D -->
                 <esri:MapView x:Name="controlMapView" Map="{Binding Map}">
                     <esri:MapView.Style>
                         <Style TargetType="esri:MapView">
@@ -69,20 +73,6 @@
                         </Style>
                     </esri:MapView.Style>
                 </esri:MapView>
-
-                <!-- Visor 3D (SceneView) -->
-                <esri:SceneView x:Name="controlSceneView" Scene="{Binding Scene}">
-                    <esri:SceneView.Style>
-                        <Style TargetType="esri:SceneView">
-                            <Setter Property="Visibility" Value="Collapsed"/>
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding IsModo3D}" Value="True">
-                                    <Setter Property="Visibility" Value="Visible"/>
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </esri:SceneView.Style>
-                </esri:SceneView>
 
                 <!-- Banner Flotante de Aviso Sin Conexión a Internet -->
                 <Border HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,16,0,0"
@@ -98,6 +88,32 @@
                             <TextBlock Text="{Binding AvisoSinConexionTexto}" FontSize="10"
                                        Foreground="#856404" FontFamily="{StaticResource AppFont}" Margin="0,1,0,0"/>
                         </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- Panel Flotante de Progreso Determinista (Carga de LiDAR / Rasters) -->
+                <Border HorizontalAlignment="Center" VerticalAlignment="Top" Margin="0,70,0,0"
+                        CornerRadius="8" Padding="16,12" Width="360"
+                        Background="#F9FFFFFF" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                        Effect="{StaticResource ElevatedShadow}"
+                        Visibility="{Binding IsOperacionEnProgreso, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,6">
+                            <TextBlock Text="{Binding ProgresoTitulo}" FontWeight="Bold" FontSize="12"
+                                       Foreground="{StaticResource TextPrimaryBrush}"
+                                       FontFamily="{StaticResource AppFont}"
+                                       TextTrimming="CharacterEllipsis"/>
+                            <TextBlock Text="{Binding ProgresoPorcentaje, StringFormat={}{0:F0}%}" 
+                                       FontWeight="Bold" FontSize="12"
+                                       Foreground="{StaticResource UisGreenBrush}"
+                                       DockPanel.Dock="Right" HorizontalAlignment="Right"/>
+                        </DockPanel>
+                        <ProgressBar Value="{Binding ProgresoPorcentaje}" Minimum="0" Maximum="100" 
+                                     Style="{StaticResource ModernProgressBar}" Height="6" Margin="0,0,0,6"/>
+                        <TextBlock Text="{Binding ProgresoDetalle}" FontSize="11" 
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   FontFamily="{StaticResource AppFont}"
+                                   TextTrimming="CharacterEllipsis"/>
                     </StackPanel>
                 </Border>
 

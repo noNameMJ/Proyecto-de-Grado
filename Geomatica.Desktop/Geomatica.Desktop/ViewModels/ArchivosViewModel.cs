@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -601,7 +601,7 @@ namespace Geomatica.Desktop.ViewModels
 
         private static readonly HashSet<string> FormatosSoportadosMapa = new(StringComparer.OrdinalIgnoreCase)
         {
-            ".shp", ".kml", ".kmz", ".gdb", ".geodatabase", ".slpk", ".las", ".laz", ".zlas", ".tif", ".tiff"
+            ".shp", ".kml", ".kmz", ".gdb", ".geodatabase", ".slpk", ".las", ".laz", ".zlas", ".tif", ".tiff", ".gpkg"
         };
 
         public static bool EsFormatoSoportadoMapa(NodoArchivoVirtual? nodo)

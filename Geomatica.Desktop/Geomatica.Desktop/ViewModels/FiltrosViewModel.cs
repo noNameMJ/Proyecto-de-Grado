@@ -20,7 +20,12 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty] private DepartamentoItem? selectedDepartamento;
         [ObservableProperty] private bool isBuscando;
 
-        public bool NoHayResultados => !IsBuscando && ResultadosLista.Count == 0;
+        // Manejo Resiliente de Desconexión / Reconexión a PostgreSQL
+        [ObservableProperty] private bool isErrorConexionDb;
+        [ObservableProperty] private string mensajeErrorConexion = "Sin conexión a la base de datos PostgreSQL. Verifique su red/VPN.";
+        [ObservableProperty] private bool isReintentandoConexion;
+
+        public bool NoHayResultados => !IsBuscando && !IsErrorConexionDb && ResultadosLista.Count == 0;
         public ObservableCollection<DepartamentoItem> Departamentos { get; } = new();
         public ObservableCollection<object> Areas { get; } = new();
 
@@ -32,6 +37,7 @@ namespace Geomatica.Desktop.ViewModels
         public IRelayCommand LimpiarFiltrosCommand { get; }
         public IRelayCommand LimpiarDesdeCommand { get; }
         public IRelayCommand LimpiarHastaCommand { get; }
+        public IAsyncRelayCommand ReintentarConexionCommand { get; }
 
         public event EventHandler? BuscarSolicitado;
         public event EventHandler<ProyectoItem>? ProyectoSeleccionadoEnMapa;
@@ -44,6 +50,7 @@ namespace Geomatica.Desktop.ViewModels
             LimpiarFiltrosCommand = new RelayCommand(LimpiarFiltros);
             LimpiarDesdeCommand = new RelayCommand(() => Desde = null);
             LimpiarHastaCommand = new RelayCommand(() => Hasta = null);
+            ReintentarConexionCommand = new AsyncRelayCommand(ReintentarConexionAsync);
 
             if (_municipioRepository != null)
                 _ = CargarDepartamentosAsync();
@@ -93,12 +100,57 @@ namespace Geomatica.Desktop.ViewModels
             OnPropertyChanged(nameof(NoHayResultados));
         }
 
+        public void NotificarErrorConexion(string mensaje)
+        {
+            IsBuscando = false;
+            IsErrorConexionDb = true;
+            MensajeErrorConexion = mensaje;
+            OnPropertyChanged(nameof(NoHayResultados));
+        }
+
+        public async Task ReintentarConexionAsync()
+        {
+            if (_municipioRepository == null) return;
+
+            IsReintentandoConexion = true;
+            try
+            {
+                // Intentar probar conectividad cargando departamentos
+                var deps = await _municipioRepository.ListarDepartamentosAsync();
+                
+                // Conexión exitosa
+                IsErrorConexionDb = false;
+                Departamentos.Clear();
+                Departamentos.Add(DepartamentoItem.Todos);
+                foreach (var d in deps)
+                {
+                    Departamentos.Add(new DepartamentoItem(d.Codigo, d.Nombre));
+                }
+                SelectedDepartamento = DepartamentoItem.Todos;
+
+                // Re-disparar búsqueda para repoblar proyectos
+                BuscarSolicitado?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                IsErrorConexionDb = true;
+                MensajeErrorConexion = $"Fallo al reconectar con PostgreSQL: {ex.Message}";
+            }
+            finally
+            {
+                IsReintentandoConexion = false;
+                OnPropertyChanged(nameof(NoHayResultados));
+            }
+        }
+
         private async Task CargarDepartamentosAsync()
         {
             if (_municipioRepository == null) return;
             try 
             {
                 var deps = await _municipioRepository.ListarDepartamentosAsync();
+                IsErrorConexionDb = false;
+                Departamentos.Clear();
                 Departamentos.Add(DepartamentoItem.Todos);
                 foreach(var d in deps)
                 {
@@ -110,6 +162,9 @@ namespace Geomatica.Desktop.ViewModels
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Error loading departments: {ex}");
+                IsErrorConexionDb = true;
+                MensajeErrorConexion = $"No se pudo conectar a PostgreSQL: {ex.Message}";
+                OnPropertyChanged(nameof(NoHayResultados));
             }
         }
 
@@ -145,11 +200,14 @@ namespace Geomatica.Desktop.ViewModels
 
                 // Seleccionar "— Todos —" por defecto en municipios
                 AreaInteres = MunicipioItem.Todos;
+                IsErrorConexionDb = false;
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"Error loading municipios: {ex}");
                 AreaInteres = null;
+                IsErrorConexionDb = true;
+                MensajeErrorConexion = $"Error de base de datos al listar municipios: {ex.Message}";
             }
 
             DebounceBuscar();
