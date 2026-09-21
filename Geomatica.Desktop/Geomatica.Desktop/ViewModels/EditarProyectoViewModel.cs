@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Geomatica.AppCore.UseCases;
 using Geomatica.Data.Repositories;
 using Geomatica.Domain.Interfaces.Repositories;
 using Geomatica.Desktop.Services;
@@ -20,15 +21,26 @@ namespace Geomatica.Desktop.ViewModels
         private readonly INotificationService? _notifications;
         private readonly Action _navigateBack;
         private readonly Action? _onProyectoEditado;
+        private readonly EliminarProyectoUseCase? _eliminarProyectoUseCase;
+        private readonly ProyectoArchivosService? _archivosService;
+        private readonly ProyectoDetalleDto _proyecto;
         private bool _isUpdatingProgrammatically;
 
         public int IdProyecto { get; }
+
+        public EvaluacionPermisos? PermisosCarpeta { get; }
+        public bool PuedeEscribir => PermisosCarpeta?.PuedeEscribir ?? true;
+        public bool EsSoloLecturaOAccesoRestringido => PermisosCarpeta != null && !PermisosCarpeta.PuedeEscribir;
+        public string MensajeRestriccion => PermisosCarpeta?.Mensaje ?? string.Empty;
 
         [ObservableProperty] private string titulo = string.Empty;
         [ObservableProperty] private string? descripcion;
         [ObservableProperty] private DateTime fechaInicio = DateTime.Today;
         [ObservableProperty] private string? palabraClave;
         [ObservableProperty] private string? ruta;
+        [ObservableProperty] private string? anioFinStr;
+        [ObservableProperty] private string? entidades;
+        [ObservableProperty] private string? representante;
         [ObservableProperty] private string? latStr;
         [ObservableProperty] private string? lonStr;
 
@@ -50,6 +62,7 @@ namespace Geomatica.Desktop.ViewModels
         public ObservableCollection<MunicipioItem> Municipios { get; } = new();
 
         public IAsyncRelayCommand GuardarCommand { get; }
+        public IAsyncRelayCommand EliminarCommand { get; }
         public IRelayCommand CancelarCommand { get; }
         public IRelayCommand SeleccionarCarpetaCommand { get; }
 
@@ -59,13 +72,23 @@ namespace Geomatica.Desktop.ViewModels
             ProyectoDetalleDto proyecto,
             Action navigateBack,
             Action? onProyectoEditado = null,
-            INotificationService? notifications = null)
+            EliminarProyectoUseCase? eliminarProyectoUseCase = null,
+            INotificationService? notifications = null,
+            ProyectoArchivosService? archivosService = null)
         {
             _proyectoRepository = proyectoRepository;
             _municipioRepository = municipioRepository;
             _notifications = notifications;
             _navigateBack = navigateBack;
             _onProyectoEditado = onProyectoEditado;
+            _eliminarProyectoUseCase = eliminarProyectoUseCase;
+            _archivosService = archivosService;
+            _proyecto = proyecto;
+
+            if (_archivosService != null && !string.IsNullOrWhiteSpace(proyecto.RutaArchivos))
+            {
+                PermisosCarpeta = _archivosService.EvaluarPermisosCarpeta(proyecto.RutaArchivos);
+            }
 
             IdProyecto = proyecto.Id;
             Titulo = proyecto.Titulo;
@@ -73,6 +96,9 @@ namespace Geomatica.Desktop.ViewModels
             FechaInicio = proyecto.Fecha ?? DateTime.Today;
             PalabraClave = proyecto.PalabraClave;
             Ruta = proyecto.RutaArchivos;
+            AnioFinStr = proyecto.AnioFin?.ToString();
+            Entidades = proyecto.Entidades;
+            Representante = proyecto.Representante;
             if (proyecto.Lat != 0 || proyecto.Lon != 0)
             {
                 LatStr = proyecto.Lat.ToString("F6", CultureInfo.InvariantCulture);
@@ -80,6 +106,7 @@ namespace Geomatica.Desktop.ViewModels
             }
 
             GuardarCommand = new AsyncRelayCommand(GuardarAsync);
+            EliminarCommand = new AsyncRelayCommand(EliminarProyectoAsync);
             CancelarCommand = new RelayCommand(_navigateBack);
             SeleccionarCarpetaCommand = new RelayCommand(SeleccionarCarpeta);
 
@@ -317,6 +344,16 @@ namespace Geomatica.Desktop.ViewModels
 
         private async Task GuardarAsync()
         {
+            if (_archivosService != null && !string.IsNullOrWhiteSpace(_proyecto.RutaArchivos))
+            {
+                var eval = _archivosService.EvaluarPermisosCarpeta(_proyecto.RutaArchivos);
+                if (!eval.PuedeEscribir)
+                {
+                    _notifications?.ShowError("No tiene permisos de escritura en la carpeta del servidor para guardar cambios en este proyecto (geomaticaad@uis.edu.co).", "Acceso Restringido");
+                    return;
+                }
+            }
+
             TituloInvalido = string.IsNullOrWhiteSpace(Titulo);
             if (TituloInvalido)
             {
@@ -359,6 +396,10 @@ namespace Geomatica.Desktop.ViewModels
 
             try
             {
+                string usuarioActual = System.Security.Principal.WindowsIdentity.GetCurrent()?.Name ?? Environment.UserName;
+                string equipoActual = Environment.MachineName;
+                int? anioFin = int.TryParse(AnioFinStr, out var af) ? af : null;
+
                 await _proyectoRepository.ActualizarAsync(
                     IdProyecto,
                     Titulo,
@@ -367,7 +408,12 @@ namespace Geomatica.Desktop.ViewModels
                     PalabraClave,
                     Ruta,
                     geom,
-                    SelectedMunicipio.Codigo
+                    SelectedMunicipio.Codigo,
+                    usuarioActual,
+                    equipoActual,
+                    anioFin,
+                    Entidades,
+                    Representante
                 );
 
                 _notifications?.ShowSuccess("Proyecto actualizado exitosamente.", "Proyecto Guardado");
@@ -377,6 +423,49 @@ namespace Geomatica.Desktop.ViewModels
             catch (Exception ex)
             {
                 _notifications?.ShowError($"Error actualizando proyecto: {ex.Message}", "Error al Actualizar");
+            }
+        }
+
+        private async Task EliminarProyectoAsync()
+        {
+            if (_eliminarProyectoUseCase == null)
+            {
+                _notifications?.ShowWarning("El servicio de eliminación no está disponible.", "Operación no disponible");
+                return;
+            }
+
+            if (_archivosService != null && !string.IsNullOrWhiteSpace(_proyecto.RutaArchivos))
+            {
+                var eval = _archivosService.EvaluarPermisosCarpeta(_proyecto.RutaArchivos);
+                if (!eval.PuedeEscribir)
+                {
+                    _notifications?.ShowError("No tiene permisos de escritura en la carpeta del servidor para eliminar este proyecto (geomaticaad@uis.edu.co).", "Acceso Restringido");
+                    return;
+                }
+            }
+
+            var confirmResult = MessageBox.Show(
+                $"¿Está seguro de que desea eliminar el proyecto '{Titulo}'?\n\nEsta acción eliminará el registro y sus metadatos del sistema (los archivos físicos en disco no serán borrados).",
+                "Confirmar Eliminación",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Warning);
+
+            if (confirmResult != MessageBoxResult.Yes)
+                return;
+
+            try
+            {
+                string usuarioActual = System.Security.Principal.WindowsIdentity.GetCurrent()?.Name ?? Environment.UserName;
+                string equipoActual = Environment.MachineName;
+
+                await _eliminarProyectoUseCase.EjecutarAsync(IdProyecto, usuarioActual, equipoActual);
+                _notifications?.ShowSuccess($"El proyecto '{Titulo}' ha sido eliminado exitosamente.", "Proyecto Eliminado");
+                _onProyectoEditado?.Invoke();
+                _navigateBack();
+            }
+            catch (Exception ex)
+            {
+                _notifications?.ShowError($"Error al eliminar el proyecto: {ex.Message}", "Error de Eliminación");
             }
         }
 

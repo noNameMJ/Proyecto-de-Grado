@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -17,7 +17,7 @@ namespace Geomatica.Desktop.ViewModels
         private readonly ProyectoArchivosService _archivosService;
         private readonly IProyectoRepository _proyectoRepository;
         private readonly INotificationService? _notifications;
-        
+
         public FiltrosViewModel? Filtros => _filtros;
 
         // La ruta real física donde reside el proyecto completo
@@ -25,7 +25,7 @@ namespace Geomatica.Desktop.ViewModels
 
         // En la UI mostramos la ruta relativa virtual. Vacio ("") es la raíz del proyecto.
         [ObservableProperty] private string rutaActual = "";
-        
+
         [ObservableProperty] private string busquedaTexto = "";
 
         public ObservableCollection<object> Items { get; } = new();
@@ -34,7 +34,27 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty] private object? selectedEntry;
         [ObservableProperty] private string estado = "";
 
+        [ObservableProperty] private EvaluacionPermisos? permisosCarpeta;
+        [ObservableProperty] private bool isAccesoRestringido;
+        [ObservableProperty] private bool isSoloLectura;
+        [ObservableProperty] private string mensajeRestriccion = "";
+        [ObservableProperty] private bool puedeEscribir = true;
+        [ObservableProperty] private bool puedeLeerArchivos = true;
         [ObservableProperty] private bool canPaste;
+
+        partial void OnPuedeEscribirChanged(bool value)
+        {
+            OnPropertyChanged(nameof(PuedeModificarSeleccionado));
+            OnPropertyChanged(nameof(CanPasteEfectivo));
+        }
+
+        partial void OnCanPasteChanged(bool value)
+        {
+            OnPropertyChanged(nameof(CanPasteEfectivo));
+        }
+
+        public bool PuedeModificarSeleccionado => IsElementoSeleccionado && PuedeEscribir;
+        public bool CanPasteEfectivo => CanPaste && PuedeEscribir;
 
         partial void OnSeleccionadoChanged(NodoArchivoVirtual? value)
         {
@@ -43,6 +63,7 @@ namespace Geomatica.Desktop.ViewModels
             OnPropertyChanged(nameof(IsCarpetaSeleccionada));
             OnPropertyChanged(nameof(IsFormatoMapaSeleccionado));
             OnPropertyChanged(nameof(NombreSeleccionado));
+            OnPropertyChanged(nameof(PuedeModificarSeleccionado));
         }
 
         public bool IsElementoSeleccionado => Seleccionado != null;
@@ -67,6 +88,58 @@ namespace Geomatica.Desktop.ViewModels
             {
                 CanPaste = _clipboardOp != ClipboardOp.None;
             }
+            OnPropertyChanged(nameof(CanPasteEfectivo));
+        }
+
+        public record FiltroExtensionOption(string Extension, string Etiqueta, string Icono = "📁", int Cantidad = 0)
+        {
+            public string DisplayTexto => string.IsNullOrEmpty(Extension) ? Etiqueta : $"{Icono} .{Extension.TrimStart('.').ToUpperInvariant()} ({Cantidad})";
+            public override string ToString() => DisplayTexto;
+        }
+
+        public ObservableCollection<FiltroExtensionOption> ExtensionesDisponibles { get; } = new();
+
+        [ObservableProperty]
+        private FiltroExtensionOption? _filtroExtensionSeleccionado;
+
+        [ObservableProperty]
+        private bool _isFiltradoPorExtension;
+
+        [ObservableProperty]
+        private string _bannerFiltroTexto = "";
+
+        partial void OnFiltroExtensionSeleccionadoChanged(FiltroExtensionOption? value)
+        {
+            RefrescarSegunFiltros();
+        }
+
+        [RelayCommand]
+        public void LimpiarFiltroExtension()
+        {
+            var opcionTodos = ExtensionesDisponibles.FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
+            FiltroExtensionSeleccionado = opcionTodos;
+        }
+
+        public void FiltrarPorExtension(string extension)
+        {
+            if (string.IsNullOrWhiteSpace(extension))
+            {
+                LimpiarFiltroExtension();
+                return;
+            }
+
+            string extNorm = extension.StartsWith('.') ? extension.ToLowerInvariant() : "." + extension.ToLowerInvariant();
+            var match = ExtensionesDisponibles.FirstOrDefault(e => e.Extension.Equals(extNorm, StringComparison.OrdinalIgnoreCase));
+            if (match != null)
+            {
+                FiltroExtensionSeleccionado = match;
+            }
+            else
+            {
+                var nuevaOpcion = new FiltroExtensionOption(extNorm, extNorm.ToUpperInvariant(), "📄", 0);
+                ExtensionesDisponibles.Add(nuevaOpcion);
+                FiltroExtensionSeleccionado = nuevaOpcion;
+            }
         }
 
         [ObservableProperty] private FichaProyectoViewModel? proyectoDetalle;
@@ -88,24 +161,88 @@ namespace Geomatica.Desktop.ViewModels
         }
 
         public bool HasProyectoDetalle => ProyectoDetalle != null;
-        public bool ShowEmptyState => Items.Count == 0 && string.IsNullOrWhiteSpace(_rutaRaizProyecto);
+        public bool ShowEmptyState => Items.Count == 0 && string.IsNullOrWhiteSpace(_rutaRaizProyecto) && !IsAccesoRestringido;
 
-        partial void OnProyectoDetalleChanged(FichaProyectoViewModel? value)
+        partial void OnProyectoDetalleChanged(FichaProyectoViewModel? oldValue, FichaProyectoViewModel? newValue)
         {
-            OnPropertyChanged(nameof(HasProyectoDetalle));
-            if (value != null && !string.IsNullOrWhiteSpace(value.RutaArchivos))
+            if (oldValue != null)
             {
-                _rutaRaizProyecto = value.RutaArchivos;
-                if (RutaActual == "") RefrescarSegunFiltros();
-                else RutaActual = ""; // raíz virtual
+                oldValue.ExtensionSeleccionadaParaFiltrado -= Ficha_ExtensionSeleccionadaParaFiltrado;
+                oldValue.PropertyChanged -= Ficha_PropertyChanged;
+            }
+
+            OnPropertyChanged(nameof(HasProyectoDetalle));
+            if (newValue != null)
+            {
+                newValue.ExtensionSeleccionadaParaFiltrado += Ficha_ExtensionSeleccionadaParaFiltrado;
+                newValue.PropertyChanged += Ficha_PropertyChanged;
+
+                ActualizarExtensionesDisponibles(newValue);
+
+                if (!string.IsNullOrWhiteSpace(newValue.RutaArchivos))
+                {
+                    _rutaRaizProyecto = newValue.RutaArchivos;
+                    if (RutaActual == "") RefrescarSegunFiltros();
+                    else RutaActual = ""; // raíz virtual
+                }
+            }
+            else
+            {
+                ExtensionesDisponibles.Clear();
+                FiltroExtensionSeleccionado = null;
+                IsFiltradoPorExtension = false;
+                BannerFiltroTexto = "";
+            }
+        }
+
+        private void Ficha_ExtensionSeleccionadaParaFiltrado(object? sender, string extension)
+        {
+            FiltrarPorExtension(extension);
+        }
+
+        private void Ficha_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
+        {
+            if (sender is FichaProyectoViewModel ficha &&
+                (e.PropertyName == nameof(FichaProyectoViewModel.HasExtensionesDetectadas) ||
+                 e.PropertyName == nameof(FichaProyectoViewModel.TotalArchivosDetectados)))
+            {
+                ActualizarExtensionesDisponibles(ficha);
+            }
+        }
+
+        public void ActualizarExtensionesDisponibles(FichaProyectoViewModel ficha)
+        {
+            var seleccionadoActual = FiltroExtensionSeleccionado?.Extension;
+
+            ExtensionesDisponibles.Clear();
+            ExtensionesDisponibles.Add(new FiltroExtensionOption("", "Todos los archivos", "📁", 0));
+
+            foreach (var ext in ficha.ExtensionesDetectadas)
+            {
+                ExtensionesDisponibles.Add(new FiltroExtensionOption(
+                    Extension: ext.Extension,
+                    Etiqueta: ext.TextoBadge,
+                    Icono: ext.Icono,
+                    Cantidad: ext.CantidadArchivos
+                ));
+            }
+
+            if (!string.IsNullOrEmpty(seleccionadoActual))
+            {
+                var match = ExtensionesDisponibles.FirstOrDefault(e => e.Extension.Equals(seleccionadoActual, StringComparison.OrdinalIgnoreCase));
+                FiltroExtensionSeleccionado = match ?? ExtensionesDisponibles[0];
+            }
+            else
+            {
+                FiltroExtensionSeleccionado = ExtensionesDisponibles[0];
             }
         }
 
         public event EventHandler<string>? AbrirEnMapaSolicitado;
 
         public ArchivosViewModel(
-            FiltrosViewModel filtros, 
-            ProyectoArchivosService archivosService, 
+            FiltrosViewModel filtros,
+            ProyectoArchivosService archivosService,
             IProyectoRepository proyectoRepository,
             INotificationService? notifications = null)
         {
@@ -179,11 +316,48 @@ namespace Geomatica.Desktop.ViewModels
             {
                 if (string.IsNullOrWhiteSpace(_rutaRaizProyecto))
                 {
+                    PermisosCarpeta = null;
+                    IsAccesoRestringido = false;
+                    IsSoloLectura = false;
+                    PuedeEscribir = false;
+                    PuedeLeerArchivos = false;
+                    MensajeRestriccion = "";
                     Estado = "";
+                    OnPropertyChanged(nameof(ShowEmptyState));
                     return;
                 }
 
-                var nodos = _archivosService.ListarContenidoVirtual(_rutaRaizProyecto, RutaActual);
+                var eval = _archivosService.EvaluarPermisosCarpeta(_rutaRaizProyecto);
+                PermisosCarpeta = eval;
+                PuedeEscribir = eval.PuedeEscribir;
+                PuedeLeerArchivos = eval.PuedeLeer;
+                IsAccesoRestringido = eval.Estado == EstadoPermisoCarpeta.AccesoRestringido;
+                IsSoloLectura = eval.Estado == EstadoPermisoCarpeta.SoloLectura;
+                MensajeRestriccion = eval.Mensaje;
+
+                if (!eval.PuedeLeer)
+                {
+                    Estado = eval.BadgeTexto;
+                    OnPropertyChanged(nameof(ShowEmptyState));
+                    return;
+                }
+
+                bool hayFiltroExtension = FiltroExtensionSeleccionado != null && !string.IsNullOrEmpty(FiltroExtensionSeleccionado.Extension);
+                IsFiltradoPorExtension = hayFiltroExtension;
+
+                List<NodoArchivoVirtual> nodos;
+                if (hayFiltroExtension)
+                {
+                    var archivosFiltrados = _archivosService.ListarArchivosPorExtension(_rutaRaizProyecto, FiltroExtensionSeleccionado!.Extension);
+                    nodos = archivosFiltrados.Cast<NodoArchivoVirtual>().ToList();
+                    string extMayus = FiltroExtensionSeleccionado.Extension.TrimStart('.').ToUpperInvariant();
+                    BannerFiltroTexto = $"Mostrando {nodos.Count} archivo(s) con formato .{extMayus} encontrados en todo el proyecto.";
+                }
+                else
+                {
+                    BannerFiltroTexto = "";
+                    nodos = _archivosService.ListarContenidoVirtual(_rutaRaizProyecto, RutaActual);
+                }
 
                 // Aplicar filtros locales si existen
                 if (!string.IsNullOrWhiteSpace(_filtros?.PalabraClave))
@@ -194,7 +368,7 @@ namespace Geomatica.Desktop.ViewModels
                 // Aplicar búsqueda específica en archivos
                 if (!string.IsNullOrWhiteSpace(BusquedaTexto))
                 {
-                    nodos = nodos.Where(n => n.Nombre.Contains(BusquedaTexto, StringComparison.OrdinalIgnoreCase)).ToList();
+                    nodos = nodos.Where(n => n.Nombre.Contains(BusquedaTexto, StringComparison.OrdinalIgnoreCase) || n.RutaRelativaVirtual.Contains(BusquedaTexto, StringComparison.OrdinalIgnoreCase)).ToList();
                 }
 
                 foreach (var nodo in nodos)
@@ -202,12 +376,30 @@ namespace Geomatica.Desktop.ViewModels
                     Items.Add(nodo);
                 }
 
-                Estado = $"{Items.Count} elementos";
+                if (hayFiltroExtension)
+                {
+                    string extMayus = FiltroExtensionSeleccionado!.Extension.TrimStart('.').ToUpperInvariant();
+                    Estado = $"Filtro .{extMayus}: {Items.Count} archivo(s) listado(s)";
+                }
+                else
+                {
+                    Estado = IsSoloLectura ? $"{Items.Count} elementos (Solo Lectura)" : $"{Items.Count} elementos";
+                }
                 OnPropertyChanged(nameof(ShowEmptyState));
             }
-            catch (Exception ex) 
-            { 
-                Estado = ex.Message; 
+            catch (UnauthorizedAccessException)
+            {
+                IsAccesoRestringido = true;
+                PuedeEscribir = false;
+                PuedeLeerArchivos = false;
+                MensajeRestriccion = "Acceso restringido: Su usuario en geomaticaad@uis.edu.co no cuenta con permisos en el servidor para esta carpeta.";
+                Estado = "🔒 Acceso restringido (UIS)";
+                OnPropertyChanged(nameof(ShowEmptyState));
+            }
+            catch (Exception ex)
+            {
+                Estado = ex.Message;
+                OnPropertyChanged(nameof(ShowEmptyState));
             }
         }
 
@@ -249,6 +441,12 @@ namespace Geomatica.Desktop.ViewModels
             if (string.IsNullOrWhiteSpace(_rutaRaizProyecto))
             {
                 _notifications?.ShowWarning("Debe seleccionar un proyecto válido primero.", "Archivos");
+                return;
+            }
+
+            if (!PuedeEscribir)
+            {
+                _notifications?.ShowWarning("No tiene permisos de escritura en la carpeta del servidor para agregar archivos (geomaticaad@uis.edu.co).", "Acceso Restringido");
                 return;
             }
 
@@ -303,6 +501,12 @@ namespace Geomatica.Desktop.ViewModels
         {
             if (nodoAMover == null || string.IsNullOrWhiteSpace(_rutaRaizProyecto))
                 return false;
+
+            if (!PuedeEscribir)
+            {
+                _notifications?.ShowWarning("No tiene permisos de escritura en la carpeta del servidor para mover elementos (geomaticaad@uis.edu.co).", "Acceso Restringido");
+                return false;
+            }
 
             try
             {
@@ -439,6 +643,12 @@ namespace Geomatica.Desktop.ViewModels
                 return;
             }
 
+            if (!PuedeEscribir)
+            {
+                _notifications?.ShowWarning("No tiene permisos de escritura en la carpeta del servidor para subir archivos (geomaticaad@uis.edu.co).", "Acceso Restringido");
+                return;
+            }
+
             string rutaFisica = Path.Combine(_rutaRaizProyecto, RutaActual.TrimStart('/', '\\'));
             if (!Directory.Exists(rutaFisica))
             {
@@ -495,6 +705,12 @@ namespace Geomatica.Desktop.ViewModels
             if (string.IsNullOrWhiteSpace(_rutaRaizProyecto))
             {
                 _notifications?.ShowWarning("Debe seleccionar un proyecto válido primero.", "Archivos");
+                return;
+            }
+
+            if (!PuedeEscribir)
+            {
+                _notifications?.ShowWarning("No tiene permisos de escritura en la carpeta del servidor para crear carpetas (geomaticaad@uis.edu.co).", "Acceso Restringido");
                 return;
             }
 
@@ -638,7 +854,7 @@ namespace Geomatica.Desktop.ViewModels
         private void Abrir()
         {
             if (Seleccionado == null) return;
-            try 
+            try
             {
                 if (Seleccionado is CarpetaVirtual carpeta)
                 {
@@ -650,7 +866,7 @@ namespace Geomatica.Desktop.ViewModels
                     // Copiar a temp para proteger el original y evitar bloqueos en red
                     string dest = Path.Combine(Path.GetTempPath(), archivo.Nombre);
                     File.Copy(rutaFisica, dest, true);
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dest) { UseShellExecute = true }); 
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(dest) { UseShellExecute = true });
                 }
             }
             catch (Exception ex) { Estado = ex.Message; }
@@ -660,7 +876,13 @@ namespace Geomatica.Desktop.ViewModels
         private void Eliminar()
         {
             if (Seleccionado == null) return;
-            
+
+            if (!PuedeEscribir)
+            {
+                _notifications?.ShowWarning("No tiene permisos de escritura en la carpeta del servidor para eliminar elementos (geomaticaad@uis.edu.co).", "Acceso Restringido");
+                return;
+            }
+
             var tipo = Seleccionado is CarpetaVirtual ? "la carpeta" : "el archivo";
             var result = MessageBox.Show(
                 $"¿Está seguro de que desea eliminar {tipo} '{Seleccionado.Nombre}'?\n\nEsta acción no se puede deshacer.",
@@ -668,9 +890,9 @@ namespace Geomatica.Desktop.ViewModels
                 MessageBoxButton.YesNo,
                 MessageBoxImage.Warning);
             if (result != MessageBoxResult.Yes) return;
-            
-            try 
-            { 
+
+            try
+            {
                 string rutaFisica = Path.Combine(_rutaRaizProyecto, Seleccionado.RutaRelativaVirtual.TrimStart('/', '\\'));
                 if (Seleccionado is CarpetaVirtual)
                 {
@@ -690,7 +912,7 @@ namespace Geomatica.Desktop.ViewModels
                 {
                     File.Delete(rutaFisica);
                 }
-                RefrescarSegunFiltros(); 
+                RefrescarSegunFiltros();
             }
             catch (Exception ex) { Estado = ex.Message; }
         }
@@ -730,6 +952,13 @@ namespace Geomatica.Desktop.ViewModels
         private void Cortar()
         {
             if (Seleccionado == null || string.IsNullOrWhiteSpace(_rutaRaizProyecto)) return;
+
+            if (!PuedeEscribir)
+            {
+                _notifications?.ShowWarning("No tiene permisos de escritura en la carpeta del servidor para mover elementos (geomaticaad@uis.edu.co).", "Acceso Restringido");
+                return;
+            }
+
             string rutaFisica = ObtenerRutaFisica(Seleccionado);
             if (!File.Exists(rutaFisica) && !Directory.Exists(rutaFisica)) return;
 
@@ -748,6 +977,12 @@ namespace Geomatica.Desktop.ViewModels
             if (string.IsNullOrWhiteSpace(_rutaRaizProyecto))
             {
                 _notifications?.ShowWarning("Debe seleccionar un proyecto válido primero.", "Archivos");
+                return;
+            }
+
+            if (!PuedeEscribir)
+            {
+                _notifications?.ShowWarning("No tiene permisos de escritura en la carpeta del servidor para pegar o modificar archivos (geomaticaad@uis.edu.co).", "Acceso Restringido");
                 return;
             }
 
@@ -891,6 +1126,13 @@ namespace Geomatica.Desktop.ViewModels
         private void Renombrar()
         {
             if (Seleccionado == null || string.IsNullOrWhiteSpace(_rutaRaizProyecto)) return;
+
+            if (!PuedeEscribir)
+            {
+                _notifications?.ShowWarning("No tiene permisos de escritura en la carpeta del servidor para renombrar elementos (geomaticaad@uis.edu.co).", "Acceso Restringido");
+                return;
+            }
+
             string rutaFisica = ObtenerRutaFisica(Seleccionado);
             if (!File.Exists(rutaFisica) && !Directory.Exists(rutaFisica))
             {
@@ -919,18 +1161,18 @@ namespace Geomatica.Desktop.ViewModels
             };
 
             var stack = new System.Windows.Controls.StackPanel { Margin = new Thickness(15) };
-            stack.Children.Add(new System.Windows.Controls.TextBlock 
-            { 
-                Text = $"Nuevo nombre para '{Seleccionado.Nombre}':", 
+            stack.Children.Add(new System.Windows.Controls.TextBlock
+            {
+                Text = $"Nuevo nombre para '{Seleccionado.Nombre}':",
                 Margin = new Thickness(0, 0, 0, 10),
                 FontWeight = FontWeights.SemiBold
             });
 
-            var txtNombre = new System.Windows.Controls.TextBox 
-            { 
-                Text = Seleccionado.Nombre, 
-                Margin = new Thickness(0, 0, 0, 15), 
-                Padding = new Thickness(3) 
+            var txtNombre = new System.Windows.Controls.TextBox
+            {
+                Text = Seleccionado.Nombre,
+                Margin = new Thickness(0, 0, 0, 15),
+                Padding = new Thickness(3)
             };
             if (Application.Current != null && Application.Current.MainWindow != null)
                 txtNombre.FontFamily = Application.Current.MainWindow.FontFamily;

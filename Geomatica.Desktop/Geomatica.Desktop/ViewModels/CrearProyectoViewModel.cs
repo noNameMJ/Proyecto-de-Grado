@@ -28,6 +28,9 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty] private DateTime fechaInicio = DateTime.Today;
         [ObservableProperty] private string? palabraClave;
         [ObservableProperty] private string? ruta;
+        [ObservableProperty] private string? anioFinStr;
+        [ObservableProperty] private string? entidades;
+        [ObservableProperty] private string? representante;
 
         [ObservableProperty] private string? latStr;
         [ObservableProperty] private string? lonStr;
@@ -326,6 +329,10 @@ namespace Geomatica.Desktop.ViewModels
 
             try
             {
+                string usuarioActual = System.Security.Principal.WindowsIdentity.GetCurrent()?.Name ?? Environment.UserName;
+                string equipoActual = Environment.MachineName;
+                int? anioFin = int.TryParse(AnioFinStr, out var af) ? af : null;
+
                 await _proyectoRepository.InsertarAsync(
                     Titulo, 
                     Descripcion,
@@ -333,7 +340,12 @@ namespace Geomatica.Desktop.ViewModels
                     PalabraClave, 
                     Ruta, 
                     geom, 
-                    SelectedMunicipio.Codigo
+                    SelectedMunicipio.Codigo,
+                    usuarioActual,
+                    equipoActual,
+                    anioFin,
+                    Entidades,
+                    Representante
                 );
 
                 _notifications?.ShowSuccess("Proyecto creado exitosamente.", "Proyecto Creado");

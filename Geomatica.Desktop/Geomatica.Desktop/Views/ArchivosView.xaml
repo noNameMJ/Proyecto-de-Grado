@@ -32,32 +32,41 @@
                 Padding="10,6">
             <DockPanel LastChildFill="True">
                 <!-- Botón Arriba a la izquierda (permite soltar para mover a la carpeta superior) -->
-                <Button x:Name="btnArriba" Content="⬆  Arriba" Command="{Binding ArribaCommand}" 
+                <Button x:Name="btnArriba" Content="⬆  Arriba" Command="{Binding ArribaCommand}"
                         Style="{StaticResource ToolbarButton}" Width="85" DockPanel.Dock="Left"
                         ToolTip="Subir al nivel superior de carpetas (o arrastre un archivo aquí para moverlo arriba)"
                         AllowDrop="True" Drop="BtnArriba_Drop" DragOver="BtnArriba_DragOver" DragLeave="BtnArriba_DragLeave"/>
                 <Rectangle Width="1" Height="20" Fill="{StaticResource SeparatorBrush}" Margin="8,0" DockPanel.Dock="Left"/>
-                <TextBlock Text="Ruta:" VerticalAlignment="Center" FontWeight="SemiBold" 
+                <TextBlock Text="Ruta:" VerticalAlignment="Center" FontWeight="SemiBold"
                            Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
                            FontFamily="{StaticResource AppFont}" Margin="0,0,6,0" DockPanel.Dock="Left"/>
-                
-                <!-- Acciones derecha: Buscador y Botón Extender -->
+
+                <!-- Acciones derecha: Filtro de Tipo, Buscador y Botón Extender -->
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" Margin="8,0,0,0">
-                    <TextBlock Text="Buscar:" VerticalAlignment="Center" FontWeight="SemiBold" 
+                    <TextBlock Text="Tipo:" VerticalAlignment="Center" FontWeight="SemiBold"
                                Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
                                FontFamily="{StaticResource AppFont}" Margin="0,0,6,0"/>
-                    <TextBox Width="120" VerticalAlignment="Center" 
-                             Text="{Binding BusquedaTexto, UpdateSourceTrigger=PropertyChanged}" 
+                    <ComboBox ItemsSource="{Binding ExtensionesDisponibles}"
+                              SelectedItem="{Binding FiltroExtensionSeleccionado, Mode=TwoWay}"
+                              DisplayMemberPath="DisplayTexto"
+                              Width="140" VerticalAlignment="Center"
+                              ToolTip="Filtrar y listar archivos por extensión en todo el proyecto"
+                              Margin="0,0,8,0" Padding="4,2"/>
+                    <TextBlock Text="Buscar:" VerticalAlignment="Center" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
+                               FontFamily="{StaticResource AppFont}" Margin="0,0,6,0"/>
+                    <TextBox Width="110" VerticalAlignment="Center"
+                             Text="{Binding BusquedaTexto, UpdateSourceTrigger=PropertyChanged}"
                              Style="{StaticResource ModernTextBox}" Padding="6,3"/>
                     <Rectangle Width="1" Height="20" Fill="{StaticResource SeparatorBrush}" Margin="8,0"/>
-                    <Button Content="{Binding ExtenderBotonTexto}" Command="{Binding ToggleExtenderCommand}" 
+                    <Button Content="{Binding ExtenderBotonTexto}" Command="{Binding ToggleExtenderCommand}"
                             Style="{StaticResource ToolbarButton}" ToolTip="{Binding ExtenderBotonTooltip}"
                             Padding="8,3" FontWeight="SemiBold"/>
                 </StackPanel>
 
                 <!-- Path takes remaining space -->
-                <TextBlock Text="{Binding RutaActual, TargetNullValue='(raíz del proyecto)'}" 
-                           VerticalAlignment="Center" 
+                <TextBlock Text="{Binding RutaActual, TargetNullValue='(raíz del proyecto)'}"
+                           VerticalAlignment="Center"
                            TextTrimming="CharacterEllipsis" FontSize="12"
                            Foreground="{StaticResource TextPrimaryBrush}"
                            FontFamily="{StaticResource AppFont}"
@@ -67,9 +76,30 @@
 
         <!-- ══════ File list with GridView columns ══════ -->
         <Grid Grid.Row="1">
-            <ListView x:Name="listViewArchivos"
-                      ItemsSource="{Binding Items}" 
-                      MouseDoubleClick="ListView_MouseDoubleClick" 
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <!-- Banner de Filtro Activo por Extensión -->
+            <Border Grid.Row="0" Background="#E8F0FE" BorderBrush="#B8D4FE" BorderThickness="0,0,0,1"
+                    Padding="10,6" Visibility="{Binding IsFiltradoPorExtension, Converter={StaticResource BoolToVis}}">
+                <DockPanel LastChildFill="True">
+                    <Button Content="✕ Quitar filtro" Command="{Binding LimpiarFiltroExtensionCommand}"
+                            DockPanel.Dock="Right" Style="{StaticResource ToolbarButton}"
+                            Foreground="#174EA6" FontWeight="SemiBold" Padding="8,2" FontSize="11.5"
+                            ToolTip="Restablecer navegación habitual por carpetas"/>
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <TextBlock Text="🔎 " FontSize="12" VerticalAlignment="Center"/>
+                        <TextBlock Text="{Binding BannerFiltroTexto}" FontSize="12" FontWeight="SemiBold"
+                                   Foreground="#174EA6" FontFamily="{StaticResource AppFont}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </DockPanel>
+            </Border>
+
+            <ListView Grid.Row="1" x:Name="listViewArchivos"
+                      ItemsSource="{Binding Items}"
+                      MouseDoubleClick="ListView_MouseDoubleClick"
                       ContextMenuOpening="ListView_ContextMenuOpening"
                       PreviewMouseLeftButtonDown="ListView_PreviewMouseLeftButtonDown"
                       PreviewMouseMove="ListView_PreviewMouseMove"
@@ -115,19 +145,22 @@
 
                         <!-- Operaciones de portapapeles y archivos -->
                         <MenuItem Header="✂️  Cortar / Mover" Command="{Binding CortarCommand}" InputGestureText="Ctrl+X"
-                                  Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+                                  Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"
+                                  IsEnabled="{Binding PuedeModificarSeleccionado}"/>
                         <MenuItem Header="📋  Copiar" Command="{Binding CopiarCommand}" InputGestureText="Ctrl+C"
                                   Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
                         <MenuItem Header="📥  Pegar" Command="{Binding PegarCommand}" InputGestureText="Ctrl+V"
-                                  IsEnabled="{Binding CanPaste}"/>
+                                  IsEnabled="{Binding CanPasteEfectivo}"/>
 
                         <Separator/>
 
                         <!-- Gestión: Renombrar y Eliminar -->
                         <MenuItem Header="✏️  Renombrar" Command="{Binding RenombrarCommand}" InputGestureText="F2"
-                                  Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+                                  Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"
+                                  IsEnabled="{Binding PuedeModificarSeleccionado}"/>
                         <MenuItem Header="🗑️  Eliminar" Command="{Binding EliminarCommand}" InputGestureText="Supr"
-                                  Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
+                                  Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"
+                                  IsEnabled="{Binding PuedeModificarSeleccionado}"/>
 
                         <Separator Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
 
@@ -138,15 +171,17 @@
 
                         <!-- Opciones de directorio / fondo vacío -->
                         <Separator/>
-                        <MenuItem Header="➕  Subir archivo(s)..." Command="{Binding SubirCommand}"/>
-                        <MenuItem Header="📁  Nueva carpeta..." Command="{Binding NuevaCarpetaCommand}"/>
+                        <MenuItem Header="➕  Subir archivo(s)..." Command="{Binding SubirCommand}"
+                                  IsEnabled="{Binding PuedeEscribir}"/>
+                        <MenuItem Header="📁  Nueva carpeta..." Command="{Binding NuevaCarpetaCommand}"
+                                  IsEnabled="{Binding PuedeEscribir}"/>
                         <MenuItem Header="🔄  Actualizar" Command="{Binding RefrescarCommand}" InputGestureText="F5"/>
                     </ContextMenu>
                 </ListView.ContextMenu>
 
                 <ListView.View>
                     <GridView>
-                        <GridViewColumn Header="Nombre" Width="260">
+                        <GridViewColumn Header="Nombre" Width="230">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">
@@ -167,9 +202,10 @@
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>
-                        <GridViewColumn Header="Tamaño" Width="90" DisplayMemberBinding="{Binding TamanoTexto}"/>
-                        <GridViewColumn Header="Modificado" Width="130" DisplayMemberBinding="{Binding FechaTexto}"/>
-                        <GridViewColumn Header="Tipo" Width="80" DisplayMemberBinding="{Binding Extension}"/>
+                        <GridViewColumn Header="Ubicación" Width="170" DisplayMemberBinding="{Binding UbicacionRelativa}"/>
+                        <GridViewColumn Header="Tamaño" Width="85" DisplayMemberBinding="{Binding TamanoTexto}"/>
+                        <GridViewColumn Header="Modificado" Width="125" DisplayMemberBinding="{Binding FechaTexto}"/>
+                        <GridViewColumn Header="Tipo" Width="70" DisplayMemberBinding="{Binding Extension}"/>
                     </GridView>
                 </ListView.View>
                 <ListView.ItemContainerStyle>
@@ -183,9 +219,25 @@
             </ListView>
 
             <!-- Estado vacío -->
-            <TextBlock Text="Seleccione un proyecto para ver sus archivos" 
+            <TextBlock Grid.RowSpan="2" Text="Seleccione un proyecto para ver sus archivos"
                        Style="{StaticResource EmptyStateText}"
                        Visibility="{Binding ShowEmptyState, Converter={StaticResource BoolToVis}}"/>
+
+            <!-- Banner / Tarjeta de Acceso Restringido (UIS Active Directory) -->
+            <Border Grid.RowSpan="2" Visibility="{Binding IsAccesoRestringido, Converter={StaticResource BoolToVis}}"
+                    Background="#FFEBEE" BorderBrush="#FFCDD2" BorderThickness="1" CornerRadius="8"
+                    Padding="24,20" Margin="30" HorizontalAlignment="Center" VerticalAlignment="Center"
+                    MaxWidth="520">
+                <StackPanel HorizontalAlignment="Center">
+                    <TextBlock Text="🔒" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,10"/>
+                    <TextBlock Text="Acceso Restringido" FontWeight="Bold" FontSize="16" Foreground="#C62828"
+                               HorizontalAlignment="Center" Margin="0,0,0,6"/>
+                    <TextBlock Text="{Binding MensajeRestriccion}" TextWrapping="Wrap" TextAlignment="Center"
+                               Foreground="#5F6368" FontSize="13" Margin="0,0,0,8"/>
+                    <TextBlock Text="Comuníquese con el administrador del dominio geomaticaad@uis.edu.co para solicitar los permisos de red requeridos."
+                               TextWrapping="Wrap" TextAlignment="Center" FontSize="11.5" Foreground="#757575" FontStyle="Italic"/>
+                </StackPanel>
+            </Border>
         </Grid>
 
         <!-- ══════ Barra inferior de acciones ══════ -->
@@ -194,50 +246,52 @@
                 Padding="10,8">
             <DockPanel LastChildFill="True">
                 <!-- Mensaje de estado a la derecha -->
-                <TextBlock Text="{Binding Estado}" DockPanel.Dock="Right" VerticalAlignment="Center" 
+                <TextBlock Text="{Binding Estado}" DockPanel.Dock="Right" VerticalAlignment="Center"
                             FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                             FontFamily="{StaticResource AppFont}" Margin="12,0,0,0"
                             TextTrimming="CharacterEllipsis" MaxWidth="260"/>
 
                 <!-- Botones de acción organizados horizontalmente con WrapPanel -->
                 <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <Button Content="➕ Subir" Command="{Binding SubirCommand}" 
+                    <Button Content="➕ Subir" Command="{Binding SubirCommand}"
                             Style="{StaticResource PrimaryButton}" Padding="10,5" Margin="0,2,5,2"
+                            IsEnabled="{Binding PuedeEscribir}"
                             ToolTip="Subir uno o más archivos a la carpeta actual"/>
-                    <Button Content="📁 Nueva Carpeta" Command="{Binding NuevaCarpetaCommand}" 
+                    <Button Content="📁 Nueva Carpeta" Command="{Binding NuevaCarpetaCommand}"
                             Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            IsEnabled="{Binding PuedeEscribir}"
                             ToolTip="Crear una nueva carpeta en la ubicación actual"/>
-                    <Button Content="✂️ Cortar" Command="{Binding CortarCommand}" 
+                    <Button Content="✂️ Cortar" Command="{Binding CortarCommand}"
                             Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
-                            IsEnabled="{Binding IsElementoSeleccionado}"
+                            IsEnabled="{Binding PuedeModificarSeleccionado}"
                             ToolTip="Cortar el elemento seleccionado (Ctrl+X)"/>
-                    <Button Content="📋 Copiar" Command="{Binding CopiarCommand}" 
+                    <Button Content="📋 Copiar" Command="{Binding CopiarCommand}"
                             Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
                             IsEnabled="{Binding IsElementoSeleccionado}"
                             ToolTip="Copiar el elemento seleccionado (Ctrl+C)"/>
-                    <Button Content="📥 Pegar" Command="{Binding PegarCommand}" 
+                    <Button Content="📥 Pegar" Command="{Binding PegarCommand}"
                             Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
-                            IsEnabled="{Binding CanPaste}"
+                            IsEnabled="{Binding CanPasteEfectivo}"
                             ToolTip="Pegar el elemento cortado o copiado en la ubicación actual (Ctrl+V)"/>
-                    <Button Content="✏️ Renombrar" Command="{Binding RenombrarCommand}" 
+                    <Button Content="✏️ Renombrar" Command="{Binding RenombrarCommand}"
                             Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
-                            IsEnabled="{Binding IsElementoSeleccionado}"
+                            IsEnabled="{Binding PuedeModificarSeleccionado}"
                             ToolTip="Renombrar el elemento seleccionado (F2)"/>
-                    <Button Content="🗺️ Ver en Mapa" Command="{Binding AbrirEnMapaCommand}" 
+                    <Button Content="🗺️ Ver en Mapa" Command="{Binding AbrirEnMapaCommand}"
                             Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
                             IsEnabled="{Binding IsFormatoMapaSeleccionado}"
                             ToolTip="Cargar el archivo como capa en el mapa"/>
-                    <Button Content="👁️ Abrir Ext." Command="{Binding AbrirCommand}" 
+                    <Button Content="👁️ Abrir Ext." Command="{Binding AbrirCommand}"
                             Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
                             IsEnabled="{Binding IsElementoSeleccionado}"
                             ToolTip="Abrir con la aplicación predeterminada del sistema"/>
-                    <Button Content="⬇️ Descargar" Command="{Binding DescargarCommand}" 
+                    <Button Content="⬇️ Descargar" Command="{Binding DescargarCommand}"
                             Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
                             IsEnabled="{Binding IsArchivoSeleccionado}"
                             ToolTip="Descargar una copia del archivo seleccionado"/>
-                    <Button Content="🗑️ Eliminar" Command="{Binding EliminarCommand}" 
+                    <Button Content="🗑️ Eliminar" Command="{Binding EliminarCommand}"
                             Style="{StaticResource DangerButton}" Margin="0,2,5,2" Padding="10,5"
-                            IsEnabled="{Binding IsElementoSeleccionado}"
+                            IsEnabled="{Binding PuedeModificarSeleccionado}"
                             ToolTip="Eliminar el archivo o carpeta seleccionado (Supr)"/>
                 </WrapPanel>
             </DockPanel>

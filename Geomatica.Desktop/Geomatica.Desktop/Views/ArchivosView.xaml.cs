@@ -18,8 +18,8 @@ namespace Geomatica.Desktop.Views
         private Brush? _originalHoverBackground;
         private static readonly Brush DropTargetHighlight = new SolidColorBrush(Color.FromArgb(100, 0x43, 0xA0, 0x47)); // Soft UIS green
 
-        public ArchivosView() 
-        { 
+        public ArchivosView()
+        {
             InitializeComponent();
             this.DataContextChanged += ArchivosView_DataContextChanged;
             this.Loaded += ArchivosView_Loaded;
@@ -216,6 +216,13 @@ namespace Geomatica.Desktop.Views
         {
             e.Effects = DragDropEffects.None;
 
+            if (DataContext is ArchivosViewModel vm && !vm.PuedeEscribir)
+            {
+                ClearDropHighlight();
+                e.Handled = true;
+                return;
+            }
+
             bool isVirtual = e.Data.GetDataPresent("Geomatica.NodoVirtual");
             bool isFileDrop = e.Data.GetDataPresent(DataFormats.FileDrop);
 
@@ -305,7 +312,7 @@ namespace Geomatica.Desktop.Views
         private void BtnArriba_DragOver(object sender, DragEventArgs e)
         {
             e.Effects = DragDropEffects.None;
-            if (DataContext is ArchivosViewModel vm && !string.IsNullOrEmpty(vm.RutaActual))
+            if (DataContext is ArchivosViewModel vm && vm.PuedeEscribir && !string.IsNullOrEmpty(vm.RutaActual))
             {
                 if (e.Data.GetDataPresent("Geomatica.NodoVirtual") || e.Data.GetDataPresent(DataFormats.FileDrop))
                 {

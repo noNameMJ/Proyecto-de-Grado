@@ -12,4 +12,7 @@ public sealed record ProyectoDetalleDto(
     double Lon,
     double Lat,
     string? MunicipioCodigo,
-    string? MunicipioNombre);
+    string? MunicipioNombre,
+    int? AnioFin = null,
+    string? Entidades = null,
+    string? Representante = null);

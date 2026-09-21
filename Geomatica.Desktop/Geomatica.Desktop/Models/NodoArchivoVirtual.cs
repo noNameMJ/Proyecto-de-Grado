@@ -8,6 +8,8 @@ namespace Geomatica.Desktop.Models
         public string Nombre { get; set; } = string.Empty;
         // La ruta relativa es lo único que conocerá la UI (ej. "/Documentos/informe.pdf")
         public string RutaRelativaVirtual { get; set; } = string.Empty;
+        // La carpeta o subdirectorio relativo donde reside el archivo (ej. "Datos_Espaciales/Ortofotos")
+        public string UbicacionRelativa { get; set; } = string.Empty;
         public bool EsCarpeta { get; set; }
     }
 

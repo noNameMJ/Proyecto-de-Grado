@@ -2,6 +2,7 @@ using Npgsql;
 using NpgsqlTypes;
 using System.Diagnostics;
 using System.Globalization;
+using System.Security.Principal;
 using Geomatica.Domain.Entities;
 using Geomatica.Domain.Interfaces.Repositories;
 
@@ -11,6 +12,22 @@ namespace Geomatica.Data.Repositories
     {
         private readonly string _cn;
         private readonly string _debugInfo;
+
+        private static string ObtenerUsuarioActual()
+        {
+            try
+            {
+                var winIdentity = WindowsIdentity.GetCurrent()?.Name;
+                if (!string.IsNullOrWhiteSpace(winIdentity))
+                    return winIdentity;
+            }
+            catch
+            {
+                // Fallback si WindowsIdentity no está disponible en el entorno
+            }
+            return Environment.UserName;
+        }
+
         public ProyectoRepository(string connectionString)
         {
             _cn = connectionString;
@@ -300,16 +317,17 @@ namespace Geomatica.Data.Repositories
             }
         }
 
-        public async Task InsertarAsync(string titulo, string? descripcion, DateTime fecha, string? palabraClave, string? ruta, string? geom, string? municipioCodigo)
+        public async Task InsertarAsync(string titulo, string? descripcion, DateTime fecha, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, int? anioFin = null, string? entidades = null, string? representante = null)
         {
             // 1. Insertar proyecto
             // Using RETURNING id_proyecto to get the generated ID.
             var sqlProp = @"
-                INSERT INTO geovisor.proyecto (titulo, descripcion, fecha, palabra_clave, ruta_archivos, geom)
+                INSERT INTO geovisor.proyecto (titulo, descripcion, fecha, palabra_clave, ruta_archivos, geom, anio_fin, entidades, representante)
                 VALUES (@titulo, @desc, @fecha, @kw, @ruta, 
                         CASE WHEN @geom IS NOT NULL 
                              THEN ST_GeomFromText(@geom, 4686) 
-                             ELSE NULL END)
+                             ELSE NULL END,
+                        @anioFin, @entidades, @rep)
                 RETURNING id_proyecto;";
 
 
@@ -328,6 +346,9 @@ namespace Geomatica.Data.Repositories
                     cmd.Parameters.AddWithValue("@kw", (object?)palabraClave ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@ruta", (object?)ruta ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@geom", (object?)geom ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@anioFin", (object?)anioFin ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@entidades", (object?)entidades ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@rep", (object?)representante ?? DBNull.Value);
 
                     var newIdObj = await cmd.ExecuteScalarAsync();
                     newId = Convert.ToInt32(newIdObj);
@@ -344,6 +365,30 @@ namespace Geomatica.Data.Repositories
                      cmdRel.Parameters.AddWithValue("@id", newId);
                      cmdRel.Parameters.AddWithValue("@mun", municipioCodigo);
                      await cmdRel.ExecuteNonQueryAsync();
+                }
+
+                // 3. Registrar auditoría de creación
+                string userAudit = !string.IsNullOrWhiteSpace(usuario) ? usuario : ObtenerUsuarioActual();
+                string machineAudit = !string.IsNullOrWhiteSpace(equipo) ? equipo : Environment.MachineName;
+                string detallesAudit = $"Proyecto creado en el sistema. Ubicación: {(string.IsNullOrEmpty(municipioCodigo) ? "Sin municipio asignado" : municipioCodigo)}.";
+
+                const string sqlAudit = @"
+                    INSERT INTO geovisor.auditoria_proyecto (id_proyecto, titulo_proyecto, accion, usuario, equipo, fecha_hora, detalles)
+                    VALUES (@id, @titulo, 'CREACION', @user, @machine, NOW(), @detalles);";
+
+                try
+                {
+                    using var cmdAudit = new NpgsqlCommand(sqlAudit, con, tran);
+                    cmdAudit.Parameters.AddWithValue("@id", newId);
+                    cmdAudit.Parameters.AddWithValue("@titulo", titulo);
+                    cmdAudit.Parameters.AddWithValue("@user", userAudit);
+                    cmdAudit.Parameters.AddWithValue("@machine", machineAudit);
+                    cmdAudit.Parameters.AddWithValue("@detalles", (object?)detallesAudit ?? DBNull.Value);
+                    await cmdAudit.ExecuteNonQueryAsync();
+                }
+                catch (Exception exAudit)
+                {
+                    Debug.WriteLine($"[ProyectoRepository] Advertencia al registrar auditoría en inserción: {exAudit.Message}");
                 }
 
                 await tran.CommitAsync();
@@ -419,7 +464,10 @@ namespace Geomatica.Data.Repositories
                        ST_X(ST_Centroid(ST_Transform(p.geom, 4326))) AS lon,
                        ST_Y(ST_Centroid(ST_Transform(p.geom, 4326))) AS lat,
                        pm.mpio_cdpmp,
-                       m.mpio_cnmbr
+                       m.mpio_cnmbr,
+                       p.anio_fin,
+                       p.entidades,
+                       p.representante
                 FROM geovisor.proyecto p
                 LEFT JOIN geovisor.proyecto_municipio pm ON pm.id_proyecto = p.id_proyecto
                 LEFT JOIN geovisor.municipio m ON m.mpio_cdpmp = pm.mpio_cdpmp
@@ -445,13 +493,16 @@ namespace Geomatica.Data.Repositories
                     rd.IsDBNull(6) ? 0 : rd.GetDouble(6),
                     rd.IsDBNull(7) ? 0 : rd.GetDouble(7),
                     rd.IsDBNull(8) ? null : rd.GetString(8),
-                    rd.IsDBNull(9) ? null : rd.GetString(9)
+                    rd.IsDBNull(9) ? null : rd.GetString(9),
+                    rd.IsDBNull(10) ? null : rd.GetInt32(10),
+                    rd.IsDBNull(11) ? null : rd.GetString(11),
+                    rd.IsDBNull(12) ? null : rd.GetString(12)
                 );
             }
             return null;
         }
 
-        public async Task ActualizarAsync(int idProyecto, string titulo, string? descripcion, DateTime fecha, string? palabraClave, string? ruta, string? geom, string? municipioCodigo)
+        public async Task ActualizarAsync(int idProyecto, string titulo, string? descripcion, DateTime fecha, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, int? anioFin = null, string? entidades = null, string? representante = null)
         {
             const string sqlUpdate = @"
                 UPDATE geovisor.proyecto
@@ -462,7 +513,10 @@ namespace Geomatica.Data.Repositories
                     ruta_archivos = @ruta,
                     geom = CASE WHEN @geom IS NOT NULL
                                 THEN ST_GeomFromText(@geom, 4686)
-                                ELSE geom END
+                                ELSE geom END,
+                    anio_fin = @anioFin,
+                    entidades = @entidades,
+                    representante = @rep
                 WHERE id_proyecto = @id;";
 
             using var con = new NpgsqlConnection(_cn);
@@ -480,6 +534,9 @@ namespace Geomatica.Data.Repositories
                     cmd.Parameters.AddWithValue("@kw", (object?)palabraClave ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@ruta", (object?)ruta ?? DBNull.Value);
                     cmd.Parameters.AddWithValue("@geom", (object?)geom ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@anioFin", (object?)anioFin ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@entidades", (object?)entidades ?? DBNull.Value);
+                    cmd.Parameters.AddWithValue("@rep", (object?)representante ?? DBNull.Value);
                     await cmd.ExecuteNonQueryAsync();
                 }
 
@@ -501,6 +558,30 @@ namespace Geomatica.Data.Repositories
                     }
                 }
 
+                // 3. Registrar auditoría de modificación
+                string userAudit = !string.IsNullOrWhiteSpace(usuario) ? usuario : ObtenerUsuarioActual();
+                string machineAudit = !string.IsNullOrWhiteSpace(equipo) ? equipo : Environment.MachineName;
+                string detallesAudit = $"Proyecto actualizado. Ubicación: {(string.IsNullOrEmpty(municipioCodigo) ? "Sin cambios" : municipioCodigo)}.";
+
+                const string sqlAudit = @"
+                    INSERT INTO geovisor.auditoria_proyecto (id_proyecto, titulo_proyecto, accion, usuario, equipo, fecha_hora, detalles)
+                    VALUES (@id, @titulo, 'MODIFICACION', @user, @machine, NOW(), @detalles);";
+
+                try
+                {
+                    using var cmdAudit = new NpgsqlCommand(sqlAudit, con, tran);
+                    cmdAudit.Parameters.AddWithValue("@id", idProyecto);
+                    cmdAudit.Parameters.AddWithValue("@titulo", titulo);
+                    cmdAudit.Parameters.AddWithValue("@user", userAudit);
+                    cmdAudit.Parameters.AddWithValue("@machine", machineAudit);
+                    cmdAudit.Parameters.AddWithValue("@detalles", (object?)detallesAudit ?? DBNull.Value);
+                    await cmdAudit.ExecuteNonQueryAsync();
+                }
+                catch (Exception exAudit)
+                {
+                    Debug.WriteLine($"[ProyectoRepository] Advertencia al registrar auditoría en actualización: {exAudit.Message}");
+                }
+
                 await tran.CommitAsync();
                 Debug.WriteLine($"[ProyectoRepository] Proyecto {idProyecto} actualizado.");
             }
@@ -509,6 +590,168 @@ namespace Geomatica.Data.Repositories
                 await tran.RollbackAsync();
                 Debug.WriteLine($"[ProyectoRepository] Error actualizando proyecto {idProyecto}: {ex}");
                 throw;
+            }
+        }
+
+        public Task EliminarAsync(int idProyecto, CancellationToken ct = default)
+            => EliminarAsync(idProyecto, null, null, ct);
+
+        public async Task EliminarAsync(int idProyecto, string? usuario, string? equipo = null, CancellationToken ct = default)
+        {
+            const string sqlSelectTitle = "SELECT titulo FROM geovisor.proyecto WHERE id_proyecto = @id LIMIT 1;";
+            const string sqlDeleteRel = "DELETE FROM geovisor.proyecto_municipio WHERE id_proyecto = @id;";
+            const string sqlDeleteProj = "DELETE FROM geovisor.proyecto WHERE id_proyecto = @id;";
+
+            using var con = new NpgsqlConnection(_cn);
+            await con.OpenAsync(ct);
+            using var tran = await con.BeginTransactionAsync(ct);
+
+            try
+            {
+                // 1. Obtener título para preservarlo en el registro histórico
+                string tituloProyecto = $"#PROY-{idProyecto:D4}";
+                using (var cmdTitle = new NpgsqlCommand(sqlSelectTitle, con, tran))
+                {
+                    cmdTitle.Parameters.AddWithValue("@id", idProyecto);
+                    var tObj = await cmdTitle.ExecuteScalarAsync(ct);
+                    if (tObj != null && tObj != DBNull.Value)
+                    {
+                        tituloProyecto = Convert.ToString(tObj) ?? tituloProyecto;
+                    }
+                }
+
+                // 2. Registrar auditoría de eliminación antes de borrar el proyecto
+                string userAudit = !string.IsNullOrWhiteSpace(usuario) ? usuario : ObtenerUsuarioActual();
+                string machineAudit = !string.IsNullOrWhiteSpace(equipo) ? equipo : Environment.MachineName;
+
+                const string sqlAudit = @"
+                    INSERT INTO geovisor.auditoria_proyecto (id_proyecto, titulo_proyecto, accion, usuario, equipo, fecha_hora, detalles)
+                    VALUES (@id, @titulo, 'ELIMINACION', @user, @machine, NOW(), 'Proyecto eliminado del sistema.');";
+
+                try
+                {
+                    using var cmdAudit = new NpgsqlCommand(sqlAudit, con, tran);
+                    cmdAudit.Parameters.AddWithValue("@id", idProyecto);
+                    cmdAudit.Parameters.AddWithValue("@titulo", tituloProyecto);
+                    cmdAudit.Parameters.AddWithValue("@user", userAudit);
+                    cmdAudit.Parameters.AddWithValue("@machine", machineAudit);
+                    await cmdAudit.ExecuteNonQueryAsync(ct);
+                }
+                catch (Exception exAudit)
+                {
+                    Debug.WriteLine($"[ProyectoRepository] Advertencia al registrar auditoría en eliminación: {exAudit.Message}");
+                }
+
+                // 3. Borrar relaciones y proyecto
+                using (var cmdRel = new NpgsqlCommand(sqlDeleteRel, con, tran))
+                {
+                    cmdRel.Parameters.AddWithValue("@id", idProyecto);
+                    await cmdRel.ExecuteNonQueryAsync(ct);
+                }
+
+                using (var cmdProj = new NpgsqlCommand(sqlDeleteProj, con, tran))
+                {
+                    cmdProj.Parameters.AddWithValue("@id", idProyecto);
+                    var affected = await cmdProj.ExecuteNonQueryAsync(ct);
+                    Debug.WriteLine($"[ProyectoRepository] Proyecto {idProyecto} eliminado. Filas afectadas: {affected}");
+                }
+
+                await tran.CommitAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                await tran.RollbackAsync(ct);
+                Debug.WriteLine($"[ProyectoRepository] Error eliminando proyecto {idProyecto}: {ex}");
+                throw;
+            }
+        }
+
+        public async Task<IReadOnlyList<AuditoriaProyectoDto>> ObtenerHistorialProyectoAsync(int idProyecto, CancellationToken ct = default)
+        {
+            const string sql = @"
+                SELECT id_auditoria, id_proyecto, titulo_proyecto, accion, usuario, equipo, fecha_hora, detalles
+                FROM geovisor.auditoria_proyecto
+                WHERE id_proyecto = @id
+                ORDER BY fecha_hora DESC;";
+
+            var lista = new List<AuditoriaProyectoDto>();
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("@id", idProyecto);
+
+                using var rd = await cmd.ExecuteReaderAsync(ct);
+                while (await rd.ReadAsync(ct))
+                {
+                    lista.Add(new AuditoriaProyectoDto(
+                        IdAuditoria: rd.GetInt32(0),
+                        IdProyecto: rd.IsDBNull(1) ? null : rd.GetInt32(1),
+                        TituloProyecto: rd.GetString(2),
+                        Accion: rd.GetString(3),
+                        Usuario: rd.GetString(4),
+                        Equipo: rd.IsDBNull(5) ? null : rd.GetString(5),
+                        FechaHora: rd.GetDateTime(6),
+                        Detalles: rd.IsDBNull(7) ? null : rd.GetString(7)
+                    ));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error obteniendo historial de auditoría: {ex.Message}");
+            }
+            return lista;
+        }
+
+        public async Task AsegurarTablaAuditoriaAsync(CancellationToken ct = default)
+        {
+            const string sql = @"
+                CREATE TABLE IF NOT EXISTS geovisor.auditoria_proyecto (
+                    id_auditoria SERIAL PRIMARY KEY,
+                    id_proyecto INT,
+                    titulo_proyecto VARCHAR(255) NOT NULL,
+                    accion VARCHAR(50) NOT NULL,
+                    usuario VARCHAR(150) NOT NULL,
+                    equipo VARCHAR(100),
+                    fecha_hora TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+                    detalles TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_auditoria_id_proyecto ON geovisor.auditoria_proyecto(id_proyecto);
+                CREATE INDEX IF NOT EXISTS idx_auditoria_fecha ON geovisor.auditoria_proyecto(fecha_hora DESC);";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                await cmd.ExecuteNonQueryAsync(ct);
+                Debug.WriteLine("[ProyectoRepository] Tabla geovisor.auditoria_proyecto verificada/creada exitosamente.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Advertencia al verificar tabla de auditoría: {ex.Message}");
+            }
+        }
+
+        public async Task AsegurarColumnasProyectoAsync(CancellationToken ct = default)
+        {
+            const string sql = @"
+                ALTER TABLE geovisor.proyecto ADD COLUMN IF NOT EXISTS anio_fin INT;
+                ALTER TABLE geovisor.proyecto ADD COLUMN IF NOT EXISTS entidades VARCHAR(255);
+                ALTER TABLE geovisor.proyecto ADD COLUMN IF NOT EXISTS representante VARCHAR(255);";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                await cmd.ExecuteNonQueryAsync(ct);
+                Debug.WriteLine("[ProyectoRepository] Columnas anio_fin, entidades, representante verificadas/creadas exitosamente.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Advertencia al verificar columnas de proyecto: {ex.Message}");
             }
         }
     }
