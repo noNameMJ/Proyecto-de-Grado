@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -239,15 +239,47 @@ namespace Geomatica.Desktop.Services
                 if (!Directory.Exists(rutaFisica))
                     return nodos;
 
+                // Si la ruta solicitada es en sí una Geodatabase, no exponemos sus tablas binarias internas
+                if (rutaFisica.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase))
+                    return nodos;
+
                 var dirInfo = new DirectoryInfo(rutaFisica);
+
+                string ubicacionActual = string.IsNullOrWhiteSpace(rutaRelativa) ? "(raíz)" : rutaRelativa.Trim('/', '\\');
 
                 // Listar Carpetas
                 foreach (var dir in dirInfo.GetDirectories())
                 {
+                    // Una File Geodatabase (.gdb) se trata como un dataset atómico, no como una carpeta navegable
+                    if (dir.Name.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase))
+                    {
+                        long tamanoGdb = 0;
+                        try
+                        {
+                            tamanoGdb = dir.EnumerateFiles("*", SearchOption.AllDirectories).Sum(fi => fi.Length);
+                        }
+                        catch
+                        {
+                            // En caso de permisos parciales en archivos binarios internos
+                        }
+
+                        nodos.Add(new ArchivoVirtual
+                        {
+                            Nombre = dir.Name,
+                            RutaRelativaVirtual = Path.Combine(rutaRelativa, dir.Name).Replace('\\', '/'),
+                            UbicacionRelativa = ubicacionActual,
+                            TamanoBytes = tamanoGdb,
+                            FechaModificacion = dir.LastWriteTime,
+                            Extension = ".gdb"
+                        });
+                        continue;
+                    }
+
                     nodos.Add(new CarpetaVirtual
                     {
                         Nombre = dir.Name,
-                        RutaRelativaVirtual = Path.Combine(rutaRelativa, dir.Name).Replace('\\', '/')
+                        RutaRelativaVirtual = Path.Combine(rutaRelativa, dir.Name).Replace('\\', '/'),
+                        UbicacionRelativa = ubicacionActual
                     });
                 }
 
@@ -258,6 +290,7 @@ namespace Geomatica.Desktop.Services
                     {
                         Nombre = file.Name,
                         RutaRelativaVirtual = Path.Combine(rutaRelativa, file.Name).Replace('\\', '/'),
+                        UbicacionRelativa = ubicacionActual,
                         TamanoBytes = file.Length,
                         FechaModificacion = file.LastWriteTime,
                         Extension = file.Extension
@@ -305,6 +338,10 @@ namespace Geomatica.Desktop.Services
                     {
                         if (ct.IsCancellationRequested) break;
 
+                        // Si el archivo reside dentro de una carpeta .gdb, no contar sus archivos binarios internos por separado
+                        if (file.DirectoryName != null && file.DirectoryName.IndexOf(".gdb", StringComparison.OrdinalIgnoreCase) >= 0)
+                            continue;
+
                         totalArchivos++;
                         totalTamano += file.Length;
 
@@ -321,6 +358,35 @@ namespace Geomatica.Desktop.Services
                         }
                     }
 
+                    // Contabilizar cada contenedor .gdb como un dataset vectorial único
+                    try
+                    {
+                        foreach (var gdbDir in dir.EnumerateDirectories("*.gdb", enumOptions))
+                        {
+                            if (ct.IsCancellationRequested) break;
+
+                            long tamanoGdb = 0;
+                            try
+                            {
+                                tamanoGdb = gdbDir.EnumerateFiles("*", SearchOption.AllDirectories).Sum(fi => fi.Length);
+                            }
+                            catch { }
+
+                            totalArchivos++;
+                            totalTamano += tamanoGdb;
+
+                            if (extensionesConteo.TryGetValue(".gdb", out var valorGdb))
+                            {
+                                extensionesConteo[".gdb"] = (valorGdb.Conteo + 1, valorGdb.Tamano + tamanoGdb);
+                            }
+                            else
+                            {
+                                extensionesConteo[".gdb"] = (1, tamanoGdb);
+                            }
+                        }
+                    }
+                    catch { }
+
                     // Definir las categorías reconocidas en Geomática y SIG
                     var categoriasConfig = new[]
                     {
@@ -330,7 +396,7 @@ namespace Geomatica.Desktop.Services
                             Bg = "#E8F4EC",
                             Border = "#B2DFBF",
                             Fg = "#1A5C34",
-                            Exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".shp", ".gpkg", ".geojson", ".kml", ".kmz", ".tab", ".mif", ".gml" }
+                            Exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".shp", ".gpkg", ".geojson", ".kml", ".kmz", ".tab", ".mif", ".gml", ".gdb", ".geodatabase" }
                         },
                         new {
                             Nombre = "Raster / Ortofoto",

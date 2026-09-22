@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.ObjectModel;
@@ -25,10 +25,10 @@ namespace Geomatica.Desktop.ViewModels
 
         [ObservableProperty] private string titulo = string.Empty;
         [ObservableProperty] private string? descripcion;
-        [ObservableProperty] private DateTime fechaInicio = DateTime.Today;
+        [ObservableProperty] private DateTime? fechaInicio = DateTime.Today;
         [ObservableProperty] private string? palabraClave;
         [ObservableProperty] private string? ruta;
-        [ObservableProperty] private string? anioFinStr;
+        [ObservableProperty] private DateTime? fechaFin;
         [ObservableProperty] private string? entidades;
         [ObservableProperty] private string? representante;
 
@@ -55,6 +55,7 @@ namespace Geomatica.Desktop.ViewModels
         public IAsyncRelayCommand GuardarCommand { get; }
         public IRelayCommand CancelarCommand { get; }
         public IRelayCommand SeleccionarCarpetaCommand { get; }
+        public IRelayCommand LimpiarFechaFinCommand { get; }
 
         public CrearProyectoViewModel(
             IProyectoRepository proyectoRepository, 
@@ -74,6 +75,7 @@ namespace Geomatica.Desktop.ViewModels
             GuardarCommand = new AsyncRelayCommand(GuardarAsync);
             CancelarCommand = new RelayCommand(_navigateBack);
             SeleccionarCarpetaCommand = new RelayCommand(SeleccionarCarpeta);
+            LimpiarFechaFinCommand = new RelayCommand(() => FechaFin = null);
 
             _ = CargarDepartamentosAsync();
         }
@@ -327,11 +329,16 @@ namespace Geomatica.Desktop.ViewModels
                 return;
             }
 
+            if (FechaInicio.HasValue && FechaFin.HasValue && FechaFin.Value < FechaInicio.Value)
+            {
+                _notifications?.ShowWarning("La fecha de finalización no puede ser anterior a la fecha de inicio.", "Validación");
+                return;
+            }
+
             try
             {
                 string usuarioActual = System.Security.Principal.WindowsIdentity.GetCurrent()?.Name ?? Environment.UserName;
                 string equipoActual = Environment.MachineName;
-                int? anioFin = int.TryParse(AnioFinStr, out var af) ? af : null;
 
                 await _proyectoRepository.InsertarAsync(
                     Titulo, 
@@ -343,7 +350,7 @@ namespace Geomatica.Desktop.ViewModels
                     SelectedMunicipio.Codigo,
                     usuarioActual,
                     equipoActual,
-                    anioFin,
+                    FechaFin,
                     Entidades,
                     Representante
                 );

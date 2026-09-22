@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Geomatica.AppCore.UseCases;
 using Geomatica.Data.Repositories;
@@ -35,10 +35,10 @@ namespace Geomatica.Desktop.ViewModels
 
         [ObservableProperty] private string titulo = string.Empty;
         [ObservableProperty] private string? descripcion;
-        [ObservableProperty] private DateTime fechaInicio = DateTime.Today;
+        [ObservableProperty] private DateTime? fechaInicio = DateTime.Today;
         [ObservableProperty] private string? palabraClave;
         [ObservableProperty] private string? ruta;
-        [ObservableProperty] private string? anioFinStr;
+        [ObservableProperty] private DateTime? fechaFin;
         [ObservableProperty] private string? entidades;
         [ObservableProperty] private string? representante;
         [ObservableProperty] private string? latStr;
@@ -65,6 +65,7 @@ namespace Geomatica.Desktop.ViewModels
         public IAsyncRelayCommand EliminarCommand { get; }
         public IRelayCommand CancelarCommand { get; }
         public IRelayCommand SeleccionarCarpetaCommand { get; }
+        public IRelayCommand LimpiarFechaFinCommand { get; }
 
         public EditarProyectoViewModel(
             IProyectoRepository proyectoRepository,
@@ -93,10 +94,10 @@ namespace Geomatica.Desktop.ViewModels
             IdProyecto = proyecto.Id;
             Titulo = proyecto.Titulo;
             Descripcion = proyecto.Descripcion;
-            FechaInicio = proyecto.Fecha ?? DateTime.Today;
+            FechaInicio = proyecto.FechaInicio ?? DateTime.Today;
             PalabraClave = proyecto.PalabraClave;
             Ruta = proyecto.RutaArchivos;
-            AnioFinStr = proyecto.AnioFin?.ToString();
+            FechaFin = proyecto.FechaFin;
             Entidades = proyecto.Entidades;
             Representante = proyecto.Representante;
             if (proyecto.Lat != 0 || proyecto.Lon != 0)
@@ -109,6 +110,7 @@ namespace Geomatica.Desktop.ViewModels
             EliminarCommand = new AsyncRelayCommand(EliminarProyectoAsync);
             CancelarCommand = new RelayCommand(_navigateBack);
             SeleccionarCarpetaCommand = new RelayCommand(SeleccionarCarpeta);
+            LimpiarFechaFinCommand = new RelayCommand(() => FechaFin = null);
 
             _ = CargarDatosInicialesAsync(proyecto.MunicipioCodigo);
         }
@@ -394,11 +396,16 @@ namespace Geomatica.Desktop.ViewModels
                 geom = string.Format(CultureInfo.InvariantCulture, "POINT({0} {1})", lon.Value, lat.Value);
             }
 
+            if (FechaInicio.HasValue && FechaFin.HasValue && FechaFin.Value < FechaInicio.Value)
+            {
+                _notifications?.ShowWarning("La fecha de finalización no puede ser anterior a la fecha de inicio.", "Validación");
+                return;
+            }
+
             try
             {
                 string usuarioActual = System.Security.Principal.WindowsIdentity.GetCurrent()?.Name ?? Environment.UserName;
                 string equipoActual = Environment.MachineName;
-                int? anioFin = int.TryParse(AnioFinStr, out var af) ? af : null;
 
                 await _proyectoRepository.ActualizarAsync(
                     IdProyecto,
@@ -411,7 +418,7 @@ namespace Geomatica.Desktop.ViewModels
                     SelectedMunicipio.Codigo,
                     usuarioActual,
                     equipoActual,
-                    anioFin,
+                    FechaFin,
                     Entidades,
                     Representante
                 );

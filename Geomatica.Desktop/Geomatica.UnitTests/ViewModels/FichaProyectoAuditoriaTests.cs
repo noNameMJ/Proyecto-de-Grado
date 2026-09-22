@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Geomatica.Data.Repositories;
 using Geomatica.Desktop.Services;
 using Geomatica.Desktop.ViewModels;
@@ -21,7 +21,7 @@ public class FichaProyectoAuditoriaTests
             Id: 5,
             Titulo: "Proyecto Auditoria UIS",
             Descripcion: "Descripcion del proyecto",
-            Fecha: new DateTime(2026, 9, 1),
+            FechaInicio: new DateTime(2026, 9, 1),
             PalabraClave: "geomatica, uis",
             RutaArchivos: null,
             Lon: -73.12,

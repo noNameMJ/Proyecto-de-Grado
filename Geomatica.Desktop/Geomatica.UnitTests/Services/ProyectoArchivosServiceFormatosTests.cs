@@ -1,4 +1,4 @@
-using FluentAssertions;
+﻿using FluentAssertions;
 using Geomatica.Desktop.Services;
 using System;
 using System.IO;
@@ -187,6 +187,68 @@ public class ProyectoArchivosServiceFormatosTests : IDisposable
         sub.Should().NotBeNull();
         sub!.UbicacionRelativa.Should().Be("Datos_Espaciales/Ortofotos_2024");
         sub.RutaRelativaVirtual.Should().Be("Datos_Espaciales/Ortofotos_2024/mosaico_norte.tif");
+    }
+
+    [Fact]
+    public void ListarContenidoVirtual_ConCarpetaGdb_RetornaArchivoVirtualAtomicoYNoCarpeta()
+    {
+        // Arrange
+        var gdbPath = Path.Combine(_tempDir, "Inventario_Forestal.gdb");
+        Directory.CreateDirectory(gdbPath);
+        File.WriteAllText(Path.Combine(gdbPath, "a00000001.gdbtable"), "binary data table");
+        File.WriteAllText(Path.Combine(gdbPath, "a00000001.gdbindexes"), "index data");
+        File.WriteAllText(Path.Combine(gdbPath, "timestamps"), "timestamp data");
+
+        // Act: Listar directorio raíz
+        var nodos = _service.ListarContenidoVirtual(_tempDir);
+
+        // Assert: Se debe listar como ArchivoVirtual, NO como CarpetaVirtual
+        nodos.Should().HaveCount(1);
+        var nodo = nodos.First();
+        nodo.Should().BeOfType<Geomatica.Desktop.Models.ArchivoVirtual>();
+        var archivoGdb = (Geomatica.Desktop.Models.ArchivoVirtual)nodo;
+        archivoGdb.Nombre.Should().Be("Inventario_Forestal.gdb");
+        archivoGdb.Extension.Should().Be(".gdb");
+        archivoGdb.Icono.Should().Be("🗃️");
+        archivoGdb.TamanoBytes.Should().BeGreaterThan(0);
+
+        // Act: Intentar navegar dentro del .gdb
+        var nodosInternos = _service.ListarContenidoVirtual(_tempDir, "Inventario_Forestal.gdb");
+
+        // Assert: No debe exponer archivos binarios internos de la GDB
+        nodosInternos.Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task EscanearFormatosArchivosAsync_ConCarpetaGdb_ClasificaComoUnSoloDatasetVectorial()
+    {
+        // Arrange
+        var subDir = Path.Combine(_tempDir, "Capas");
+        Directory.CreateDirectory(subDir);
+        var gdbPath = Path.Combine(subDir, "Redes.gdb");
+        Directory.CreateDirectory(gdbPath);
+
+        // Archivos binarios internos de la GDB
+        File.WriteAllText(Path.Combine(gdbPath, "a00000001.gdbtable"), "data");
+        File.WriteAllText(Path.Combine(gdbPath, "a00000002.gdbtable"), "data");
+        File.WriteAllText(Path.Combine(gdbPath, "timestamps"), "data");
+
+        // Archivo vectorial regular fuera de la GDB
+        File.WriteAllText(Path.Combine(subDir, "puntos.shp"), "shp data");
+
+        // Act
+        var res = await _service.EscanearFormatosArchivosAsync(_tempDir);
+
+        // Assert: Debe contar 2 archivos en total (puntos.shp y Redes.gdb como unidad), no 4 archivos
+        res.TotalArchivos.Should().Be(2);
+
+        var catVectorial = res.Categorias.FirstOrDefault(c => c.Categoria == "Vectorial");
+        catVectorial.Should().NotBeNull();
+        catVectorial!.CantidadArchivos.Should().Be(2);
+
+        res.ExtensionesLista.Should().Contain(e => e.Extension == ".gdb" && !e.EsAuxiliar);
+        res.ExtensionesLista.Should().Contain(e => e.Extension == ".shp" && !e.EsAuxiliar);
+        res.ExtensionesLista.Should().NotContain(e => e.Extension == ".gdbtable");
     }
 }
 

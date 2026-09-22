@@ -1,4 +1,4 @@
-<UserControl x:Class="Geomatica.Desktop.Views.BarraFiltrosView"
+﻿<UserControl x:Class="Geomatica.Desktop.Views.BarraFiltrosView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
@@ -6,7 +6,7 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
     </UserControl.Resources>
 
-    <Border Width="300" MinWidth="250" MaxWidth="400" Background="{StaticResource PanelBrush}" 
+    <Border Background="{StaticResource PanelBrush}"
             BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,0,1,0">
         <Grid>
             <Grid.RowDefinitions>
@@ -43,7 +43,7 @@
                         <TextBlock Text="{Binding MensajeErrorConexion}" FontSize="10" 
                                    Foreground="#B71C1C" FontFamily="{StaticResource AppFont}" TextWrapping="Wrap" Margin="0,0,0,8"/>
                         <Button Content="🔄 Reintentar Conexión" Command="{Binding ReintentarConexionCommand}"
-                                IsEnabled="{Binding IsReintentandoConexion, Converter={StaticResource BoolToVis}, ConverterParameter=invert}"
+                                IsEnabled="{Binding CanReintentarConexion}"
                                 Style="{StaticResource OutlineButton}" FontSize="11" Padding="8,4" HorizontalAlignment="Stretch"/>
                         <ProgressBar IsIndeterminate="True" Height="3" Margin="0,4,0,0"
                                      Visibility="{Binding IsReintentandoConexion, Converter={StaticResource BoolToVis}}"/>
@@ -142,15 +142,43 @@
                 <DockPanel Grid.Row="0" Margin="0,0,0,6">
                     <TextBlock Text="Resultados" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
                     <Border Style="{StaticResource StatusBadge}" HorizontalAlignment="Right"
-                            Visibility="{Binding ResultadosLista.Count, Converter={StaticResource BoolToVis}}">
+                            Visibility="{Binding HasResultados, Converter={StaticResource BoolToVis}}">
                         <TextBlock Text="{Binding ResultadosLista.Count, StringFormat='{}{0} disp.'}" 
                                    Style="{StaticResource StatusBadgeText}"/>
                     </Border>
                 </DockPanel>
                 <ListBox Grid.Row="1" ItemsSource="{Binding ResultadosLista}" 
                          SelectedItem="{Binding SelectedProyecto, Mode=TwoWay}" 
-                         DisplayMemberPath="Titulo"
-                         Style="{StaticResource ModernListBox}"/>
+                         Style="{StaticResource ModernListBox}"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Grid Margin="2,3" ToolTip="{Binding Ruta, TargetNullValue='Sin ruta local vinculada'}">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+
+                                <!-- Icono -->
+                                <TextBlock Grid.Column="0" Text="🗺️" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+
+                                <!-- Título y Metadatos -->
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding Titulo}" FontWeight="SemiBold" FontSize="12.5"
+                                               Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}"
+                                               TextWrapping="Wrap" LineHeight="16"/>
+                                    <DockPanel Margin="0,2,0,0">
+                                        <TextBlock Text="{Binding CodigoId}" FontSize="10.5" FontWeight="Bold"
+                                                   Foreground="{StaticResource UisGreenBrush}" FontFamily="{StaticResource AppFont}"/>
+                                        <TextBlock Text="{Binding CoordenadasTexto, StringFormat='  •  {0}'}" FontSize="10"
+                                                   Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFont}"
+                                                   TextTrimming="CharacterEllipsis"/>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Grid>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
 
                 <!-- Estado vacío -->
                 <TextBlock Grid.Row="1" Text="No se encontraron proyectos.&#x0a;Ajuste los filtros e intente de nuevo."

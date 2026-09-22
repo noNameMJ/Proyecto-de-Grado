@@ -1,4 +1,4 @@
-using Esri.ArcGISRuntime.Data;
+﻿using Esri.ArcGISRuntime.Data;
 using Esri.ArcGISRuntime.Mapping;
 using Esri.ArcGISRuntime.UI;
 using Esri.ArcGISRuntime.UI.Controls;
@@ -8,6 +8,7 @@ using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
 using Geomatica.Desktop.Services;
+using Geomatica.Desktop.Models;
 
 namespace Geomatica.Desktop.Views
 {
@@ -289,6 +290,8 @@ namespace Geomatica.Desktop.Views
             }
         }
 
+        private double _lastDetalleWidth = 380.0;
+
         private void ActualizarLayoutArchivos(bool hasProyectoDetalle, bool isExtendido)
         {
             Dispatcher.InvokeAsync(() =>
@@ -297,7 +300,9 @@ namespace Geomatica.Desktop.Views
                 {
                     panelArchivos.Visibility = Visibility.Collapsed;
                     gridSplitterArchivos.Visibility = Visibility.Collapsed;
+                    gridSplitterDetalle.Visibility = Visibility.Collapsed;
                     panelDetalle.Visibility = Visibility.Collapsed;
+                    ColDetalle.Width = new GridLength(0, GridUnitType.Pixel);
 
                     RowMapa.Height = new GridLength(1, GridUnitType.Star);
                     RowMapa.MinHeight = 60;
@@ -310,10 +315,16 @@ namespace Geomatica.Desktop.Views
                     {
                         _lastArchivosHeight = RowArchivos.Height.Value;
                     }
+                    if (ColDetalle.Width.IsAbsolute && ColDetalle.Width.Value > 100)
+                    {
+                        _lastDetalleWidth = ColDetalle.Width.Value;
+                    }
 
                     panelArchivos.Visibility = Visibility.Visible;
                     gridSplitterArchivos.Visibility = Visibility.Collapsed;
+                    gridSplitterDetalle.Visibility = Visibility.Collapsed;
                     panelDetalle.Visibility = Visibility.Collapsed;
+                    ColDetalle.Width = new GridLength(0, GridUnitType.Pixel);
 
                     RowMapa.Height = new GridLength(0, GridUnitType.Pixel);
                     RowMapa.MinHeight = 0;
@@ -324,7 +335,11 @@ namespace Geomatica.Desktop.Views
                 {
                     panelArchivos.Visibility = Visibility.Visible;
                     gridSplitterArchivos.Visibility = Visibility.Visible;
+                    gridSplitterDetalle.Visibility = Visibility.Visible;
                     panelDetalle.Visibility = Visibility.Visible;
+
+                    double w = _lastDetalleWidth > 200 ? _lastDetalleWidth : 380.0;
+                    ColDetalle.Width = new GridLength(w, GridUnitType.Pixel);
 
                     RowMapa.Height = new GridLength(1, GridUnitType.Star);
                     RowMapa.MinHeight = 60;
@@ -561,12 +576,140 @@ namespace Geomatica.Desktop.Views
                 if (idProyecto != null)
                 {
                     mv.DismissCallout();
+                    _currentVm.ElementoIdentificado = null;
                     await _currentVm.AbrirFichaProyectoAsync(idProyecto.Value);
+                    return;
                 }
+
+                // 2. Si no es un proyecto UIS, comprobar si se hizo tap en una capa adicional de usuario (GDB, SHP, GeoPackage)
+                if (_currentVm.CapasAdicionales.Count > 0)
+                {
+                    var identifyResults = await mv.IdentifyLayersAsync(e.Position, 10, false);
+                    foreach (var result in identifyResults)
+                    {
+                        var capaItem = _currentVm.CapasAdicionales.FirstOrDefault(c => c.Capa == result.LayerContent);
+                        if (capaItem != null && result.GeoElements.Count > 0)
+                        {
+                            var geoElement = result.GeoElements[0];
+                            var atributosLista = new List<KeyValuePair<string, string>>();
+                            string? globalId = null;
+                            string? codigoArbol = null;
+                            string? nombreComun = null;
+
+                            foreach (var kvp in geoElement.Attributes)
+                            {
+                                string key = kvp.Key;
+                                string valStr = kvp.Value?.ToString() ?? "";
+                                atributosLista.Add(new KeyValuePair<string, string>(key, valStr));
+
+                                if (key.Equals("GlobalId", StringComparison.OrdinalIgnoreCase) ||
+                                    key.Equals("Global_ID", StringComparison.OrdinalIgnoreCase) ||
+                                    key.Equals("GlobalID", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    globalId = valStr;
+                                }
+                                else if (key.Equals("C_digo_del__rbol", StringComparison.OrdinalIgnoreCase) ||
+                                         key.Equals("Codigo", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    codigoArbol = valStr;
+                                }
+                                else if (key.Equals("Nombre_com_n", StringComparison.OrdinalIgnoreCase) ||
+                                         key.Equals("NombreComun", StringComparison.OrdinalIgnoreCase))
+                                {
+                                    nombreComun = valStr;
+                                }
+                            }
+
+                            string titulo = "";
+                            if (!string.IsNullOrWhiteSpace(codigoArbol) && !string.IsNullOrWhiteSpace(nombreComun))
+                                titulo = $"Árbol {codigoArbol} • {nombreComun}";
+                            else if (!string.IsNullOrWhiteSpace(codigoArbol))
+                                titulo = $"Árbol {codigoArbol}";
+                            else if (geoElement.Attributes.TryGetValue("OBJECTID", out var oidVal) && oidVal != null)
+                                titulo = $"Elemento #{oidVal}";
+                            else if (geoElement.Attributes.TryGetValue("FID", out var fidVal) && fidVal != null)
+                                titulo = $"Elemento #{fidVal}";
+                            else if (geoElement.Attributes.TryGetValue("id", out var idVal) && idVal != null)
+                                titulo = $"Elemento #{idVal}";
+                            else
+                                titulo = !string.IsNullOrWhiteSpace(capaItem.NombreCapaInterna) ? capaItem.NombreCapaInterna : capaItem.Nombre;
+
+                            var elemInfo = new ElementoIdentificadoInfo
+                            {
+                                NombreCapa = !string.IsNullOrWhiteSpace(capaItem.NombreCapaInterna) ? capaItem.NombreCapaInterna : capaItem.Nombre,
+                                TituloElemento = titulo,
+                                TipoIcono = capaItem.TipoIcono,
+                                Geometria = geoElement.Geometry,
+                                Atributos = atributosLista,
+                                RutaGdbOrigen = capaItem.RutaCompleta,
+                                GlobalId = globalId
+                            };
+
+                            _currentVm.ElementoIdentificado = elemInfo;
+
+                            if (!string.IsNullOrWhiteSpace(elemInfo.RutaGdbOrigen) && !string.IsNullOrWhiteSpace(elemInfo.GlobalId))
+                            {
+                                _ = CargarAdjuntosElementoAsync(elemInfo);
+                            }
+                            return;
+                        }
+                    }
+                }
+
+                // Si se hizo tap en espacio vacío, cerrar popup de elemento identificado
+                _currentVm.ElementoIdentificado = null;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[MapaView] Error en GeoViewTapped: {ex}");
+            }
+        }
+
+        private async Task CargarAdjuntosElementoAsync(ElementoIdentificadoInfo elementoInfo)
+        {
+            if (string.IsNullOrEmpty(elementoInfo.RutaGdbOrigen) || string.IsNullOrEmpty(elementoInfo.GlobalId) || _currentVm == null)
+                return;
+
+            try
+            {
+                elementoInfo.IsCargandoAdjuntos = true;
+                var adjuntos = await _currentVm.GdbImporter.ObtenerAdjuntosElementoAsync(elementoInfo.RutaGdbOrigen, elementoInfo.GlobalId);
+
+                await Dispatcher.InvokeAsync(() =>
+                {
+                    if (_currentVm.ElementoIdentificado == elementoInfo)
+                    {
+                        elementoInfo.Adjuntos.Clear();
+                        foreach (var a in adjuntos)
+                        {
+                            elementoInfo.Adjuntos.Add(a);
+                        }
+                        elementoInfo.NotificarAdjuntosCambiados();
+                    }
+                });
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[MapaView] Error al cargar adjuntos de elemento: {ex.Message}");
+            }
+            finally
+            {
+                elementoInfo.IsCargandoAdjuntos = false;
+            }
+        }
+
+        private void ThumbnailAdjunto_Click(object sender, System.Windows.Input.MouseButtonEventArgs e)
+        {
+            if (sender is FrameworkElement fe && fe.DataContext is AdjuntoFotoInfo foto && _currentVm?.ElementoIdentificado != null)
+            {
+                var elem = _currentVm.ElementoIdentificado;
+                int idx = elem.Adjuntos.IndexOf(foto);
+
+                var visor = new VisorFotoWindow(elem.Adjuntos, $"Fotografías • {elem.TituloElemento}", elem.NombreCapa, Math.Max(0, idx))
+                {
+                    Owner = Window.GetWindow(this)
+                };
+                visor.ShowDialog();
             }
         }
 

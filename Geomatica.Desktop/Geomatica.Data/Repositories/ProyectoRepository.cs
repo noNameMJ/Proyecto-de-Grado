@@ -1,4 +1,4 @@
-using Npgsql;
+﻿using Npgsql;
 using NpgsqlTypes;
 using System.Diagnostics;
 using System.Globalization;
@@ -54,7 +54,7 @@ namespace Geomatica.Data.Repositories
             }
 
             const string sql = @"
-                SELECT p.id_proyecto, p.titulo, p.fecha, p.palabra_clave, p.ruta_archivos,
+                SELECT p.id_proyecto, p.titulo, p.fecha_inicio, p.palabra_clave, p.ruta_archivos,
                        ST_X(ST_Centroid(ST_Transform(p.geom, 4326))) AS lon,
                        ST_Y(ST_Centroid(ST_Transform(p.geom, 4326))) AS lat,
                        ST_XMin(Box3D(ST_Transform(p.geom, 4326))) AS min_x,
@@ -65,8 +65,8 @@ namespace Geomatica.Data.Repositories
                 LEFT JOIN geovisor.proyecto_municipio pm ON pm.id_proyecto = p.id_proyecto
                 LEFT JOIN geovisor.municipio m ON m.mpio_cdpmp = pm.mpio_cdpmp
                 WHERE p.geom IS NOT NULL
-                  AND (@desde IS NULL OR p.fecha >= @desde)
-                  AND (@hasta IS NULL OR p.fecha <= @hasta)
+                  AND (@desde IS NULL OR p.fecha_inicio >= @desde)
+                  AND (@hasta IS NULL OR p.fecha_inicio <= @hasta)
                   AND (@texto IS NULL OR p.palabra_clave ILIKE '%' || @texto || '%')
                   AND (@dpto IS NULL OR m.dpto_ccdgo = @dpto)
                   AND (@mpio IS NULL OR pm.mpio_cdpmp = @mpio)
@@ -77,14 +77,14 @@ namespace Geomatica.Data.Repositories
                           ST_SetSRID(ST_GeomFromGeoJSON(CAST(@area AS text)), 4326)
                       )
                   )
-                GROUP BY p.id_proyecto, p.titulo, p.fecha, p.palabra_clave, p.ruta_archivos, p.geom
-                ORDER BY p.fecha NULLS LAST, p.id_proyecto;";
+                GROUP BY p.id_proyecto, p.titulo, p.fecha_inicio, p.palabra_clave, p.ruta_archivos, p.geom
+                ORDER BY p.fecha_inicio NULLS LAST, p.id_proyecto;";
 
             using var con = new NpgsqlConnection(_cn);
             await con.OpenAsync(ct);
             using var cmd = new NpgsqlCommand(sql, con);
-            cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Timestamp) { Value = (object?)desde ?? DBNull.Value });
-            cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Timestamp) { Value = (object?)hasta ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Date) { Value = (object?)desde?.Date ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Date) { Value = (object?)hasta?.Date ?? DBNull.Value });
             cmd.Parameters.Add(new NpgsqlParameter("@texto", NpgsqlDbType.Text) { Value = (object?)texto ?? DBNull.Value });
             cmd.Parameters.Add(new NpgsqlParameter("@dpto", NpgsqlDbType.Text) { Value = string.IsNullOrWhiteSpace(dptoCodigo) ? DBNull.Value : (object)dptoCodigo });
             cmd.Parameters.Add(new NpgsqlParameter("@mpio", NpgsqlDbType.Text) { Value = string.IsNullOrWhiteSpace(mpioCodigo) ? DBNull.Value : (object)mpioCodigo });
@@ -133,8 +133,8 @@ namespace Geomatica.Data.Repositories
                        p.ruta_archivos
                 FROM geovisor.proyecto p
                 WHERE p.geom IS NOT NULL
-                  AND (@desde IS NULL OR p.fecha >= @desde)
-                  AND (@hasta IS NULL OR p.fecha <= @hasta)
+                  AND (@desde IS NULL OR p.fecha_inicio >= @desde)
+                  AND (@hasta IS NULL OR p.fecha_inicio <= @hasta)
                   AND (@kw IS NULL OR p.palabra_clave ILIKE '%'||@kw||'%')
                   AND (
                       @area IS NULL
@@ -143,7 +143,7 @@ namespace Geomatica.Data.Repositories
                           ST_SetSRID(ST_GeomFromGeoJSON(CAST(@area AS text)), ST_SRID(p.geom))
                       )
                   )
-                ORDER BY p.fecha NULLS LAST, p.id_proyecto;";
+                ORDER BY p.fecha_inicio NULLS LAST, p.id_proyecto;";
 
             Debug.WriteLine($"[ProyectoRepository] Conectando a Postgres {_debugInfo}");
 
@@ -160,8 +160,8 @@ namespace Geomatica.Data.Repositories
 
             using var cmd = new NpgsqlCommand(sql, con);
             // Explicit parameter types to avoid Postgres ambiguity
-            cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Timestamp) { Value = (object?)desde ?? DBNull.Value });
-            cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Timestamp) { Value = (object?)hasta ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Date) { Value = (object?)desde?.Date ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Date) { Value = (object?)hasta?.Date ?? DBNull.Value });
             cmd.Parameters.Add(new NpgsqlParameter("@kw", NpgsqlDbType.Text) { Value = (object?)keyword ?? DBNull.Value });
             cmd.Parameters.Add(new NpgsqlParameter("@area", NpgsqlDbType.Text) { Value = (object?)areaJson ?? DBNull.Value });
 
@@ -210,10 +210,10 @@ namespace Geomatica.Data.Repositories
                 JOIN geovisor.vw_proyecto_departamento vpd ON vpd.id_proyecto = p.id_proyecto
                 WHERE p.geom IS NOT NULL
                   AND vpd.dpto_ccdgo = @dpto
-                  AND (@desde IS NULL OR p.fecha >= @desde)
-                  AND (@hasta IS NULL OR p.fecha <= @hasta)
+                  AND (@desde IS NULL OR p.fecha_inicio >= @desde)
+                  AND (@hasta IS NULL OR p.fecha_inicio <= @hasta)
                   AND (@kw IS NULL OR p.palabra_clave ILIKE '%'||@kw||'%')
-                ORDER BY p.fecha NULLS LAST, p.id_proyecto;";
+                ORDER BY p.fecha_inicio NULLS LAST, p.id_proyecto;";
 
             Debug.WriteLine($"[ProyectoRepository] Conectando a Postgres {_debugInfo} (ListarPorDepartamento)");
 
@@ -231,8 +231,8 @@ namespace Geomatica.Data.Repositories
             using var cmd = new NpgsqlCommand(sql, con);
             // Explicit parameter types
             cmd.Parameters.Add(new NpgsqlParameter("@dpto", NpgsqlDbType.Text) { Value = dptoCcdgo ?? string.Empty });
-            cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Timestamp) { Value = (object?)desde ?? DBNull.Value });
-            cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Timestamp) { Value = (object?)hasta ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Date) { Value = (object?)desde?.Date ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Date) { Value = (object?)hasta?.Date ?? DBNull.Value });
             cmd.Parameters.Add(new NpgsqlParameter("@kw", NpgsqlDbType.Text) { Value = (object?)keyword ?? DBNull.Value });
 
             try
@@ -279,18 +279,18 @@ namespace Geomatica.Data.Repositories
                 JOIN geovisor.proyecto_municipio pm ON pm.id_proyecto = p.id_proyecto
                 WHERE p.geom IS NOT NULL
                   AND pm.mpio_cdpmp = @mpio
-                  AND (@desde IS NULL OR p.fecha >= @desde)
-                  AND (@hasta IS NULL OR p.fecha <= @hasta)
+                  AND (@desde IS NULL OR p.fecha_inicio >= @desde)
+                  AND (@hasta IS NULL OR p.fecha_inicio <= @hasta)
                   AND (@kw IS NULL OR p.palabra_clave ILIKE '%'||@kw||'%')
-                ORDER BY p.fecha NULLS LAST, p.id_proyecto;";
+                ORDER BY p.fecha_inicio NULLS LAST, p.id_proyecto;";
 
             using var con = new NpgsqlConnection(_cn);
             await con.OpenAsync();
 
             using var cmd = new NpgsqlCommand(sql, con);
             cmd.Parameters.Add(new NpgsqlParameter("@mpio", NpgsqlDbType.Text) { Value = mpioCcdgo ?? string.Empty });
-            cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Timestamp) { Value = (object?)desde ?? DBNull.Value });
-            cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Timestamp) { Value = (object?)hasta ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Date) { Value = (object?)desde?.Date ?? DBNull.Value });
+            cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Date) { Value = (object?)hasta?.Date ?? DBNull.Value });
             cmd.Parameters.Add(new NpgsqlParameter("@kw", NpgsqlDbType.Text) { Value = (object?)keyword ?? DBNull.Value });
 
             try
@@ -317,17 +317,17 @@ namespace Geomatica.Data.Repositories
             }
         }
 
-        public async Task InsertarAsync(string titulo, string? descripcion, DateTime fecha, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, int? anioFin = null, string? entidades = null, string? representante = null)
+        public async Task InsertarAsync(string titulo, string? descripcion, DateTime? fechaInicio, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, DateTime? fechaFin = null, string? entidades = null, string? representante = null)
         {
             // 1. Insertar proyecto
             // Using RETURNING id_proyecto to get the generated ID.
             var sqlProp = @"
-                INSERT INTO geovisor.proyecto (titulo, descripcion, fecha, palabra_clave, ruta_archivos, geom, anio_fin, entidades, representante)
-                VALUES (@titulo, @desc, @fecha, @kw, @ruta, 
-                        CASE WHEN @geom IS NOT NULL 
-                             THEN ST_GeomFromText(@geom, 4686) 
+                INSERT INTO geovisor.proyecto (titulo, descripcion, fecha_inicio, palabra_clave, ruta_archivos, geom, fecha_fin, entidades, representante)
+                VALUES (@titulo, @desc, @fechaInicio, @kw, @ruta,
+                        CASE WHEN @geom IS NOT NULL
+                             THEN ST_GeomFromText(@geom, 4686)
                              ELSE NULL END,
-                        @anioFin, @entidades, @rep)
+                        @fechaFin, @entidades, @rep)
                 RETURNING id_proyecto;";
 
 
@@ -340,15 +340,15 @@ namespace Geomatica.Data.Repositories
                 int newId;
                 using (var cmd = new NpgsqlCommand(sqlProp, con, tran))
                 {
-                    cmd.Parameters.AddWithValue("@titulo", titulo);
-                    cmd.Parameters.AddWithValue("@desc", (object?)descripcion ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@fecha", fecha);
-                    cmd.Parameters.AddWithValue("@kw", (object?)palabraClave ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@ruta", (object?)ruta ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@geom", (object?)geom ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@anioFin", (object?)anioFin ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@entidades", (object?)entidades ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@rep", (object?)representante ?? DBNull.Value);
+                    cmd.Parameters.Add(new NpgsqlParameter("@titulo", NpgsqlDbType.Varchar, 200) { Value = titulo });
+                    cmd.Parameters.Add(new NpgsqlParameter("@desc", NpgsqlDbType.Text) { Value = (object?)descripcion ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@fechaInicio", NpgsqlDbType.Date) { Value = (object?)fechaInicio?.Date ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@kw", NpgsqlDbType.Text) { Value = (object?)palabraClave ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@ruta", NpgsqlDbType.Text) { Value = (object?)ruta ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@geom", NpgsqlDbType.Text) { Value = (object?)geom ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@fechaFin", NpgsqlDbType.Date) { Value = (object?)fechaFin?.Date ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@entidades", NpgsqlDbType.Varchar, 255) { Value = (object?)entidades ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@rep", NpgsqlDbType.Varchar, 255) { Value = (object?)representante ?? DBNull.Value });
 
                     var newIdObj = await cmd.ExecuteScalarAsync();
                     newId = Convert.ToInt32(newIdObj);
@@ -460,12 +460,12 @@ namespace Geomatica.Data.Repositories
         public async Task<ProyectoDetalleDto?> ObtenerPorIdAsync(int idProyecto)
         {
             const string sql = @"
-                SELECT p.id_proyecto, p.titulo, p.descripcion, p.fecha, p.palabra_clave, p.ruta_archivos,
+                SELECT p.id_proyecto, p.titulo, p.descripcion, p.fecha_inicio, p.palabra_clave, p.ruta_archivos,
                        ST_X(ST_Centroid(ST_Transform(p.geom, 4326))) AS lon,
                        ST_Y(ST_Centroid(ST_Transform(p.geom, 4326))) AS lat,
                        pm.mpio_cdpmp,
                        m.mpio_cnmbr,
-                       p.anio_fin,
+                       p.fecha_fin,
                        p.entidades,
                        p.representante
                 FROM geovisor.proyecto p
@@ -478,43 +478,43 @@ namespace Geomatica.Data.Repositories
             await con.OpenAsync();
 
             using var cmd = new NpgsqlCommand(sql, con);
-            cmd.Parameters.AddWithValue("@id", idProyecto);
+            cmd.Parameters.Add(new NpgsqlParameter("@id", NpgsqlDbType.Integer) { Value = idProyecto });
 
             using var rd = await cmd.ExecuteReaderAsync();
             if (await rd.ReadAsync())
             {
                 return new ProyectoDetalleDto(
-                    rd.GetInt32(0),
-                    rd.GetString(1),
-                    rd.IsDBNull(2) ? null : rd.GetString(2),
-                    rd.IsDBNull(3) ? null : rd.GetDateTime(3),
-                    rd.IsDBNull(4) ? null : rd.GetString(4),
-                    rd.IsDBNull(5) ? null : rd.GetString(5),
-                    rd.IsDBNull(6) ? 0 : rd.GetDouble(6),
-                    rd.IsDBNull(7) ? 0 : rd.GetDouble(7),
-                    rd.IsDBNull(8) ? null : rd.GetString(8),
-                    rd.IsDBNull(9) ? null : rd.GetString(9),
-                    rd.IsDBNull(10) ? null : rd.GetInt32(10),
-                    rd.IsDBNull(11) ? null : rd.GetString(11),
-                    rd.IsDBNull(12) ? null : rd.GetString(12)
+                    Id: rd.GetInt32(0),
+                    Titulo: rd.GetString(1),
+                    Descripcion: rd.IsDBNull(2) ? null : rd.GetString(2),
+                    FechaInicio: rd.IsDBNull(3) ? null : rd.GetDateTime(3),
+                    PalabraClave: rd.IsDBNull(4) ? null : rd.GetString(4),
+                    RutaArchivos: rd.IsDBNull(5) ? null : rd.GetString(5),
+                    Lon: rd.IsDBNull(6) ? 0 : rd.GetDouble(6),
+                    Lat: rd.IsDBNull(7) ? 0 : rd.GetDouble(7),
+                    MunicipioCodigo: rd.IsDBNull(8) ? null : rd.GetString(8),
+                    MunicipioNombre: rd.IsDBNull(9) ? null : rd.GetString(9),
+                    FechaFin: rd.IsDBNull(10) ? null : rd.GetDateTime(10),
+                    Entidades: rd.IsDBNull(11) ? null : rd.GetString(11),
+                    Representante: rd.IsDBNull(12) ? null : rd.GetString(12)
                 );
             }
             return null;
         }
 
-        public async Task ActualizarAsync(int idProyecto, string titulo, string? descripcion, DateTime fecha, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, int? anioFin = null, string? entidades = null, string? representante = null)
+        public async Task ActualizarAsync(int idProyecto, string titulo, string? descripcion, DateTime? fechaInicio, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, DateTime? fechaFin = null, string? entidades = null, string? representante = null)
         {
             const string sqlUpdate = @"
                 UPDATE geovisor.proyecto
                 SET titulo = @titulo,
                     descripcion = @desc,
-                    fecha = @fecha,
+                    fecha_inicio = @fechaInicio,
                     palabra_clave = @kw,
                     ruta_archivos = @ruta,
                     geom = CASE WHEN @geom IS NOT NULL
                                 THEN ST_GeomFromText(@geom, 4686)
                                 ELSE geom END,
-                    anio_fin = @anioFin,
+                    fecha_fin = @fechaFin,
                     entidades = @entidades,
                     representante = @rep
                 WHERE id_proyecto = @id;";
@@ -527,16 +527,16 @@ namespace Geomatica.Data.Repositories
             {
                 using (var cmd = new NpgsqlCommand(sqlUpdate, con, tran))
                 {
-                    cmd.Parameters.AddWithValue("@id", idProyecto);
-                    cmd.Parameters.AddWithValue("@titulo", titulo);
-                    cmd.Parameters.AddWithValue("@desc", (object?)descripcion ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@fecha", fecha);
-                    cmd.Parameters.AddWithValue("@kw", (object?)palabraClave ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@ruta", (object?)ruta ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@geom", (object?)geom ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@anioFin", (object?)anioFin ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@entidades", (object?)entidades ?? DBNull.Value);
-                    cmd.Parameters.AddWithValue("@rep", (object?)representante ?? DBNull.Value);
+                    cmd.Parameters.Add(new NpgsqlParameter("@id", NpgsqlDbType.Integer) { Value = idProyecto });
+                    cmd.Parameters.Add(new NpgsqlParameter("@titulo", NpgsqlDbType.Varchar, 200) { Value = titulo });
+                    cmd.Parameters.Add(new NpgsqlParameter("@desc", NpgsqlDbType.Text) { Value = (object?)descripcion ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@fechaInicio", NpgsqlDbType.Date) { Value = (object?)fechaInicio?.Date ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@kw", NpgsqlDbType.Text) { Value = (object?)palabraClave ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@ruta", NpgsqlDbType.Text) { Value = (object?)ruta ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@geom", NpgsqlDbType.Text) { Value = (object?)geom ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@fechaFin", NpgsqlDbType.Date) { Value = (object?)fechaFin?.Date ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@entidades", NpgsqlDbType.Varchar, 255) { Value = (object?)entidades ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@rep", NpgsqlDbType.Varchar, 255) { Value = (object?)representante ?? DBNull.Value });
                     await cmd.ExecuteNonQueryAsync();
                 }
 
@@ -737,7 +737,8 @@ namespace Geomatica.Data.Repositories
         public async Task AsegurarColumnasProyectoAsync(CancellationToken ct = default)
         {
             const string sql = @"
-                ALTER TABLE geovisor.proyecto ADD COLUMN IF NOT EXISTS anio_fin INT;
+                ALTER TABLE geovisor.proyecto ADD COLUMN IF NOT EXISTS fecha_inicio DATE;
+                ALTER TABLE geovisor.proyecto ADD COLUMN IF NOT EXISTS fecha_fin DATE;
                 ALTER TABLE geovisor.proyecto ADD COLUMN IF NOT EXISTS entidades VARCHAR(255);
                 ALTER TABLE geovisor.proyecto ADD COLUMN IF NOT EXISTS representante VARCHAR(255);";
 
@@ -747,7 +748,7 @@ namespace Geomatica.Data.Repositories
                 await con.OpenAsync(ct);
                 using var cmd = new NpgsqlCommand(sql, con);
                 await cmd.ExecuteNonQueryAsync(ct);
-                Debug.WriteLine("[ProyectoRepository] Columnas anio_fin, entidades, representante verificadas/creadas exitosamente.");
+                Debug.WriteLine("[ProyectoRepository] Columnas fecha_inicio, fecha_fin, entidades, representante verificadas/creadas exitosamente.");
             }
             catch (Exception ex)
             {

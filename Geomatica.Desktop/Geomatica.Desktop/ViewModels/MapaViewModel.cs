@@ -1,4 +1,4 @@
-using Esri.ArcGISRuntime.Data;
+﻿using Esri.ArcGISRuntime.Data;
 using Esri.ArcGISRuntime.Geometry;
 using Esri.ArcGISRuntime.Mapping;
 using Esri.ArcGISRuntime.Symbology;
@@ -18,6 +18,7 @@ using System.IO;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Esri.ArcGISRuntime.UI;
 using Geomatica.Desktop.Models;
+using Geomatica.Desktop.Views;
 using Geomatica.Desktop.Services;
 
 namespace Geomatica.Desktop.ViewModels
@@ -70,6 +71,28 @@ namespace Geomatica.Desktop.ViewModels
         // Visualización de Coordenadas y Escala en Vivo
         [ObservableProperty] private string coordenadasCursorTexto = "Lat: -- | Lon: --";
         [ObservableProperty] private string escalaMapaTexto = "Escala: 1:--";
+
+        // Elemento Identificado (Identify / Popup interactivo de capas de usuario y GDB)
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasElementoIdentificado))]
+        private ElementoIdentificadoInfo? elementoIdentificado;
+
+        public bool HasElementoIdentificado => ElementoIdentificado != null;
+
+        [RelayCommand]
+        private void CerrarElementoIdentificado()
+        {
+            ElementoIdentificado = null;
+        }
+
+        [RelayCommand]
+        private async Task CentrarElementoIdentificadoAsync()
+        {
+            if (ElementoIdentificado?.Geometria != null)
+            {
+                await CentrarEnGeometriaAsync(ElementoIdentificado.Geometria);
+            }
+        }
 
         // Indicador de Progreso Determinista para Operaciones Asíncronas Pesadas (LiDAR, Rasters)
         [ObservableProperty] private bool isOperacionEnProgreso;
@@ -141,8 +164,10 @@ namespace Geomatica.Desktop.ViewModels
         public event EventHandler? HomeRequested;
         public event EventHandler<ProyectoDetalleDto>? FichaProyectoSolicitada;
 
-        // Inyección de notificaciones
+        // Inyección de notificaciones y servicios de importación
         private readonly Geomatica.Desktop.Services.INotificationService? _notifications;
+        private readonly Geomatica.Desktop.Services.IFileGdbImporterService _gdbImporter;
+        public Geomatica.Desktop.Services.IFileGdbImporterService GdbImporter => _gdbImporter;
 
         public MapaViewModel(
             BuscarProyectosUseCase buscarProyectos, 
@@ -150,7 +175,8 @@ namespace Geomatica.Desktop.ViewModels
             IMunicipioRepository municipios, 
             FiltrosViewModel filtros, 
             ArchivosViewModel archivosVM,
-            Geomatica.Desktop.Services.INotificationService? notifications = null)
+            Geomatica.Desktop.Services.INotificationService? notifications = null,
+            Geomatica.Desktop.Services.IFileGdbImporterService? gdbImporter = null)
         {
             _buscarProyectos = buscarProyectos;
             _proyectos = proyectos;
@@ -158,6 +184,7 @@ namespace Geomatica.Desktop.ViewModels
             Filtros = filtros;
             ArchivosVM = archivosVM;
             _notifications = notifications;
+            _gdbImporter = gdbImporter ?? new Geomatica.Desktop.Services.FileGdbImporterService();
 
             HomeCommand = new RelayCommand(() => HomeRequested?.Invoke(this, EventArgs.Empty));
             RestablecerVistaMapaCommand = new AsyncRelayCommand(RestablecerVistaMapaAsync);
@@ -174,6 +201,7 @@ namespace Geomatica.Desktop.ViewModels
             }
 
             ArchivosVM.AbrirEnMapaSolicitado += async (s, path) => await CargarCapaAdicionalAsync(path);
+            ArchivosVM.AbrirCapaEnMapaSolicitado += async (s, args) => await CargarCapaGdbAsync(args.RutaGdb, args.NombreCapa);
             Filtros.PropertyChanged += Filtros_PropertyChanged;
 
             SetupMap();
@@ -255,11 +283,16 @@ namespace Geomatica.Desktop.ViewModels
                     var dataset = new Esri.ArcGISRuntime.Ogc.KmlDataset(new Uri(path));
                     layer = new KmlLayer(dataset);
                 }
-                else if (ext == ".geodatabase" || ext == ".gdb")
+                else if (ext == ".geodatabase")
                 {
                     var gdb = await Geodatabase.OpenAsync(path);
                     var table = gdb.GeodatabaseFeatureTables.FirstOrDefault();
                     if (table != null) layer = new FeatureLayer(table);
+                }
+                else if (ext == ".gdb")
+                {
+                    await CargarFileGeodatabaseAsync(path);
+                    return;
                 }
                 else if (ext == ".slpk")
                 {
@@ -344,6 +377,10 @@ namespace Geomatica.Desktop.ViewModels
                 IsVisible = true,
                 Opacidad = 1.0
             };
+            if (layer is FeatureLayer fl && fl.FeatureTable != null)
+            {
+                item.AbrirTablaAtributosCommand = new AsyncRelayCommand(() => AbrirTablaAtributosAsync(item, fl.FeatureTable));
+            }
             item.QuitarCommand = new RelayCommand(() => 
             {
                 if (item.Capa != null)
@@ -386,7 +423,50 @@ namespace Geomatica.Desktop.ViewModels
     }
  }
 
-    private async Task CargarGeoPackageAsync(string path)
+    private async Task CargarFileGeodatabaseAsync(string path)
+    {
+        await CargarCapaGdbAsync(path, null);
+    }
+
+    public async Task CargarCapaGdbAsync(string path, string? nombreCapaEspecifica = null)
+    {
+        if (Map == null) return;
+        try
+        {
+            string nombreGdb = Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+            string tituloNotif = string.IsNullOrEmpty(nombreCapaEspecifica)
+                ? $"Procesando Geodatabase '{nombreGdb}'..."
+                : $"Cargando capa '{nombreCapaEspecifica}' de '{nombreGdb}'...";
+
+            RasterDiagnostics.Log($"[MapaViewModel] Solicitando carga de GDB: {path}, Capa: {nombreCapaEspecifica ?? "(Todas)"}");
+            _notifications?.ShowInfo(tituloNotif, "Cargando Geodatabase");
+
+            var resultado = await _gdbImporter.ImportarGdbAsync(path);
+
+            if (!resultado.Success || string.IsNullOrEmpty(resultado.GeoPackagePath))
+            {
+                _notifications?.ShowError(
+                    resultado.MensajeError ?? "No se pudo procesar la File Geodatabase.",
+                    "Error al cargar Geodatabase"
+                );
+                return;
+            }
+
+            await CargarGeoPackageAsync(resultado.GeoPackagePath, nombreOrigen: nombreGdb, rutaOriginalGdb: path, capaFiltro: nombreCapaEspecifica);
+
+            if (!resultado.FromCache)
+            {
+                _notifications?.ShowSuccess($"Geodatabase '{nombreGdb}' cargada con éxito.", "Geodatabase Lista");
+            }
+        }
+        catch (Exception ex)
+        {
+            RasterDiagnostics.Log($"[MapaViewModel] Error inesperado cargando File Geodatabase: {ex}");
+            _notifications?.ShowError($"Error inesperado cargando Geodatabase: {ex.Message}", "Error");
+        }
+    }
+
+    private async Task CargarGeoPackageAsync(string path, string? nombreOrigen = null, string? rutaOriginalGdb = null, string? capaFiltro = null)
     {
         if (Map == null) return;
         try
@@ -395,30 +475,97 @@ namespace Geomatica.Desktop.ViewModels
             var gpkg = await GeoPackage.OpenAsync(path);
             int capasCargadas = 0;
             Layer? primeraCapa = null;
+            string nombreBase = !string.IsNullOrWhiteSpace(nombreOrigen) ? nombreOrigen : Path.GetFileNameWithoutExtension(path);
+            string rutaMostrar = !string.IsNullOrWhiteSpace(rutaOriginalGdb) ? rutaOriginalGdb : path;
+            bool esGdb = !string.IsNullOrWhiteSpace(rutaOriginalGdb);
 
             // 1. Capas vectoriales (GeoPackageFeatureTables)
             foreach (var table in gpkg.GeoPackageFeatureTables)
             {
+                if (!string.IsNullOrWhiteSpace(capaFiltro) && !table.TableName.Equals(capaFiltro, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
                 var featureLayer = new FeatureLayer(table)
                 {
-                    Name = $"{Path.GetFileNameWithoutExtension(path)} - {table.TableName}",
+                    Name = $"{nombreBase} - {table.TableName}",
                     ShowInLegend = false
                 };
+
+                // Asignar simbología mejorada de alta visibilidad según tipo de geometría
+                if (table.GeometryType == GeometryType.Point || table.GeometryType == GeometryType.Multipoint)
+                {
+                    var markerSymbol = new SimpleMarkerSymbol(
+                        SimpleMarkerSymbolStyle.Circle,
+                        System.Drawing.Color.FromArgb(230, 0x1B, 0x5E, 0x20), // Verde esmeralda UIS
+                        9.0)
+                    {
+                        Outline = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.White, 1.2)
+                    };
+                    featureLayer.Renderer = new SimpleRenderer(markerSymbol);
+                }
+                else if (table.GeometryType == GeometryType.Polyline)
+                {
+                    var lineSymbol = new SimpleLineSymbol(
+                        SimpleLineSymbolStyle.Solid,
+                        System.Drawing.Color.FromArgb(230, 0x0D, 0x47, 0xA1), // Azul marino
+                        2.5);
+                    featureLayer.Renderer = new SimpleRenderer(lineSymbol);
+                }
+                else if (table.GeometryType == GeometryType.Polygon)
+                {
+                    var fillSymbol = new SimpleFillSymbol(
+                        SimpleFillSymbolStyle.Solid,
+                        System.Drawing.Color.FromArgb(90, 0x00, 0x79, 0x6B), // Turquesa translúcido
+                        new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.FromArgb(220, 0x00, 0x4D, 0x40), 1.5)
+                    );
+                    featureLayer.Renderer = new SimpleRenderer(fillSymbol);
+                }
+
                 await Application.Current.Dispatcher.InvokeAsync(() => Map.OperationalLayers.Add(featureLayer));
                 await featureLayer.LoadAsync();
+
+                long featureCount = 0;
+                try
+                {
+                    featureCount = await table.QueryFeatureCountAsync(new QueryParameters());
+                }
+                catch { }
+
+                string tipoGeometriaTexto = table.GeometryType switch
+                {
+                    GeometryType.Point or GeometryType.Multipoint => "Puntos",
+                    GeometryType.Polyline => "Líneas",
+                    GeometryType.Polygon => "Polígonos",
+                    _ => table.GeometryType.ToString()
+                };
+
+                string tipoIcono = table.GeometryType switch
+                {
+                    GeometryType.Point or GeometryType.Multipoint => "📍",
+                    GeometryType.Polyline => "📏",
+                    GeometryType.Polygon => "⬡",
+                    _ => esGdb ? "🗃️" : "📦"
+                };
 
                 var itemCapa = new CapaUsuarioItem
                 {
                     Nombre = featureLayer.Name,
-                    RutaCompleta = path,
-                    TipoIcono = "📦",
-                    TipoTexto = "Vectorial GeoPackage",
+                    NombreContenedor = nombreBase,
+                    NombreCapaInterna = table.TableName,
+                    TipoGeometria = tipoGeometriaTexto,
+                    CantidadElementos = featureCount,
+                    RutaCompleta = rutaMostrar,
+                    TipoIcono = tipoIcono,
+                    TipoTexto = esGdb ? $"Vectorial GDB ({tipoGeometriaTexto})" : $"Vectorial GeoPackage ({tipoGeometriaTexto})",
                     Capa = featureLayer,
                     ContenedorGeoPackage = gpkg,
                     ExtentParaZoom = featureLayer.FullExtent,
                     IsVisible = true,
                     Opacidad = 1.0
                 };
+
+                itemCapa.AbrirTablaAtributosCommand = new AsyncRelayCommand(() => AbrirTablaAtributosAsync(itemCapa, table));
+
                 itemCapa.QuitarCommand = new RelayCommand(() =>
                 {
                     Map.OperationalLayers.Remove(featureLayer);
@@ -437,51 +584,58 @@ namespace Geomatica.Desktop.ViewModels
             }
 
             // 2. Capas ráster (GeoPackageRasters)
-            foreach (var raster in gpkg.GeoPackageRasters)
+            if (string.IsNullOrWhiteSpace(capaFiltro))
             {
-                var rasterLayer = new RasterLayer(raster)
+                foreach (var raster in gpkg.GeoPackageRasters)
                 {
-                    Name = $"{Path.GetFileNameWithoutExtension(path)} - Ráster {capasCargadas + 1}",
-                    ShowInLegend = false,
-                    IsVisible = true,
-                    Opacity = 1.0
-                };
-                await Application.Current.Dispatcher.InvokeAsync(() => Map.OperationalLayers.Add(rasterLayer));
-                await rasterLayer.LoadAsync();
+                    var rasterLayer = new RasterLayer(raster)
+                    {
+                        Name = $"{nombreBase} - Ráster {capasCargadas + 1}",
+                        ShowInLegend = false,
+                        IsVisible = true,
+                        Opacity = 1.0
+                    };
+                    await Application.Current.Dispatcher.InvokeAsync(() => Map.OperationalLayers.Add(rasterLayer));
+                    await rasterLayer.LoadAsync();
 
-                var itemCapa = new CapaUsuarioItem
-                {
-                    Nombre = rasterLayer.Name,
-                    RutaCompleta = path,
-                    TipoIcono = "📦",
-                    TipoTexto = "Ráster GeoPackage",
-                    Capa = rasterLayer,
-                    ContenedorGeoPackage = gpkg,
-                    ExtentParaZoom = rasterLayer.FullExtent,
-                    IsVisible = true,
-                    Opacidad = 1.0
-                };
-                itemCapa.QuitarCommand = new RelayCommand(() =>
-                {
-                    Map.OperationalLayers.Remove(rasterLayer);
-                    CapasAdicionales.Remove(itemCapa);
-                    itemCapa.Dispose();
-                    if (CapasAdicionales.Count == 0) IsPanelCapasVisible = false;
-                });
-                itemCapa.ZoomCommand = new RelayCommand(async () =>
-                {
-                    if (itemCapa.Capa != null) await ZoomCapaSeguraAsync(itemCapa.Capa, 50, "manual");
-                });
+                    var itemCapa = new CapaUsuarioItem
+                    {
+                        Nombre = rasterLayer.Name,
+                        NombreContenedor = nombreBase,
+                        NombreCapaInterna = rasterLayer.Name,
+                        TipoGeometria = "Ráster",
+                        CantidadElementos = 1,
+                        RutaCompleta = rutaMostrar,
+                        TipoIcono = esGdb ? "🗃️" : "📦",
+                        TipoTexto = esGdb ? "Ráster File Geodatabase" : "Ráster GeoPackage",
+                        Capa = rasterLayer,
+                        ContenedorGeoPackage = gpkg,
+                        ExtentParaZoom = rasterLayer.FullExtent,
+                        IsVisible = true,
+                        Opacidad = 1.0
+                    };
+                    itemCapa.QuitarCommand = new RelayCommand(() =>
+                    {
+                        Map.OperationalLayers.Remove(rasterLayer);
+                        CapasAdicionales.Remove(itemCapa);
+                        itemCapa.Dispose();
+                        if (CapasAdicionales.Count == 0) IsPanelCapasVisible = false;
+                    });
+                    itemCapa.ZoomCommand = new RelayCommand(async () =>
+                    {
+                        if (itemCapa.Capa != null) await ZoomCapaSeguraAsync(itemCapa.Capa, 50, "manual");
+                    });
 
-                CapasAdicionales.Add(itemCapa);
-                if (primeraCapa == null) primeraCapa = rasterLayer;
-                capasCargadas++;
+                    CapasAdicionales.Add(itemCapa);
+                    if (primeraCapa == null) primeraCapa = rasterLayer;
+                    capasCargadas++;
+                }
             }
 
             if (capasCargadas == 0)
             {
                 gpkg.Close();
-                _notifications?.ShowWarning($"El GeoPackage '{Path.GetFileName(path)}' no contiene capas vectoriales ni rásteres.", "GeoPackage Vacío");
+                _notifications?.ShowWarning($"No se encontraron capas para cargar en '{Path.GetFileName(path)}'.", "Contenedor");
                 return;
             }
 
@@ -495,12 +649,125 @@ namespace Geomatica.Desktop.ViewModels
                 await ZoomCapaSeguraAsync(primeraCapa, 20, "geopackage inicial");
             }
 
-            _notifications?.ShowSuccess($"GeoPackage '{Path.GetFileName(path)}' cargado exitosamente ({capasCargadas} capa(s)).", "GeoPackage");
+            _notifications?.ShowSuccess($"Se cargó exitosamente ({capasCargadas} capa(s)).", "Capas Cargadas");
         }
         catch (Exception ex)
         {
             AppLogger.Error($"Error cargando GeoPackage: {path}", ex);
             _notifications?.ShowError($"Error al abrir GeoPackage: {ex.Message}", "Error GeoPackage");
+        }
+    }
+
+    public async Task CentrarEnGeometriaAsync(Geometry geom)
+    {
+        if (_ownerMapView == null || geom == null) return;
+        try
+        {
+            await Application.Current.Dispatcher.InvokeAsync(async () =>
+            {
+                if (geom is MapPoint pt)
+                {
+                    await _ownerMapView.SetViewpointCenterAsync(pt, 5000);
+                }
+                else if (geom.Extent != null)
+                {
+                    var ext = geom.Extent;
+                    if (ext.Width == 0 && ext.Height == 0)
+                    {
+                        var center = new MapPoint(ext.XMin, ext.YMin, ext.SpatialReference);
+                        await _ownerMapView.SetViewpointCenterAsync(center, 5000);
+                    }
+                    else
+                    {
+                        await _ownerMapView.SetViewpointGeometryAsync(ext, 60);
+                    }
+                }
+            });
+        }
+        catch (Exception ex)
+        {
+            RasterDiagnostics.Log($"[MapaViewModel] Error centrando en geometría: {ex.Message}");
+        }
+    }
+
+    private async Task AbrirTablaAtributosAsync(CapaUsuarioItem itemCapa, FeatureTable table)
+    {
+        try
+        {
+            _notifications?.ShowInfo($"Consultando registros de '{itemCapa.NombreCapaInterna}'...", "Tabla de Atributos");
+
+            var query = new QueryParameters { WhereClause = "1=1" };
+            var featureResult = await table.QueryFeaturesAsync(query);
+
+            var dataTable = new System.Data.DataTable();
+            var geometrias = new Dictionary<System.Data.DataRow, Geometry?>();
+
+            // Crear columnas basadas en los campos de la tabla
+            foreach (var field in table.Fields)
+            {
+                Type colType = field.FieldType switch
+                {
+                    FieldType.Int16 => typeof(short),
+                    FieldType.Int32 => typeof(int),
+                    FieldType.Int64 => typeof(long),
+                    FieldType.Float32 => typeof(float),
+                    FieldType.Float64 => typeof(double),
+                    FieldType.Date => typeof(DateTime),
+                    _ => typeof(string)
+                };
+
+                dataTable.Columns.Add(field.Name, Nullable.GetUnderlyingType(colType) ?? colType);
+            }
+
+            // Agregar filas
+            foreach (var feature in featureResult)
+            {
+                var row = dataTable.NewRow();
+                foreach (var field in table.Fields)
+                {
+                    if (feature.Attributes.TryGetValue(field.Name, out var val) && val != null)
+                    {
+                        try
+                        {
+                            row[field.Name] = Convert.ChangeType(val, dataTable.Columns[field.Name]!.DataType);
+                        }
+                        catch
+                        {
+                            row[field.Name] = val.ToString();
+                        }
+                    }
+                    else
+                    {
+                        row[field.Name] = DBNull.Value;
+                    }
+                }
+                dataTable.Rows.Add(row);
+                geometrias[row] = feature.Geometry;
+            }
+
+            var win = new TablaAtributosView();
+            win.Owner = Application.Current.MainWindow;
+            win.CargarDatos(
+                !string.IsNullOrWhiteSpace(itemCapa.NombreCapaInterna) ? itemCapa.NombreCapaInterna : itemCapa.Nombre,
+                itemCapa.TipoIcono,
+                dataTable,
+                geometrias,
+                geom =>
+                {
+                    if (geom != null)
+                    {
+                        _ = CentrarEnGeometriaAsync(geom);
+                    }
+                },
+                rutaGdb: itemCapa.RutaCompleta,
+                gdbImporter: _gdbImporter
+            );
+            win.Show();
+        }
+        catch (Exception ex)
+        {
+            RasterDiagnostics.Log($"[MapaViewModel] Error al abrir tabla de atributos: {ex}");
+            _notifications?.ShowError($"No se pudo abrir la tabla de atributos: {ex.Message}", "Error");
         }
     }
 

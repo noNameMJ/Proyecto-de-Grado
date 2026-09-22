@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Geomatica.AppCore.UseCases;
 using Geomatica.Data.Repositories;
@@ -65,11 +65,19 @@ namespace Geomatica.Desktop.ViewModels
             ? "Abrir carpeta en el Explorador de Windows"
             : "Acceso denegado: Su usuario no tiene permisos en el servidor (geomaticaad@uis.edu.co) para abrir esta carpeta.";
 
+        public DateTime? FechaInicio => Proyecto.FechaInicio;
+        public DateTime? FechaFin => Proyecto.FechaFin;
+        public DateTime? Fecha => Proyecto.FechaInicio;
         public int? AnioFin => Proyecto.AnioFin;
+
+        public string FechaFinTexto => Proyecto.FechaFin?.ToString("dd/MM/yyyy") ?? "Sin fecha de finalización";
+
+        public bool HasFechaInicio => Proyecto.FechaInicio.HasValue;
+        public bool HasFechaFin => Proyecto.FechaFin.HasValue;
+        public bool HasAnioFin => Proyecto.AnioFin.HasValue;
         public string? Entidades => Proyecto.Entidades;
         public string? Representante => Proyecto.Representante;
 
-        public bool HasAnioFin => Proyecto.AnioFin.HasValue;
         public bool HasEntidades => !string.IsNullOrWhiteSpace(Proyecto.Entidades);
         public bool HasRepresentante => !string.IsNullOrWhiteSpace(Proyecto.Representante);
         public bool HasActores => HasEntidades || HasRepresentante;
@@ -78,14 +86,16 @@ namespace Geomatica.Desktop.ViewModels
         {
             get
             {
-                if (Proyecto.Fecha.HasValue && Proyecto.AnioFin.HasValue)
+                if (Proyecto.FechaInicio.HasValue && Proyecto.FechaFin.HasValue)
                 {
-                    return Proyecto.Fecha.Value.Year == Proyecto.AnioFin.Value
-                        ? $"{Proyecto.AnioFin.Value}"
-                        : $"{Proyecto.Fecha.Value.Year} — {Proyecto.AnioFin.Value}";
+                    if (Proyecto.FechaInicio.Value.Date == Proyecto.FechaFin.Value.Date)
+                    {
+                        return Proyecto.FechaInicio.Value.ToString("dd/MM/yyyy");
+                    }
+                    return $"{Proyecto.FechaInicio.Value:dd/MM/yyyy} — {Proyecto.FechaFin.Value:dd/MM/yyyy}";
                 }
-                if (Proyecto.AnioFin.HasValue) return $"Finalizado en {Proyecto.AnioFin.Value}";
-                if (Proyecto.Fecha.HasValue) return $"{Proyecto.Fecha.Value:dd/MM/yyyy}";
+                if (Proyecto.FechaFin.HasValue) return $"Finalizado: {Proyecto.FechaFin.Value:dd/MM/yyyy}";
+                if (Proyecto.FechaInicio.HasValue) return $"{Proyecto.FechaInicio.Value:dd/MM/yyyy}";
                 return "Sin fecha";
             }
         }

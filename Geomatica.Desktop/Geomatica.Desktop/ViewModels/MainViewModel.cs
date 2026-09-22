@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Geomatica.AppCore.UseCases;
 using Geomatica.Data.Repositories;
@@ -9,15 +9,24 @@ namespace Geomatica.Desktop.ViewModels
 {
     public partial class MainViewModel : ObservableObject
     {
-        [ObservableProperty] private object? currentView;
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(CurrentViewName))]
+        [NotifyPropertyChangedFor(nameof(IsMapaActive))]
+        [NotifyPropertyChangedFor(nameof(IsCrearProyectoActive))]
+        private object? currentView;
+
         public string CurrentViewName => CurrentView switch
         {
-            MapaViewModel => "Vista: Mapa",
-            ArchivosViewModel a when a.HasProyectoDetalle => "Vista: Ficha de Proyecto",
-            ArchivosViewModel => "Vista: Archivos",
-            EditarProyectoViewModel => "Vista: Editar Proyecto",
-            _ => "Vista: Creación"
+            MapaViewModel => "🗺️ Vista: Mapa",
+            ArchivosViewModel a when a.HasProyectoDetalle => "📋 Vista: Ficha de Proyecto",
+            ArchivosViewModel => "📂 Vista: Archivos",
+            EditarProyectoViewModel => "✏️ Vista: Editar Proyecto",
+            _ => "➕ Vista: Creación"
         };
+
+        public bool IsMapaActive => CurrentView is MapaViewModel;
+        public bool IsCrearProyectoActive => CurrentView is CrearProyectoViewModel;
+        public string UsuarioWindowsActual => $"{Environment.UserDomainName}\\{Environment.UserName}";
 
         public FiltrosViewModel Filtros { get; }
         public INotificationService Notifications { get; }

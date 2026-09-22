@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -106,9 +106,16 @@ namespace Geomatica.Desktop.Views
                     vm.Seleccionado = nodo;
                     vm.SelectedEntry = nodo;
 
-                    if (nodo is CarpetaVirtual)
+                    if (nodo is CarpetaVirtual cv)
                     {
-                        vm.AbrirCommand.Execute(null);
+                        if (cv.Nombre.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase))
+                        {
+                            vm.AbrirEnMapaCommand.Execute(null);
+                        }
+                        else
+                        {
+                            vm.AbrirCommand.Execute(null);
+                        }
                     }
                     else if (ArchivosViewModel.EsFormatoSoportadoMapa(nodo))
                     {

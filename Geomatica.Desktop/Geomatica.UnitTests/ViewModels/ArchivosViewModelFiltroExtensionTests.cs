@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -120,5 +120,23 @@ public class ArchivosViewModelFiltroExtensionTests : IDisposable
         itemsArchivos.Should().OnlyContain(a => a.Extension.Equals(".tif", StringComparison.OrdinalIgnoreCase));
         itemsArchivos.Should().Contain(a => a.Nombre == "mosaico1.tif" && a.UbicacionRelativa == "Datos_Espaciales/Ortofotos");
         itemsArchivos.Should().Contain(a => a.Nombre == "base.tif" && a.UbicacionRelativa == "(raíz)");
+    }
+
+    [Fact]
+    public void LimpiarBusqueda_DebeRestablecerBusquedaTextoYHasBusquedaTexto()
+    {
+        // Arrange
+        var vm = new ArchivosViewModel(_filtros, _service, _repoMock.Object);
+        vm.BusquedaTexto = "ortofoto";
+
+        // Assert intermedio
+        vm.HasBusquedaTexto.Should().BeTrue();
+
+        // Act
+        vm.LimpiarBusquedaCommand.Execute(null);
+
+        // Assert final
+        vm.BusquedaTexto.Should().BeEmpty();
+        vm.HasBusquedaTexto.Should().BeFalse();
     }
 }

@@ -1,4 +1,4 @@
-<UserControl x:Class="Geomatica.Desktop.Views.ArchivosView"
+﻿<UserControl x:Class="Geomatica.Desktop.Views.ArchivosView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:views="clr-namespace:Geomatica.Desktop.Views"
@@ -55,9 +55,15 @@
                     <TextBlock Text="Buscar:" VerticalAlignment="Center" FontWeight="SemiBold"
                                Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
                                FontFamily="{StaticResource AppFont}" Margin="0,0,6,0"/>
-                    <TextBox Width="110" VerticalAlignment="Center"
-                             Text="{Binding BusquedaTexto, UpdateSourceTrigger=PropertyChanged}"
-                             Style="{StaticResource ModernTextBox}" Padding="6,3"/>
+                    <Grid Width="130" Margin="0,0,4,0">
+                        <TextBox Text="{Binding BusquedaTexto, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{StaticResource ModernTextBox}" Padding="6,3,22,3" VerticalAlignment="Center"/>
+                        <Button Content="✕" Command="{Binding LimpiarBusquedaCommand}"
+                                Style="{StaticResource ClearButton}" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                Margin="0,0,3,0" Width="18" Height="18" FontSize="9"
+                                Visibility="{Binding HasBusquedaTexto, Converter={StaticResource BoolToVis}}"
+                                ToolTip="Limpiar búsqueda"/>
+                    </Grid>
                     <Rectangle Width="1" Height="20" Fill="{StaticResource SeparatorBrush}" Margin="8,0"/>
                     <Button Content="{Binding ExtenderBotonTexto}" Command="{Binding ToggleExtenderCommand}"
                             Style="{StaticResource ToolbarButton}" ToolTip="{Binding ExtenderBotonTooltip}"
@@ -79,6 +85,7 @@
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
+                <RowDefinition Height="Auto"/>
             </Grid.RowDefinitions>
 
             <!-- Banner de Filtro Activo por Extensión -->
@@ -185,18 +192,7 @@
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">
-                                        <TextBlock FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center">
-                                            <TextBlock.Style>
-                                                <Style TargetType="TextBlock">
-                                                    <Setter Property="Text" Value="📄"/>
-                                                    <Style.Triggers>
-                                                        <DataTrigger Binding="{Binding EsCarpeta}" Value="True">
-                                                             <Setter Property="Text" Value="📁"/>
-                                                        </DataTrigger>
-                                                    </Style.Triggers>
-                                                </Style>
-                                            </TextBlock.Style>
-                                        </TextBlock>
+                                        <TextBlock Text="{Binding Icono}" FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center"/>
                                         <TextBlock Text="{Binding Nombre}" VerticalAlignment="Center" FontSize="13" TextTrimming="CharacterEllipsis"/>
                                     </StackPanel>
                                 </DataTemplate>
@@ -218,13 +214,99 @@
                 </ListView.ItemContainerStyle>
             </ListView>
 
+            <!-- ══════ Panel Inspector de Geodatabase (.gdb) ══════ -->
+            <Border Grid.Row="2" MaxHeight="220"
+                    Background="#F8FAFC" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="0,1,0,0"
+                    Visibility="{Binding IsGdbSeleccionada, Converter={StaticResource BoolToVis}}">
+                <Grid Margin="12,8">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <!-- Cabecera del Inspector con Acciones Globales -->
+                    <DockPanel Grid.Row="0" Margin="0,0,0,6">
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                            <Button Content="📥 Cargar toda la GDB" Command="{Binding CargarTodaLaGdbCommand}"
+                                    Style="{StaticResource OutlineButton}" Padding="8,3" FontSize="11" Margin="0,0,6,0"
+                                    ToolTip="Cargar todas las capas vectoriales y ráster de esta Geodatabase en el visor"/>
+                            <Button Content="📍 Cargar capa seleccionada" Command="{Binding CargarCapaGdbSeleccionadaCommand}"
+                                    Style="{StaticResource PrimaryButton}" Padding="8,3" FontSize="11"
+                                    IsEnabled="{Binding HasCapaGdbSeleccionada}"
+                                    ToolTip="Cargar únicamente la capa seleccionada en el visor"/>
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                            <TextBlock Text="🗃️" FontSize="15" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                            <TextBlock Text="Capas internas de la Geodatabase:" FontWeight="SemiBold" FontSize="12"
+                                       Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding CapasGdbSeleccionada.Count, StringFormat='({0} elementos)'}"
+                                       FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            <ProgressBar IsIndeterminate="True" Width="70" Height="4" Margin="10,0,0,0" VerticalAlignment="Center"
+                                         Visibility="{Binding IsCargandoCapasGdb, Converter={StaticResource BoolToVis}}"/>
+                        </StackPanel>
+                    </DockPanel>
+
+                    <!-- Lista scrolleable de capas internas -->
+                    <ListBox Grid.Row="1" ItemsSource="{Binding CapasGdbSeleccionada}"
+                             SelectedItem="{Binding CapaGdbSeleccionada, Mode=TwoWay}"
+                             BorderThickness="1" BorderBrush="#E2E8F0" Background="White"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto" MaxHeight="150">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel LastChildFill="True" Margin="2,3">
+                                    <!-- Insignia para Clases de Relación -->
+                                    <Border x:Name="BadgeRel" DockPanel.Dock="Right" Background="#EDE7F6" BorderBrush="#D1C4E9"
+                                            BorderThickness="1" CornerRadius="3" Padding="6,2" Margin="6,0,0,0"
+                                            VerticalAlignment="Center" Visibility="Collapsed">
+                                        <TextBlock Text="🔗 Relación 1:N" FontSize="9.5" Foreground="#673AB7" FontWeight="SemiBold"/>
+                                    </Border>
+
+                                    <!-- Insignia para Tablas de Adjuntos -->
+                                    <Border x:Name="BadgeAdj" DockPanel.Dock="Right" Background="#E0F2F1" BorderBrush="#80CBC4"
+                                            BorderThickness="1" CornerRadius="3" Padding="6,2" Margin="6,0,0,0"
+                                            VerticalAlignment="Center" Visibility="Collapsed">
+                                        <TextBlock Text="📎 Fotos adjuntas" FontSize="9.5" Foreground="#00796B" FontWeight="SemiBold"/>
+                                    </Border>
+
+                                    <!-- Botón de carga para Capas espaciales y Tablas regulares -->
+                                    <Button x:Name="BtnCargarCapa" Content="Cargar" DockPanel.Dock="Right"
+                                            Command="{Binding DataContext.AbrirCapaGdbCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                            CommandParameter="{Binding}"
+                                            Style="{StaticResource OutlineButton}" Padding="8,2" FontSize="10" Margin="6,0,0,0"
+                                            ToolTip="Cargar esta capa en el mapa"/>
+
+                                    <TextBlock Text="{Binding Icono}" FontSize="14" Margin="0,0,8,0" VerticalAlignment="Center"/>
+                                    <StackPanel VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Nombre}" FontWeight="SemiBold" FontSize="11.5"
+                                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                                        <TextBlock Text="{Binding DetalleCompleto}" FontSize="10"
+                                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                                    </StackPanel>
+                                </DockPanel>
+                                <DataTemplate.Triggers>
+                                    <DataTrigger Binding="{Binding EsRelacion}" Value="True">
+                                        <Setter TargetName="BadgeRel" Property="Visibility" Value="Visible"/>
+                                        <Setter TargetName="BtnCargarCapa" Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                    <DataTrigger Binding="{Binding EsAdjunto}" Value="True">
+                                        <Setter TargetName="BadgeAdj" Property="Visibility" Value="Visible"/>
+                                        <Setter TargetName="BtnCargarCapa" Property="Visibility" Value="Collapsed"/>
+                                    </DataTrigger>
+                                </DataTemplate.Triggers>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Grid>
+            </Border>
+
             <!-- Estado vacío -->
-            <TextBlock Grid.RowSpan="2" Text="Seleccione un proyecto para ver sus archivos"
+            <TextBlock Grid.RowSpan="3" Text="Seleccione un proyecto para ver sus archivos"
                        Style="{StaticResource EmptyStateText}"
                        Visibility="{Binding ShowEmptyState, Converter={StaticResource BoolToVis}}"/>
 
             <!-- Banner / Tarjeta de Acceso Restringido (UIS Active Directory) -->
-            <Border Grid.RowSpan="2" Visibility="{Binding IsAccesoRestringido, Converter={StaticResource BoolToVis}}"
+            <Border Grid.RowSpan="3" Visibility="{Binding IsAccesoRestringido, Converter={StaticResource BoolToVis}}"
                     Background="#FFEBEE" BorderBrush="#FFCDD2" BorderThickness="1" CornerRadius="8"
                     Padding="24,20" Margin="30" HorizontalAlignment="Center" VerticalAlignment="Center"
                     MaxWidth="520">
@@ -253,44 +335,57 @@
 
                 <!-- Botones de acción organizados horizontalmente con WrapPanel -->
                 <WrapPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <!-- Grupo: Creación / Subida -->
                     <Button Content="➕ Subir" Command="{Binding SubirCommand}"
-                            Style="{StaticResource PrimaryButton}" Padding="10,5" Margin="0,2,5,2"
+                            Style="{StaticResource PrimaryButton}" Padding="10,5" Margin="0,2,4,2"
                             IsEnabled="{Binding PuedeEscribir}"
                             ToolTip="Subir uno o más archivos a la carpeta actual"/>
                     <Button Content="📁 Nueva Carpeta" Command="{Binding NuevaCarpetaCommand}"
-                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            Style="{StaticResource OutlineButton}" Margin="0,2,6,2" Padding="10,5"
                             IsEnabled="{Binding PuedeEscribir}"
                             ToolTip="Crear una nueva carpeta en la ubicación actual"/>
+
+                    <Rectangle Width="1" Height="20" Fill="{StaticResource SeparatorBrush}" Margin="2,2,6,2"/>
+
+                    <!-- Grupo: Operaciones de Archivo -->
                     <Button Content="✂️ Cortar" Command="{Binding CortarCommand}"
-                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            Style="{StaticResource OutlineButton}" Margin="0,2,4,2" Padding="9,5"
                             IsEnabled="{Binding PuedeModificarSeleccionado}"
                             ToolTip="Cortar el elemento seleccionado (Ctrl+X)"/>
                     <Button Content="📋 Copiar" Command="{Binding CopiarCommand}"
-                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            Style="{StaticResource OutlineButton}" Margin="0,2,4,2" Padding="9,5"
                             IsEnabled="{Binding IsElementoSeleccionado}"
                             ToolTip="Copiar el elemento seleccionado (Ctrl+C)"/>
                     <Button Content="📥 Pegar" Command="{Binding PegarCommand}"
-                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            Style="{StaticResource OutlineButton}" Margin="0,2,4,2" Padding="9,5"
                             IsEnabled="{Binding CanPasteEfectivo}"
                             ToolTip="Pegar el elemento cortado o copiado en la ubicación actual (Ctrl+V)"/>
                     <Button Content="✏️ Renombrar" Command="{Binding RenombrarCommand}"
-                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            Style="{StaticResource OutlineButton}" Margin="0,2,6,2" Padding="9,5"
                             IsEnabled="{Binding PuedeModificarSeleccionado}"
                             ToolTip="Renombrar el elemento seleccionado (F2)"/>
+
+                    <Rectangle Width="1" Height="20" Fill="{StaticResource SeparatorBrush}" Margin="2,2,6,2"/>
+
+                    <!-- Grupo: Visualización y SIG -->
                     <Button Content="🗺️ Ver en Mapa" Command="{Binding AbrirEnMapaCommand}"
-                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            Style="{StaticResource OutlineButton}" Margin="0,2,4,2" Padding="9,5"
                             IsEnabled="{Binding IsFormatoMapaSeleccionado}"
-                            ToolTip="Cargar el archivo como capa en el mapa"/>
-                    <Button Content="👁️ Abrir Ext." Command="{Binding AbrirCommand}"
-                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            ToolTip="Cargar el archivo como capa en el visor de mapa"/>
+                    <Button Content="👁️ Abrir con..." Command="{Binding AbrirCommand}"
+                            Style="{StaticResource OutlineButton}" Margin="0,2,4,2" Padding="9,5"
                             IsEnabled="{Binding IsElementoSeleccionado}"
-                            ToolTip="Abrir con la aplicación predeterminada del sistema"/>
+                            ToolTip="Abrir el archivo o carpeta con la aplicación predeterminada del sistema"/>
                     <Button Content="⬇️ Descargar" Command="{Binding DescargarCommand}"
-                            Style="{StaticResource OutlineButton}" Margin="0,2,5,2" Padding="10,5"
+                            Style="{StaticResource OutlineButton}" Margin="0,2,6,2" Padding="9,5"
                             IsEnabled="{Binding IsArchivoSeleccionado}"
-                            ToolTip="Descargar una copia del archivo seleccionado"/>
+                            ToolTip="Descargar una copia del archivo a otra ubicación del equipo"/>
+
+                    <Rectangle Width="1" Height="20" Fill="{StaticResource SeparatorBrush}" Margin="2,2,6,2"/>
+
+                    <!-- Grupo: Peligro -->
                     <Button Content="🗑️ Eliminar" Command="{Binding EliminarCommand}"
-                            Style="{StaticResource DangerButton}" Margin="0,2,5,2" Padding="10,5"
+                            Style="{StaticResource DangerButton}" Margin="0,2,4,2" Padding="10,5"
                             IsEnabled="{Binding PuedeModificarSeleccionado}"
                             ToolTip="Eliminar el archivo o carpeta seleccionado (Supr)"/>
                 </WrapPanel>

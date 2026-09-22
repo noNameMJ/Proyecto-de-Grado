@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -26,7 +26,17 @@ namespace Geomatica.Desktop.ViewModels
         // En la UI mostramos la ruta relativa virtual. Vacio ("") es la raíz del proyecto.
         [ObservableProperty] private string rutaActual = "";
 
-        [ObservableProperty] private string busquedaTexto = "";
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasBusquedaTexto))]
+        private string busquedaTexto = "";
+
+        public bool HasBusquedaTexto => !string.IsNullOrWhiteSpace(BusquedaTexto);
+
+        [RelayCommand]
+        private void LimpiarBusqueda()
+        {
+            BusquedaTexto = "";
+        }
 
         public ObservableCollection<object> Items { get; } = new();
 
@@ -56,6 +66,18 @@ namespace Geomatica.Desktop.ViewModels
         public bool PuedeModificarSeleccionado => IsElementoSeleccionado && PuedeEscribir;
         public bool CanPasteEfectivo => CanPaste && PuedeEscribir;
 
+        private readonly IFileGdbImporterService _gdbImporter;
+
+        [ObservableProperty] private bool isGdbSeleccionada;
+        [ObservableProperty] private bool isCargandoCapasGdb;
+        public ObservableCollection<GdbCapaInfo> CapasGdbSeleccionada { get; } = new();
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasCapaGdbSeleccionada))]
+        private GdbCapaInfo? capaGdbSeleccionada;
+
+        public bool HasCapaGdbSeleccionada => CapaGdbSeleccionada != null && !CapaGdbSeleccionada.EsRelacion;
+
         partial void OnSeleccionadoChanged(NodoArchivoVirtual? value)
         {
             OnPropertyChanged(nameof(IsElementoSeleccionado));
@@ -64,6 +86,79 @@ namespace Geomatica.Desktop.ViewModels
             OnPropertyChanged(nameof(IsFormatoMapaSeleccionado));
             OnPropertyChanged(nameof(NombreSeleccionado));
             OnPropertyChanged(nameof(PuedeModificarSeleccionado));
+
+            // Detección e inspección automática de Geodatabase (.gdb)
+            bool esGdb = false;
+            string rutaGdbFisica = "";
+            if (value is CarpetaVirtual cv && cv.Nombre.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase))
+            {
+                esGdb = true;
+                rutaGdbFisica = Path.Combine(_rutaRaizProyecto, cv.RutaRelativaVirtual.TrimStart('/', '\\'));
+            }
+            else if (value is ArchivoVirtual av && av.Extension.Equals(".gdb", StringComparison.OrdinalIgnoreCase))
+            {
+                esGdb = true;
+                rutaGdbFisica = Path.Combine(_rutaRaizProyecto, av.RutaRelativaVirtual.TrimStart('/', '\\'));
+            }
+
+            IsGdbSeleccionada = esGdb;
+            CapasGdbSeleccionada.Clear();
+            CapaGdbSeleccionada = null;
+
+            if (esGdb && (Directory.Exists(rutaGdbFisica) || File.Exists(rutaGdbFisica)))
+            {
+                _ = CargarCapasGdbInternasAsync(rutaGdbFisica);
+            }
+        }
+
+        private async Task CargarCapasGdbInternasAsync(string rutaGdb)
+        {
+            try
+            {
+                IsCargandoCapasGdb = true;
+                var capas = await _gdbImporter.ObtenerCapasGdbAsync(rutaGdb);
+                CapasGdbSeleccionada.Clear();
+                foreach (var c in capas)
+                {
+                    CapasGdbSeleccionada.Add(c);
+                }
+                CapaGdbSeleccionada = CapasGdbSeleccionada.FirstOrDefault();
+            }
+            catch (Exception ex)
+            {
+                RasterDiagnostics.Log($"[ArchivosViewModel] Error cargando capas de GDB '{rutaGdb}': {ex.Message}");
+            }
+            finally
+            {
+                IsCargandoCapasGdb = false;
+            }
+        }
+
+        [RelayCommand]
+        private void CargarCapaGdbSeleccionada()
+        {
+            if (CapaGdbSeleccionada != null && !string.IsNullOrWhiteSpace(CapaGdbSeleccionada.RutaGdb))
+            {
+                AbrirCapaEnMapaSolicitado?.Invoke(this, (CapaGdbSeleccionada.RutaGdb, CapaGdbSeleccionada.Nombre));
+            }
+        }
+
+        [RelayCommand]
+        private void AbrirCapaGdb(GdbCapaInfo? capa)
+        {
+            if (capa != null && !capa.EsRelacion && !string.IsNullOrWhiteSpace(capa.RutaGdb))
+            {
+                AbrirCapaEnMapaSolicitado?.Invoke(this, (capa.RutaGdb, capa.Nombre));
+            }
+        }
+
+        [RelayCommand]
+        private void CargarTodaLaGdb()
+        {
+            if (Seleccionado != null)
+            {
+                AbrirEnMapa();
+            }
         }
 
         public bool IsElementoSeleccionado => Seleccionado != null;
@@ -116,7 +211,7 @@ namespace Geomatica.Desktop.ViewModels
         [RelayCommand]
         public void LimpiarFiltroExtension()
         {
-            var opcionTodos = ExtensionesDisponibles.FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
+            var opcionTodos = ExtensionesDisponibles.ToList().FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
             FiltroExtensionSeleccionado = opcionTodos;
         }
 
@@ -129,7 +224,7 @@ namespace Geomatica.Desktop.ViewModels
             }
 
             string extNorm = extension.StartsWith('.') ? extension.ToLowerInvariant() : "." + extension.ToLowerInvariant();
-            var match = ExtensionesDisponibles.FirstOrDefault(e => e.Extension.Equals(extNorm, StringComparison.OrdinalIgnoreCase));
+            var match = ExtensionesDisponibles.ToList().FirstOrDefault(e => e.Extension.Equals(extNorm, StringComparison.OrdinalIgnoreCase));
             if (match != null)
             {
                 FiltroExtensionSeleccionado = match;
@@ -217,7 +312,8 @@ namespace Geomatica.Desktop.ViewModels
             ExtensionesDisponibles.Clear();
             ExtensionesDisponibles.Add(new FiltroExtensionOption("", "Todos los archivos", "📁", 0));
 
-            foreach (var ext in ficha.ExtensionesDetectadas)
+            var extensionesSnapshot = ficha.ExtensionesDetectadas.ToList();
+            foreach (var ext in extensionesSnapshot)
             {
                 ExtensionesDisponibles.Add(new FiltroExtensionOption(
                     Extension: ext.Extension,
@@ -229,7 +325,7 @@ namespace Geomatica.Desktop.ViewModels
 
             if (!string.IsNullOrEmpty(seleccionadoActual))
             {
-                var match = ExtensionesDisponibles.FirstOrDefault(e => e.Extension.Equals(seleccionadoActual, StringComparison.OrdinalIgnoreCase));
+                var match = ExtensionesDisponibles.ToList().FirstOrDefault(e => e.Extension.Equals(seleccionadoActual, StringComparison.OrdinalIgnoreCase));
                 FiltroExtensionSeleccionado = match ?? ExtensionesDisponibles[0];
             }
             else
@@ -239,17 +335,20 @@ namespace Geomatica.Desktop.ViewModels
         }
 
         public event EventHandler<string>? AbrirEnMapaSolicitado;
+        public event EventHandler<(string RutaGdb, string? NombreCapa)>? AbrirCapaEnMapaSolicitado;
 
         public ArchivosViewModel(
             FiltrosViewModel filtros,
             ProyectoArchivosService archivosService,
             IProyectoRepository proyectoRepository,
-            INotificationService? notifications = null)
+            INotificationService? notifications = null,
+            IFileGdbImporterService? gdbImporter = null)
         {
             _filtros = filtros;
             _archivosService = archivosService;
             _proyectoRepository = proyectoRepository;
             _notifications = notifications;
+            _gdbImporter = gdbImporter ?? new FileGdbImporterService();
 
             _filtros.BuscarSolicitado += async (_, __) => { RefrescarSegunFiltros(); await LoadProyectosIntoFiltrosAsync(); };
             _filtros.PropertyChanged += Filtros_PropertyChanged;
@@ -792,6 +891,35 @@ namespace Geomatica.Desktop.ViewModels
                 return;
             }
 
+            string rutaFisica = Path.Combine(_rutaRaizProyecto, archivo.RutaRelativaVirtual.TrimStart('/', '\\'));
+
+            // Si es un contenedor de Geodatabase (.gdb), descargar empaquetado en ZIP
+            if (archivo.Extension.Equals(".gdb", StringComparison.OrdinalIgnoreCase) || Directory.Exists(rutaFisica))
+            {
+                var sfdZip = new Microsoft.Win32.SaveFileDialog
+                {
+                    Title = "Guardar Geodatabase como...",
+                    FileName = $"{Path.GetFileNameWithoutExtension(archivo.Nombre)}.zip",
+                    Filter = "Archivo Comprimido ZIP (*.zip)|*.zip|Todos los archivos|*.*"
+                };
+
+                if (sfdZip.ShowDialog() == true)
+                {
+                    try
+                    {
+                        if (File.Exists(sfdZip.FileName)) File.Delete(sfdZip.FileName);
+                        System.IO.Compression.ZipFile.CreateFromDirectory(rutaFisica, sfdZip.FileName);
+                        Estado = $"Descargado: {Path.GetFileName(sfdZip.FileName)}";
+                        _notifications?.ShowSuccess($"Geodatabase '{archivo.Nombre}' comprimida y guardada exitosamente.", "Descarga Completa");
+                    }
+                    catch (Exception ex)
+                    {
+                        _notifications?.ShowError($"Error al descargar Geodatabase: {ex.Message}", "Error de Descarga");
+                    }
+                }
+                return;
+            }
+
             var sfd = new Microsoft.Win32.SaveFileDialog
             {
                 Title = "Guardar archivo como...",
@@ -803,7 +931,6 @@ namespace Geomatica.Desktop.ViewModels
             {
                 try
                 {
-                    string rutaFisica = Path.Combine(_rutaRaizProyecto, archivo.RutaRelativaVirtual.TrimStart('/', '\\'));
                     File.Copy(rutaFisica, sfd.FileName, true);
                     Estado = $"Descargado: {archivo.Nombre}";
                     _notifications?.ShowSuccess($"Archivo '{archivo.Nombre}' descargado exitosamente.", "Descarga Completa");
@@ -858,10 +985,23 @@ namespace Geomatica.Desktop.ViewModels
             {
                 if (Seleccionado is CarpetaVirtual carpeta)
                 {
+                    if (carpeta.Nombre.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase))
+                    {
+                        AbrirEnMapa();
+                        return;
+                    }
                     RutaActual = carpeta.RutaRelativaVirtual;
                 }
                 else if (Seleccionado is ArchivoVirtual archivo)
                 {
+                    if (archivo.Extension.Equals(".gdb", StringComparison.OrdinalIgnoreCase) ||
+                        archivo.Extension.Equals(".geodatabase", StringComparison.OrdinalIgnoreCase) ||
+                        FormatosSoportadosMapa.Contains(archivo.Extension))
+                    {
+                        AbrirEnMapa();
+                        return;
+                    }
+
                     string rutaFisica = Path.Combine(_rutaRaizProyecto, archivo.RutaRelativaVirtual.TrimStart('/', '\\'));
                     // Copiar a temp para proteger el original y evitar bloqueos en red
                     string dest = Path.Combine(Path.GetTempPath(), archivo.Nombre);

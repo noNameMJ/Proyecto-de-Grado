@@ -1,4 +1,4 @@
-using Geomatica.Desktop.Models;
+﻿using Geomatica.Desktop.Models;
 
 namespace Geomatica.UnitTests.Models;
 
@@ -41,6 +41,36 @@ public class NodoArchivoVirtualTests
         carpeta.TamanoTexto.Should().BeEmpty();
         carpeta.Hijos.Should().NotBeNull();
         carpeta.Hijos.Should().BeEmpty();
+        carpeta.Icono.Should().Be("📁");
+    }
+
+    [Theory]
+    [InlineData(".gdb", "🗃️")]
+    [InlineData(".geodatabase", "🗃️")]
+    [InlineData(".shp", "🗺️")]
+    [InlineData(".gpkg", "🗺️")]
+    [InlineData(".geojson", "🗺️")]
+    [InlineData(".kml", "🗺️")]
+    [InlineData(".tif", "🛰️")]
+    [InlineData(".tiff", "🛰️")]
+    [InlineData(".las", "☁️")]
+    [InlineData(".laz", "☁️")]
+    [InlineData(".dwg", "📐")]
+    [InlineData(".pdf", "📕")]
+    [InlineData(".zip", "🗜️")]
+    [InlineData(".csv", "📊")]
+    [InlineData(".unknown", "📄")]
+    public void ArchivoVirtual_Icono_DebeAsignarIconoSegunExtension(string extension, string iconoEsperado)
+    {
+        // Arrange
+        var archivo = new ArchivoVirtual
+        {
+            Nombre = "test" + extension,
+            Extension = extension
+        };
+
+        // Act & Assert
+        archivo.Icono.Should().Be(iconoEsperado);
     }
 }
 

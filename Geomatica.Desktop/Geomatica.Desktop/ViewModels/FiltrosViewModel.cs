@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Geomatica.Data.Repositories;
 using System.Collections.ObjectModel;
@@ -23,8 +23,12 @@ namespace Geomatica.Desktop.ViewModels
         // Manejo Resiliente de Desconexión / Reconexión a PostgreSQL
         [ObservableProperty] private bool isErrorConexionDb;
         [ObservableProperty] private string mensajeErrorConexion = "Sin conexión a la base de datos PostgreSQL. Verifique su red/VPN.";
-        [ObservableProperty] private bool isReintentandoConexion;
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(CanReintentarConexion))]
+        private bool isReintentandoConexion;
 
+        public bool CanReintentarConexion => !IsReintentandoConexion;
+        public bool HasResultados => ResultadosLista.Count > 0;
         public bool NoHayResultados => !IsBuscando && !IsErrorConexionDb && ResultadosLista.Count == 0;
         public ObservableCollection<DepartamentoItem> Departamentos { get; } = new();
         public ObservableCollection<object> Areas { get; } = new();
@@ -97,6 +101,7 @@ namespace Geomatica.Desktop.ViewModels
         public void NotificarResultadosCargados()
         {
             IsBuscando = false;
+            OnPropertyChanged(nameof(HasResultados));
             OnPropertyChanged(nameof(NoHayResultados));
         }
 
@@ -105,6 +110,7 @@ namespace Geomatica.Desktop.ViewModels
             IsBuscando = false;
             IsErrorConexionDb = true;
             MensajeErrorConexion = mensaje;
+            OnPropertyChanged(nameof(HasResultados));
             OnPropertyChanged(nameof(NoHayResultados));
         }
 
@@ -238,6 +244,10 @@ namespace Geomatica.Desktop.ViewModels
 
         public record ProyectoItem(int Id, string Titulo, double Lon, double Lat, string? Ruta)
         {
+            public string CodigoId => $"#PROY-{Id:D4}";
+            public string CoordenadasTexto => (Lon != 0 || Lat != 0)
+                ? $"{Lat.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}°N, {Lon.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}°W"
+                : "Sin coordenadas";
             public override string ToString() => Titulo;
         }
     }

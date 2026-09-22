@@ -16,6 +16,14 @@ namespace Geomatica.Desktop.Models
         private bool _disposed;
 
         public string Nombre { get; set; } = "";
+        public string NombreContenedor { get; set; } = "";
+        public string NombreCapaInterna { get; set; } = "";
+        public string TipoGeometria { get; set; } = "";
+        public long CantidadElementos { get; set; }
+        public string BadgeDetalle => CantidadElementos > 0
+            ? $"{TipoGeometria} • {CantidadElementos:N0} elementos"
+            : TipoGeometria;
+
         public string RutaCompleta { get; set; } = "";
         public string TipoIcono { get; set; } = "🗺️";
         public string TipoTexto { get; set; } = "Capa Ráster";
@@ -108,6 +116,8 @@ namespace Geomatica.Desktop.Models
 
         public IRelayCommand? QuitarCommand { get; set; }
         public IRelayCommand? ZoomCommand { get; set; }
+        public IRelayCommand? AbrirTablaAtributosCommand { get; set; }
+        public bool HasTablaAtributos => AbrirTablaAtributosCommand != null;
 
         /// <summary>
         /// Libera explícitamente recursos gráficos, colecciones en memoria, buffers 3D y conexiones de archivo.

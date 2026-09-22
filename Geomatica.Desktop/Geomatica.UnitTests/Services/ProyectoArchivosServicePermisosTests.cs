@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using FluentAssertions;
 using Geomatica.Desktop.Services;
@@ -92,7 +92,7 @@ public class ProyectoArchivosServicePermisosTests : IDisposable
             Id: 1,
             Titulo: "Proyecto Test Permisos",
             Descripcion: "Descripción de prueba",
-            Fecha: DateTime.Today,
+            FechaInicio: DateTime.Today,
             PalabraClave: "test, permisos",
             RutaArchivos: _tempDir,
             Lon: -73.12,
@@ -127,7 +127,7 @@ public class ProyectoArchivosServicePermisosTests : IDisposable
             Id: 2,
             Titulo: "Proyecto Sin Carpeta",
             Descripcion: null,
-            Fecha: null,
+            FechaInicio: null,
             PalabraClave: null,
             RutaArchivos: null,
             Lon: -73.12,

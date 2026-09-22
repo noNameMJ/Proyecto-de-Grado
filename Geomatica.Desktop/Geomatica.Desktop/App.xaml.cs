@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -267,6 +267,7 @@ namespace Geomatica.Desktop
             services.AddSingleton<BuscarProyectosUseCase>();
             services.AddSingleton<EliminarProyectoUseCase>();
             services.AddSingleton<Geomatica.Desktop.Services.ProyectoArchivosService>();
+            services.AddSingleton<Geomatica.Desktop.Services.IFileGdbImporterService, Geomatica.Desktop.Services.FileGdbImporterService>();
 
             // ViewModels
             services.AddSingleton<FiltrosViewModel>();
@@ -276,7 +277,8 @@ namespace Geomatica.Desktop
                 sp.GetRequiredService<IMunicipioRepository>(),
                 sp.GetRequiredService<FiltrosViewModel>(),
                 sp.GetRequiredService<ArchivosViewModel>(),
-                sp.GetRequiredService<INotificationService>()));
+                sp.GetRequiredService<INotificationService>(),
+                sp.GetRequiredService<Geomatica.Desktop.Services.IFileGdbImporterService>()));
 
             services.AddTransient<ArchivosViewModel>(sp => new ArchivosViewModel(
                 sp.GetRequiredService<FiltrosViewModel>(),

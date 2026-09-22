@@ -1,4 +1,4 @@
-using System.IO;
+﻿using System.IO;
 using FluentAssertions;
 using Geomatica.Desktop.Services;
 using Geomatica.Desktop.ViewModels;
@@ -12,8 +12,8 @@ namespace Geomatica.UnitTests.ViewModels;
 public class FichaProyectoMetadatosTests
 {
     private static ProyectoDetalleDto CrearDto(
-        DateTime? fecha = null,
-        int? anioFin = null,
+        DateTime? fechaInicio = null,
+        DateTime? fechaFin = null,
         string? entidades = null,
         string? representante = null,
         string? rutaArchivos = null)
@@ -22,36 +22,59 @@ public class FichaProyectoMetadatosTests
             Id: 10,
             Titulo: "Proyecto Metadatos",
             Descripcion: "Descripcion",
-            Fecha: fecha,
+            FechaInicio: fechaInicio,
             PalabraClave: "sig, catastro",
             RutaArchivos: rutaArchivos,
             Lon: -73.1,
             Lat: 7.1,
             MunicipioCodigo: "68001",
             MunicipioNombre: "Bucaramanga",
-            AnioFin: anioFin,
+            FechaFin: fechaFin,
             Entidades: entidades,
             Representante: representante
         );
     }
 
     [Theory]
-    [InlineData("2022-03-01", 2024, "2022 — 2024")]
-    [InlineData("2022-03-01", 2022, "2022")]
-    [InlineData(null, 2024, "Finalizado en 2024")]
+    [InlineData("2022-03-01", "2024-11-15", "01/03/2022 — 15/11/2024")]
+    [InlineData("2022-03-01", "2022-03-01", "01/03/2022")]
+    [InlineData(null, "2024-05-20", "Finalizado: 20/05/2024")]
     [InlineData("2022-05-15", null, "15/05/2022")]
     [InlineData(null, null, "Sin fecha")]
-    public void PeriodoTexto_CalculaFormatoCorrectoSegunFechas(string? fechaStr, int? anioFin, string esperado)
+    public void PeriodoTexto_CalculaFormatoCorrectoSegunFechas(string? fechaInicioStr, string? fechaFinStr, string esperado)
     {
         // Arrange
-        DateTime? fecha = fechaStr != null ? DateTime.Parse(fechaStr) : null;
-        var dto = CrearDto(fecha: fecha, anioFin: anioFin);
+        DateTime? fechaInicio = fechaInicioStr != null ? DateTime.Parse(fechaInicioStr) : null;
+        DateTime? fechaFin = fechaFinStr != null ? DateTime.Parse(fechaFinStr) : null;
+        var dto = CrearDto(fechaInicio: fechaInicio, fechaFin: fechaFin);
 
         // Act
         var vm = new FichaProyectoViewModel(dto, () => { });
 
         // Assert
         vm.PeriodoTexto.Should().Be(esperado);
+    }
+
+    [Fact]
+    public void MetadatosFechas_ExponePropiedadesFechaInicioYFin()
+    {
+        // Arrange
+        var inicio = new DateTime(2023, 2, 10);
+        var fin = new DateTime(2025, 8, 20);
+        var dto = CrearDto(fechaInicio: inicio, fechaFin: fin);
+
+        // Act
+        var vm = new FichaProyectoViewModel(dto, () => { });
+
+        // Assert
+        vm.FechaInicio.Should().Be(inicio);
+        vm.FechaFin.Should().Be(fin);
+        vm.Fecha.Should().Be(inicio);
+        vm.AnioFin.Should().Be(2025);
+        vm.HasFechaInicio.Should().BeTrue();
+        vm.HasFechaFin.Should().BeTrue();
+        vm.FechaTexto.Should().Be("10/02/2023");
+        vm.FechaFinTexto.Should().Be("20/08/2025");
     }
 
     [Fact]

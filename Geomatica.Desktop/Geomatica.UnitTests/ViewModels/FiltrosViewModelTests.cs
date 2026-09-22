@@ -1,4 +1,4 @@
-using Geomatica.Data.Repositories;
+﻿using Geomatica.Data.Repositories;
 using Geomatica.Desktop.ViewModels;
 
 namespace Geomatica.UnitTests.ViewModels;
@@ -72,6 +72,38 @@ public class FiltrosViewModelTests
         // Assert
         vm.IsErrorConexionDb.Should().BeTrue();
         vm.MensajeErrorConexion.Should().Contain("Fallo al reconectar con PostgreSQL");
+    }
+
+    [Fact]
+    public void HasResultados_Y_CanReintentarConexion_DebeCalcularseCorrectamente()
+    {
+        // Arrange
+        var vm = new FiltrosViewModel(_municipioRepoMock.Object);
+
+        // Assert inicial
+        vm.HasResultados.Should().BeFalse();
+        vm.CanReintentarConexion.Should().BeTrue();
+
+        // Act: agregar resultado
+        vm.ResultadosLista.Add(new FiltrosViewModel.ProyectoItem(5, "Proyecto de Prueba", -73.12, 7.14, "C:\\Ruta"));
+        vm.NotificarResultadosCargados();
+
+        // Assert
+        vm.HasResultados.Should().BeTrue();
+    }
+
+    [Fact]
+    public void ProyectoItem_FormateaCodigoIdYCoordenadasCorrectamente()
+    {
+        // Arrange & Act
+        var itemConCoords = new FiltrosViewModel.ProyectoItem(12, "Proyecto Bucaramanga", -73.1234, 7.1234, "C:\\Ruta");
+        var itemSinCoords = new FiltrosViewModel.ProyectoItem(3, "Proyecto Sin Coordenadas", 0, 0, null);
+
+        // Assert
+        itemConCoords.CodigoId.Should().Be("#PROY-0012");
+        itemConCoords.CoordenadasTexto.Should().Contain("7.1234°N").And.Contain("-73.1234°W");
+        itemSinCoords.CodigoId.Should().Be("#PROY-0003");
+        itemSinCoords.CoordenadasTexto.Should().Be("Sin coordenadas");
     }
 }
 
