@@ -419,11 +419,15 @@ namespace Geomatica.Desktop.ViewModels
         [RelayCommand]
         private void Refrescar() => RefrescarSegunFiltros();
 
+        private readonly object _refreshLock = new();
+
         private void RefrescarSegunFiltros()
         {
-            Items.Clear();
-            try
+            lock (_refreshLock)
             {
+                Items.Clear();
+                try
+                {
                 if (string.IsNullOrWhiteSpace(_rutaRaizProyecto))
                 {
                     PermisosCarpeta = null;
@@ -510,6 +514,7 @@ namespace Geomatica.Desktop.ViewModels
             {
                 Estado = ex.Message;
                 OnPropertyChanged(nameof(ShowEmptyState));
+            }
             }
         }
 

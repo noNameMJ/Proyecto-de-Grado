@@ -371,8 +371,11 @@ namespace Geomatica.Desktop.ViewModels
 
                 var progress = new Progress<double>(p =>
                 {
-                    ProgresoDescargaZip = p;
-                    EstadoDescargaZipTexto = $"Empaquetando archivos... {p:F0}%";
+                    if (IsDescargandoZip)
+                    {
+                        ProgresoDescargaZip = p;
+                        EstadoDescargaZipTexto = $"Empaquetando archivos... {p:F0}%";
+                    }
                 });
 
                 bool exito = await _archivosService.EmpaquetarCarpetaZipAsync(RutaArchivos, rutaDestinoZip, progress, ct);
