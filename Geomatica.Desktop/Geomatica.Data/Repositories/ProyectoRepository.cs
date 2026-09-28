@@ -1,4 +1,4 @@
-﻿using Npgsql;
+using Npgsql;
 using NpgsqlTypes;
 using System.Diagnostics;
 using System.Globalization;
@@ -17,9 +17,12 @@ namespace Geomatica.Data.Repositories
         {
             try
             {
-                var winIdentity = WindowsIdentity.GetCurrent()?.Name;
-                if (!string.IsNullOrWhiteSpace(winIdentity))
-                    return winIdentity;
+                if (OperatingSystem.IsWindows())
+                {
+                    var winIdentity = WindowsIdentity.GetCurrent()?.Name;
+                    if (!string.IsNullOrWhiteSpace(winIdentity))
+                        return winIdentity;
+                }
             }
             catch
             {

@@ -6,6 +6,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <NoWarn>$(NoWarn);MSB3270</NoWarn>
     <UserSecretsId>9d9ff670-48ce-4e68-a981-f3c515fb8697</UserSecretsId>
   </PropertyGroup>
 
@@ -47,6 +48,7 @@
     <ProjectReference Include="..\Geomatica.AppCore\Geomatica.AppCore.csproj" />
     <ProjectReference Include="..\Geomatica.Domain\Geomatica.Domain.csproj" />
     <ProjectReference Include="..\Geomatica.Data\Geomatica.Data.csproj" />
+    <ProjectReference Include="..\Geomatica.Infrastructure.Gis\Geomatica.Infrastructure.Gis.csproj" />
   </ItemGroup>
 
 </Project>

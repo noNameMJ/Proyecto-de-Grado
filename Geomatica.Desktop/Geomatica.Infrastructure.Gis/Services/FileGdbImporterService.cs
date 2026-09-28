@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
@@ -10,6 +10,9 @@ using System.Threading;
 using System.Threading.Tasks;
 using Esri.ArcGISRuntime.Data;
 using Geomatica.Desktop.Models;
+using MaxRev.Gdal.Core;
+using OSGeo.OGR;
+using OSGeo.GDAL;
 using Microsoft.Win32;
 
 namespace Geomatica.Desktop.Services
@@ -24,7 +27,9 @@ namespace Geomatica.Desktop.Services
 
     public interface IFileGdbImporterService
     {
+        bool IsGdalAvailable { get; }
         bool IsArcPyAvailable { get; }
+        string ProveedorActivo { get; }
         string? PythonExecutablePath { get; }
         Task<GdbImportResult> ImportarGdbAsync(string gdbPath, CancellationToken ct = default);
         Task<IReadOnlyList<GdbCapaInfo>> ObtenerCapasGdbAsync(string gdbPath, CancellationToken ct = default);
@@ -35,10 +40,41 @@ namespace Geomatica.Desktop.Services
 
     public class FileGdbImporterService : IFileGdbImporterService
     {
+        private static readonly object _gdalLock = new();
+        private static bool _gdalInitialized = false;
+        private static bool _gdalAvailable = false;
+
+        public static bool InicializarGdal()
+        {
+            if (_gdalInitialized) return _gdalAvailable;
+            lock (_gdalLock)
+            {
+                if (_gdalInitialized) return _gdalAvailable;
+                try
+                {
+                    GdalBase.ConfigureAll();
+                    Ogr.RegisterAll();
+                    Gdal.AllRegister();
+                    var driver = Ogr.GetDriverByName("OpenFileGDB");
+                    _gdalAvailable = driver != null;
+                    RasterDiagnostics.Log($"[FileGdbImporter] GDAL OpenFileGDB inicializado. Disponible: {_gdalAvailable}");
+                }
+                catch (Exception ex)
+                {
+                    _gdalAvailable = false;
+                    RasterDiagnostics.Log($"[FileGdbImporter] Advertencia al inicializar GDAL nativo: {ex.Message}");
+                }
+                _gdalInitialized = true;
+                return _gdalAvailable;
+            }
+        }
+
         private readonly string? _pythonExecutablePath;
         private readonly string _cacheDirectory;
 
+        public bool IsGdalAvailable => InicializarGdal();
         public bool IsArcPyAvailable => !string.IsNullOrEmpty(_pythonExecutablePath) && File.Exists(_pythonExecutablePath);
+        public string ProveedorActivo => IsArcPyAvailable ? "ArcPy (ArcGIS Pro)" : (IsGdalAvailable ? "GDAL OpenFileGDB (Autónomo)" : "Ninguno disponible");
         public string? PythonExecutablePath => _pythonExecutablePath;
 
         public FileGdbImporterService(string? customPythonPath = null, string? customCacheDirectory = null)
@@ -136,7 +172,7 @@ namespace Geomatica.Desktop.Services
 
             string cacheGpkg = ObtenerRutaCache(gdbPath);
 
-            // 1. Validar si ya existe en caché y está completo
+            // 1. Nivel 0: Validar si ya existe en caché y está completo
             if (File.Exists(cacheGpkg))
             {
                 var fi = new FileInfo(cacheGpkg);
@@ -147,20 +183,170 @@ namespace Geomatica.Desktop.Services
                 }
             }
 
-            // 2. Si no está en caché, requerimos ArcPy
-            if (!IsArcPyAvailable)
+            // 2. Nivel 1: Motor prioritario ArcPy (si ArcGIS Pro está disponible en el entorno)
+            if (IsArcPyAvailable)
             {
-                return new GdbImportResult(
-                    false,
-                    null,
-                    Array.Empty<string>(),
-                    "No se detectó el entorno de ArcGIS Pro / ArcPy en este equipo para procesar la File Geodatabase (.gdb). " +
-                    "Para visualizar estas capas directamente, expórtelas a GeoPackage (.gpkg) o Shapefile (.shp), o ejecute el programa en un equipo con ArcGIS Pro instalado.",
-                    false
-                );
+                try
+                {
+                    RasterDiagnostics.Log($"[FileGdbImporter] [Prioridad 1 - ArcPy] Iniciando exportación con ArcPy / ArcGIS Pro: {gdbPath}");
+                    var resArcPy = await ExportarConArcPyAsync(gdbPath, cacheGpkg, ct);
+                    if (resArcPy.Success && File.Exists(cacheGpkg) && new FileInfo(cacheGpkg).Length > 0)
+                    {
+                        RasterDiagnostics.Log($"[FileGdbImporter] ArcPy exportó exitosamente {resArcPy.FeatureClasses.Count} capas hacia '{cacheGpkg}'.");
+                        return resArcPy;
+                    }
+
+                    RasterDiagnostics.Log($"[FileGdbImporter] ArcPy no pudo completar la exportación ({resArcPy.MensajeError}). Degradando elegantemente a GDAL OpenFileGDB...");
+                }
+                catch (Exception exArcPy)
+                {
+                    RasterDiagnostics.Log($"[FileGdbImporter] Excepción en ArcPy: {exArcPy.Message}. Degradando elegantemente a GDAL OpenFileGDB...");
+                }
             }
 
-            // 3. Ejecutar exportación mediante Python / ArcPy
+            // 3. Nivel 2: Motor autónomo GDAL OpenFileGDB (NuGet MaxRev.Gdal - Graceful Degradation / Autónomo)
+            if (IsGdalAvailable)
+            {
+                try
+                {
+                    RasterDiagnostics.Log($"[FileGdbImporter] [Degradación Elegante - GDAL Autónomo] Iniciando extracción con GDAL OpenFileGDB: {gdbPath}");
+                    var resGdal = await ExportarConGdalAsync(gdbPath, cacheGpkg, ct);
+                    if (resGdal.Success && File.Exists(cacheGpkg) && new FileInfo(cacheGpkg).Length > 0)
+                    {
+                        RasterDiagnostics.Log($"[FileGdbImporter] GDAL exportó exitosamente {resGdal.FeatureClasses.Count} capas hacia '{cacheGpkg}'.");
+                        return resGdal;
+                    }
+
+                    RasterDiagnostics.Log($"[FileGdbImporter] GDAL no pudo completar la exportación: {resGdal.MensajeError}");
+                }
+                catch (Exception exGdal)
+                {
+                    RasterDiagnostics.Log($"[FileGdbImporter] Excepción en GDAL: {exGdal.Message}");
+                }
+            }
+
+            // 4. Si ningún motor pudo procesarlo
+            return new GdbImportResult(
+                false,
+                null,
+                Array.Empty<string>(),
+                "No fue posible procesar la File Geodatabase (.gdb). No se detectó un motor GIS disponible (entorno de ArcGIS Pro o GDAL OpenFileGDB).",
+                false
+            );
+        }
+
+        private async Task<GdbImportResult> ExportarConGdalAsync(string gdbPath, string cacheGpkg, CancellationToken ct)
+        {
+            return await Task.Run(() =>
+            {
+                string tempGpkg = cacheGpkg + $".tmp_{Guid.NewGuid():N}.gpkg";
+                try
+                {
+                    using var srcDs = Ogr.Open(gdbPath, 0);
+                    if (srcDs == null)
+                    {
+                        return new GdbImportResult(false, null, Array.Empty<string>(), "GDAL OpenFileGDB no pudo abrir la Geodatabase.", false);
+                    }
+
+                    var gpkgDriver = Ogr.GetDriverByName("GPKG");
+                    if (gpkgDriver == null)
+                    {
+                        return new GdbImportResult(false, null, Array.Empty<string>(), "Driver GPKG de OGR no está disponible.", false);
+                    }
+
+                    if (File.Exists(tempGpkg)) File.Delete(tempGpkg);
+
+                    var exportadas = new List<string>();
+                    var metaList = new List<object>();
+
+                    using (var destDs = gpkgDriver.CreateDataSource(tempGpkg, null))
+                    {
+                        if (destDs == null)
+                        {
+                            return new GdbImportResult(false, null, Array.Empty<string>(), "No se pudo crear el archivo GeoPackage de destino.", false);
+                        }
+
+                        int layerCount = srcDs.GetLayerCount();
+                        for (int i = 0; i < layerCount; i++)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            using var srcLayer = srcDs.GetLayerByIndex(i);
+                            if (srcLayer == null) continue;
+
+                            string layerName = srcLayer.GetName();
+                            if (layerName.StartsWith("GDB_", StringComparison.OrdinalIgnoreCase))
+                                continue;
+
+                            var geomType = srcLayer.GetGeomType();
+                            long featureCount = srcLayer.GetFeatureCount(1);
+                            bool isTable = geomType == wkbGeometryType.wkbNone;
+                            bool isAttach = layerName.EndsWith("__ATTACH", StringComparison.OrdinalIgnoreCase);
+
+                            string crsName = "WGS 84";
+                            using var srs = srcLayer.GetSpatialRef();
+                            if (srs != null)
+                            {
+                                string authCode = srs.GetAuthorityCode(null);
+                                crsName = !string.IsNullOrEmpty(authCode) ? $"EPSG:{authCode}" : (srs.GetName() ?? "Personalizado");
+                            }
+
+                            string geomStr = isTable ? "None" : MapearGeometriaGdal(geomType);
+
+                            metaList.Add(new
+                            {
+                                name = layerName,
+                                geometry_type = geomStr,
+                                count = featureCount,
+                                crs = isTable ? "" : crsName,
+                                is_table = isTable,
+                                is_attachment = isAttach,
+                                is_relationship = false
+                            });
+
+                            using var destLayer = destDs.CopyLayer(srcLayer, layerName, null);
+                            if (destLayer != null)
+                            {
+                                exportadas.Add(layerName);
+                            }
+                        }
+
+                        destDs.FlushCache();
+                    }
+
+                    if (!File.Exists(tempGpkg) || new FileInfo(tempGpkg).Length == 0)
+                    {
+                        return new GdbImportResult(false, null, Array.Empty<string>(), "La conversión de GDAL generó un archivo vacío.", false);
+                    }
+
+                    if (File.Exists(cacheGpkg))
+                    {
+                        try { File.Delete(cacheGpkg); } catch { }
+                    }
+                    File.Move(tempGpkg, cacheGpkg, true);
+
+                    // Escribir metadatos JSON para acelerar lecturas posteriores
+                    string metaPath = cacheGpkg + ".meta.json";
+                    try
+                    {
+                        string dir = Path.GetDirectoryName(metaPath)!;
+                        if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                        string json = JsonSerializer.Serialize(metaList, new JsonSerializerOptions { WriteIndented = true });
+                        File.WriteAllText(metaPath, json, Encoding.UTF8);
+                    }
+                    catch { }
+
+                    return new GdbImportResult(true, cacheGpkg, exportadas, null, false);
+                }
+                catch (Exception ex)
+                {
+                    try { if (File.Exists(tempGpkg)) File.Delete(tempGpkg); } catch { }
+                    return new GdbImportResult(false, null, Array.Empty<string>(), $"Excepción procesando GDB con GDAL: {ex.Message}", false);
+                }
+            }, ct);
+        }
+
+        private async Task<GdbImportResult> ExportarConArcPyAsync(string gdbPath, string cacheGpkg, CancellationToken ct)
+        {
             string tempScript = Path.Combine(Path.GetTempPath(), $"gdb_export_{Guid.NewGuid():N}.py");
             try
             {
@@ -238,8 +424,8 @@ namespace Geomatica.Desktop.Services
             }
             catch (Exception ex)
             {
-                RasterDiagnostics.Log($"[FileGdbImporter] Excepción no controlada durante importación de GDB: {ex}");
-                return new GdbImportResult(false, null, Array.Empty<string>(), $"Excepción procesando Geodatabase: {ex.Message}", false);
+                RasterDiagnostics.Log($"[FileGdbImporter] Excepción no controlada durante importación de GDB con ArcPy: {ex}");
+                return new GdbImportResult(false, null, Array.Empty<string>(), $"Excepción procesando Geodatabase con ArcPy: {ex.Message}", false);
             }
             finally
             {
@@ -260,109 +446,63 @@ namespace Geomatica.Desktop.Services
             string cachePath = ObtenerRutaCache(gdbPath);
             string metaPath = cachePath + ".meta.json";
 
-            // 1. Si no existe metaPath pero tenemos ArcPy disponible, generamos metadatos directamente (~0.5s)
-            if (!File.Exists(metaPath) && IsArcPyAvailable)
+            // 1. Nivel 0: Si existe el caché de metadatos JSON, leerlo directamente (<1ms)
+            if (File.Exists(metaPath))
             {
-                await GenerarMetadatosGdbAsync(gdbPath, metaPath, ct);
+                var cached = await LeerMetadatosJsonAsync(metaPath, gdbPath, ct);
+                if (cached.Count > 0) return cached;
             }
 
-            // 2. Si existe el caché de metadatos JSON, leerlo directamente (ultrarrápido <1ms)
-            if (File.Exists(metaPath))
+            // 2. Nivel 1: Inspección prioritaria mediante ArcPy (si ArcGIS Pro está disponible)
+            if (IsArcPyAvailable)
             {
                 try
                 {
-                    string jsonContent = await File.ReadAllTextAsync(metaPath, ct);
-                    using var doc = JsonDocument.Parse(jsonContent);
-                    if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                    await GenerarMetadatosGdbAsync(gdbPath, metaPath, ct);
+                    if (File.Exists(metaPath))
                     {
-                        foreach (var elem in doc.RootElement.EnumerateArray())
-                        {
-                            bool isAtt = elem.TryGetProperty("is_attachment", out var pAtt) && pAtt.GetBoolean();
-                            bool isRel = elem.TryGetProperty("is_relationship", out var pRel) && pRel.GetBoolean();
-                            string? origin = elem.TryGetProperty("origin", out var pOrig) && pOrig.ValueKind == JsonValueKind.Array && pOrig.GetArrayLength() > 0
-                                ? pOrig[0].GetString() : null;
-                            string? destination = elem.TryGetProperty("destination", out var pDest) && pDest.ValueKind == JsonValueKind.Array && pDest.GetArrayLength() > 0
-                                ? pDest[0].GetString() : null;
-                            string? card = elem.TryGetProperty("cardinality", out var pCard) ? pCard.GetString() : null;
-
-                            capas.Add(new GdbCapaInfo
-                            {
-                                Nombre = elem.GetProperty("name").GetString() ?? "",
-                                TipoGeometria = elem.GetProperty("geometry_type").GetString() ?? "",
-                                CantidadElementos = elem.GetProperty("count").GetInt64(),
-                                CrsNombre = elem.GetProperty("crs").GetString() ?? "",
-                                EsTabla = elem.GetProperty("is_table").GetBoolean(),
-                                EsAdjunto = isAtt,
-                                EsRelacion = isRel,
-                                TablaOrigen = origin,
-                                TablaDestino = destination,
-                                Cardinalidad = card,
-                                RutaGdb = gdbPath
-                            });
-                        }
-                        if (capas.Count > 0) return capas;
+                        var metaArcPy = await LeerMetadatosJsonAsync(metaPath, gdbPath, ct);
+                        if (metaArcPy.Count > 0) return metaArcPy;
                     }
                 }
-                catch (Exception ex)
+                catch (Exception exArcPy)
                 {
-                    RasterDiagnostics.Log($"[FileGdbImporter] Error leyendo meta cache '{metaPath}': {ex.Message}");
+                    RasterDiagnostics.Log($"[FileGdbImporter] Error en inspección ArcPy: {exArcPy.Message}. Degradando a GDAL OpenFileGDB...");
                 }
             }
 
-            // 3. Si no está en caché el GeoPackage pero tenemos ArcPy, importar
+            // 3. Nivel 2: Inspección autónoma mediante GDAL OpenFileGDB (<50ms)
+            if (IsGdalAvailable)
+            {
+                try
+                {
+                    var capasGdal = await ObtenerCapasConGdalAsync(gdbPath, metaPath, ct);
+                    if (capasGdal.Count > 0) return capasGdal;
+                }
+                catch (Exception exGdal)
+                {
+                    RasterDiagnostics.Log($"[FileGdbImporter] Error en inspección GDAL: {exGdal.Message}");
+                }
+            }
+
+            // 4. Nivel 3: Si no está en caché el GeoPackage pero tenemos algún motor, importar
             if (!File.Exists(cachePath))
             {
-                if (!IsArcPyAvailable)
-                    return capas;
-
                 var importRes = await ImportarGdbAsync(gdbPath, ct);
-                if (!importRes.Success || string.IsNullOrEmpty(importRes.GeoPackagePath))
-                    return capas;
-
-                cachePath = importRes.GeoPackagePath;
-                metaPath = cachePath + ".meta.json";
-
-                if (File.Exists(metaPath))
+                if (importRes.Success && !string.IsNullOrEmpty(importRes.GeoPackagePath))
                 {
-                    try
-                    {
-                        string jsonContent = await File.ReadAllTextAsync(metaPath, ct);
-                        using var doc = JsonDocument.Parse(jsonContent);
-                        if (doc.RootElement.ValueKind == JsonValueKind.Array)
-                        {
-                            foreach (var elem in doc.RootElement.EnumerateArray())
-                            {
-                                bool isAtt = elem.TryGetProperty("is_attachment", out var pAtt) && pAtt.GetBoolean();
-                                bool isRel = elem.TryGetProperty("is_relationship", out var pRel) && pRel.GetBoolean();
-                                string? origin = elem.TryGetProperty("origin", out var pOrig) && pOrig.ValueKind == JsonValueKind.Array && pOrig.GetArrayLength() > 0
-                                    ? pOrig[0].GetString() : null;
-                                string? destination = elem.TryGetProperty("destination", out var pDest) && pDest.ValueKind == JsonValueKind.Array && pDest.GetArrayLength() > 0
-                                    ? pDest[0].GetString() : null;
-                                string? card = elem.TryGetProperty("cardinality", out var pCard) ? pCard.GetString() : null;
+                    cachePath = importRes.GeoPackagePath;
+                    metaPath = cachePath + ".meta.json";
 
-                                capas.Add(new GdbCapaInfo
-                                {
-                                    Nombre = elem.GetProperty("name").GetString() ?? "",
-                                    TipoGeometria = elem.GetProperty("geometry_type").GetString() ?? "",
-                                    CantidadElementos = elem.GetProperty("count").GetInt64(),
-                                    CrsNombre = elem.GetProperty("crs").GetString() ?? "",
-                                    EsTabla = elem.GetProperty("is_table").GetBoolean(),
-                                    EsAdjunto = isAtt,
-                                    EsRelacion = isRel,
-                                    TablaOrigen = origin,
-                                    TablaDestino = destination,
-                                    Cardinalidad = card,
-                                    RutaGdb = gdbPath
-                                });
-                            }
-                            if (capas.Count > 0) return capas;
-                        }
+                    if (File.Exists(metaPath))
+                    {
+                        var metaImp = await LeerMetadatosJsonAsync(metaPath, gdbPath, ct);
+                        if (metaImp.Count > 0) return metaImp;
                     }
-                    catch { }
                 }
             }
 
-            // 4. Fallback: inspección directa del archivo GeoPackage mediante ArcGIS Runtime
+            // 5. Nivel 4: Inspección directa del GeoPackage generado mediante ArcGIS Maps SDK
             try
             {
                 if (File.Exists(cachePath))
@@ -425,6 +565,125 @@ namespace Geomatica.Desktop.Services
             return capas;
         }
 
+        private async Task<IReadOnlyList<GdbCapaInfo>> ObtenerCapasConGdalAsync(string gdbPath, string metaPath, CancellationToken ct)
+        {
+            return await Task.Run(() =>
+            {
+                var lista = new List<GdbCapaInfo>();
+                var metaList = new List<object>();
+
+                using var ds = Ogr.Open(gdbPath, 0);
+                if (ds == null) return lista;
+
+                int count = ds.GetLayerCount();
+                for (int i = 0; i < count; i++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    using var layer = ds.GetLayerByIndex(i);
+                    if (layer == null) continue;
+
+                    string name = layer.GetName();
+                    if (name.StartsWith("GDB_", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    var geom = layer.GetGeomType();
+                    long featureCount = layer.GetFeatureCount(1);
+                    bool isTable = geom == wkbGeometryType.wkbNone;
+                    bool isAttach = name.EndsWith("__ATTACH", StringComparison.OrdinalIgnoreCase);
+
+                    string crsName = "WGS 84";
+                    using var srs = layer.GetSpatialRef();
+                    if (srs != null)
+                    {
+                        string auth = srs.GetAuthorityCode(null);
+                        crsName = !string.IsNullOrEmpty(auth) ? $"EPSG:{auth}" : (srs.GetName() ?? "Personalizado");
+                    }
+
+                    string geomStr = isTable ? "None" : MapearGeometriaGdal(geom);
+
+                    lista.Add(new GdbCapaInfo
+                    {
+                        Nombre = name,
+                        TipoGeometria = geomStr,
+                        CantidadElementos = featureCount,
+                        CrsNombre = crsName,
+                        EsTabla = isTable,
+                        EsAdjunto = isAttach,
+                        EsRelacion = false,
+                        RutaGdb = gdbPath
+                    });
+
+                    metaList.Add(new
+                    {
+                        name = name,
+                        geometry_type = geomStr,
+                        count = featureCount,
+                        crs = crsName,
+                        is_table = isTable,
+                        is_attachment = isAttach,
+                        is_relationship = false
+                    });
+                }
+
+                if (metaList.Count > 0 && !File.Exists(metaPath))
+                {
+                    try
+                    {
+                        string dir = Path.GetDirectoryName(metaPath)!;
+                        if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                        string json = JsonSerializer.Serialize(metaList, new JsonSerializerOptions { WriteIndented = true });
+                        File.WriteAllText(metaPath, json, Encoding.UTF8);
+                    }
+                    catch { }
+                }
+
+                return lista;
+            }, ct);
+        }
+
+        private static async Task<IReadOnlyList<GdbCapaInfo>> LeerMetadatosJsonAsync(string metaPath, string gdbPath, CancellationToken ct)
+        {
+            var capas = new List<GdbCapaInfo>();
+            try
+            {
+                string jsonContent = await File.ReadAllTextAsync(metaPath, ct);
+                using var doc = JsonDocument.Parse(jsonContent);
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var elem in doc.RootElement.EnumerateArray())
+                    {
+                        bool isAtt = elem.TryGetProperty("is_attachment", out var pAtt) && pAtt.GetBoolean();
+                        bool isRel = elem.TryGetProperty("is_relationship", out var pRel) && pRel.GetBoolean();
+                        string? origin = elem.TryGetProperty("origin", out var pOrig) && pOrig.ValueKind == JsonValueKind.Array && pOrig.GetArrayLength() > 0
+                            ? pOrig[0].GetString() : null;
+                        string? destination = elem.TryGetProperty("destination", out var pDest) && pDest.ValueKind == JsonValueKind.Array && pDest.GetArrayLength() > 0
+                            ? pDest[0].GetString() : null;
+                        string? card = elem.TryGetProperty("cardinality", out var pCard) ? pCard.GetString() : null;
+
+                        capas.Add(new GdbCapaInfo
+                        {
+                            Nombre = elem.GetProperty("name").GetString() ?? "",
+                            TipoGeometria = elem.GetProperty("geometry_type").GetString() ?? "",
+                            CantidadElementos = elem.GetProperty("count").GetInt64(),
+                            CrsNombre = elem.GetProperty("crs").GetString() ?? "",
+                            EsTabla = elem.GetProperty("is_table").GetBoolean(),
+                            EsAdjunto = isAtt,
+                            EsRelacion = isRel,
+                            TablaOrigen = origin,
+                            TablaDestino = destination,
+                            Cardinalidad = card,
+                            RutaGdb = gdbPath
+                        });
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                RasterDiagnostics.Log($"[FileGdbImporter] Error leyendo meta cache '{metaPath}': {ex.Message}");
+            }
+            return capas;
+        }
+
         public async Task<IReadOnlyList<AdjuntoFotoInfo>> ObtenerAdjuntosElementoAsync(string gdbPath, string globalId, CancellationToken ct = default)
         {
             var adjuntos = new List<AdjuntoFotoInfo>();
@@ -442,43 +701,174 @@ namespace Geomatica.Desktop.Services
             string attachmentsDir = Path.Combine(_cacheDirectory, "Attachments", $"{nombreGdb}_{gdbHash}", cleanGid);
             string metaJsonPath = Path.Combine(attachmentsDir, "attachments.json");
 
-            // 1. Si ya se extrajeron previamente a la caché local, devolver al instante (<1ms)
+            // 1. Nivel 0: Si ya se extrajeron previamente a la caché local, devolver al instante (<1ms)
             if (Directory.Exists(attachmentsDir) && File.Exists(metaJsonPath))
+            {
+                var cached = await LeerAdjuntosJsonAsync(metaJsonPath, ct);
+                if (cached.Count > 0) return cached;
+            }
+
+            // 2. Nivel 1: Extracción con ArcPy (si ArcGIS Pro está disponible)
+            if (IsArcPyAvailable && Directory.Exists(gdbPath))
             {
                 try
                 {
-                    string json = await File.ReadAllTextAsync(metaJsonPath, ct);
-                    using var doc = JsonDocument.Parse(json);
-                    if (doc.RootElement.ValueKind == JsonValueKind.Array)
-                    {
-                        foreach (var el in doc.RootElement.EnumerateArray())
-                        {
-                            string localPath = el.GetProperty("local_path").GetString() ?? "";
-                            if (File.Exists(localPath))
-                            {
-                                adjuntos.Add(new AdjuntoFotoInfo
-                                {
-                                    AttachmentId = el.GetProperty("attachment_id").GetInt32(),
-                                    Nombre = el.GetProperty("name").GetString() ?? "",
-                                    ContentType = el.GetProperty("content_type").GetString() ?? "image/jpeg",
-                                    TamanoBytes = el.GetProperty("size").GetInt64(),
-                                    RutaArchivoLocal = localPath
-                                });
-                            }
-                        }
-                        if (adjuntos.Count > 0) return adjuntos;
-                    }
+                    var adjArcPy = await ExtraerAdjuntosConArcPyAsync(gdbPath, cleanGid, attachmentsDir, ct);
+                    if (adjArcPy.Count > 0) return adjArcPy;
                 }
-                catch (Exception ex)
+                catch (Exception exArcPy)
                 {
-                    RasterDiagnostics.Log($"[FileGdbImporter] Error leyendo caché de adjuntos '{metaJsonPath}': {ex.Message}");
+                    RasterDiagnostics.Log($"[FileGdbImporter] Error en extracción ArcPy: {exArcPy.Message}. Degradando a GDAL OpenFileGDB...");
                 }
             }
 
-            // 2. Extraer bajo demanda usando ArcPy (~70ms)
-            if (!IsArcPyAvailable || !Directory.Exists(gdbPath))
-                return adjuntos;
+            // 3. Nivel 2: Extracción autónoma con GDAL OpenFileGDB (Graceful Degradation / Autónomo)
+            if (IsGdalAvailable && Directory.Exists(gdbPath))
+            {
+                try
+                {
+                    var adjGdal = await ExtraerAdjuntosConGdalAsync(gdbPath, cleanGid, attachmentsDir, metaJsonPath, ct);
+                    if (adjGdal.Count > 0) return adjGdal;
+                }
+                catch (Exception exGdal)
+                {
+                    RasterDiagnostics.Log($"[FileGdbImporter] Error en extracción GDAL: {exGdal.Message}");
+                }
+            }
 
+            return adjuntos;
+        }
+
+        private async Task<IReadOnlyList<AdjuntoFotoInfo>> ExtraerAdjuntosConGdalAsync(
+            string gdbPath,
+            string cleanGid,
+            string attachmentsDir,
+            string metaJsonPath,
+            CancellationToken ct)
+        {
+            return await Task.Run(async () =>
+            {
+                var adjuntos = new List<AdjuntoFotoInfo>();
+                var jsonMetaList = new List<object>();
+
+                using var ds = Ogr.Open(gdbPath, 0);
+                if (ds == null) return adjuntos;
+
+                int layerCount = ds.GetLayerCount();
+                for (int i = 0; i < layerCount; i++)
+                {
+                    using var layer = ds.GetLayerByIndex(i);
+                    if (layer == null) continue;
+
+                    string layerName = layer.GetName();
+                    if (!layerName.EndsWith("__ATTACH", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    // En GDB los GUIDs se pueden almacenar con o sin llaves, en mayúsculas o minúsculas
+                    string filter = $"UPPER(REL_GLOBALID) = '{{{cleanGid.ToUpperInvariant()}}}' OR UPPER(REL_GLOBALID) = '{cleanGid.ToUpperInvariant()}'";
+                    layer.SetAttributeFilter(filter);
+
+                    var feat = layer.GetNextFeature();
+                    while (feat != null)
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        int attId = feat.GetFieldAsInteger(feat.GetFieldIndex("ATTACHMENTID"));
+                        string name = feat.GetFieldAsString(feat.GetFieldIndex("ATT_NAME"));
+                        string contentType = feat.GetFieldAsString(feat.GetFieldIndex("CONTENT_TYPE"));
+                        if (string.IsNullOrWhiteSpace(contentType)) contentType = "image/jpeg";
+
+                        int dataIdx = feat.GetFieldIndex("DATA");
+                        string hexData = feat.GetFieldAsString(dataIdx);
+                        if (!string.IsNullOrEmpty(hexData))
+                        {
+                            byte[] bytes = Convert.FromHexString(hexData);
+                            string safeName = Path.GetFileName(name);
+                            if (string.IsNullOrWhiteSpace(safeName)) safeName = $"foto_{attId}.jpg";
+
+                            string localPath = Path.Combine(attachmentsDir, $"{attId}_{safeName}");
+                            Directory.CreateDirectory(attachmentsDir);
+                            await File.WriteAllBytesAsync(localPath, bytes, ct);
+
+                            adjuntos.Add(new AdjuntoFotoInfo
+                            {
+                                AttachmentId = attId,
+                                Nombre = safeName,
+                                ContentType = contentType,
+                                TamanoBytes = bytes.Length,
+                                RutaArchivoLocal = localPath
+                            });
+
+                            jsonMetaList.Add(new
+                            {
+                                attachment_id = attId,
+                                name = safeName,
+                                content_type = contentType,
+                                size = bytes.Length,
+                                local_path = localPath
+                            });
+                        }
+
+                        feat.Dispose();
+                        feat = layer.GetNextFeature();
+                    }
+
+                    layer.SetAttributeFilter(null);
+                }
+
+                if (jsonMetaList.Count > 0)
+                {
+                    try
+                    {
+                        string json = JsonSerializer.Serialize(jsonMetaList, new JsonSerializerOptions { WriteIndented = true });
+                        await File.WriteAllTextAsync(metaJsonPath, json, Encoding.UTF8, ct);
+                    }
+                    catch { }
+                }
+
+                return adjuntos;
+            }, ct);
+        }
+
+        private static async Task<IReadOnlyList<AdjuntoFotoInfo>> LeerAdjuntosJsonAsync(string metaJsonPath, CancellationToken ct)
+        {
+            var adjuntos = new List<AdjuntoFotoInfo>();
+            try
+            {
+                string json = await File.ReadAllTextAsync(metaJsonPath, ct);
+                using var doc = JsonDocument.Parse(json);
+                if (doc.RootElement.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var el in doc.RootElement.EnumerateArray())
+                    {
+                        string localPath = el.GetProperty("local_path").GetString() ?? "";
+                        if (File.Exists(localPath))
+                        {
+                            adjuntos.Add(new AdjuntoFotoInfo
+                            {
+                                AttachmentId = el.GetProperty("attachment_id").GetInt32(),
+                                Nombre = el.GetProperty("name").GetString() ?? "",
+                                ContentType = el.GetProperty("content_type").GetString() ?? "image/jpeg",
+                                TamanoBytes = el.GetProperty("size").GetInt64(),
+                                RutaArchivoLocal = localPath
+                            });
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                RasterDiagnostics.Log($"[FileGdbImporter] Error leyendo caché de adjuntos '{metaJsonPath}': {ex.Message}");
+            }
+            return adjuntos;
+        }
+
+        private async Task<IReadOnlyList<AdjuntoFotoInfo>> ExtraerAdjuntosConArcPyAsync(
+            string gdbPath,
+            string cleanGid,
+            string attachmentsDir,
+            CancellationToken ct)
+        {
+            var adjuntos = new List<AdjuntoFotoInfo>();
             string tempScript = Path.Combine(Path.GetTempPath(), $"gdb_att_get_{Guid.NewGuid():N}.py");
             try
             {
@@ -534,7 +924,7 @@ namespace Geomatica.Desktop.Services
             }
             catch (Exception ex)
             {
-                RasterDiagnostics.Log($"[FileGdbImporter] Error en extracción de adjuntos para '{cleanGid}': {ex.Message}");
+                RasterDiagnostics.Log($"[FileGdbImporter] Error en extracción de adjuntos con ArcPy para '{cleanGid}': {ex.Message}");
             }
             finally
             {
@@ -542,6 +932,21 @@ namespace Geomatica.Desktop.Services
             }
 
             return adjuntos;
+        }
+
+        private static string MapearGeometriaGdal(wkbGeometryType type)
+        {
+            var baseType = (int)type & 0xff;
+            return baseType switch
+            {
+                1 => "Point",
+                2 => "Polyline",
+                3 => "Polygon",
+                4 => "MultiPoint",
+                5 => "Polyline",
+                6 => "Polygon",
+                _ => type.ToString().Replace("wkb", "")
+            };
         }
 
         private async Task GenerarMetadatosGdbAsync(string gdbPath, string metaJsonPath, CancellationToken ct)

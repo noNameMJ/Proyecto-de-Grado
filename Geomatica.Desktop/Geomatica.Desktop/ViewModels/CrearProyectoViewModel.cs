@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System;
 using System.Collections.ObjectModel;
@@ -7,7 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows;
-using Geomatica.Data.Repositories;
+using Geomatica.AppCore.UseCases;
 using Geomatica.Domain.Interfaces.Repositories;
 using Geomatica.Desktop.Services;
 
@@ -15,7 +15,7 @@ namespace Geomatica.Desktop.ViewModels
 {
     public partial class CrearProyectoViewModel : ObservableObject
     {
-        private readonly IProyectoRepository _proyectoRepository;
+        private readonly CrearProyectoUseCase _crearProyectoUseCase;
         private readonly IMunicipioRepository _municipioRepository;
         private readonly ProyectoArchivosService _proyectoArchivosService;
         private readonly INotificationService? _notifications;
@@ -58,14 +58,14 @@ namespace Geomatica.Desktop.ViewModels
         public IRelayCommand LimpiarFechaFinCommand { get; }
 
         public CrearProyectoViewModel(
-            IProyectoRepository proyectoRepository, 
+            CrearProyectoUseCase crearProyectoUseCase, 
             IMunicipioRepository municipioRepository, 
             ProyectoArchivosService proyectoArchivosService, 
             Action navigateBack, 
             Action? onProyectoCreado = null,
             INotificationService? notifications = null)
         {
-            _proyectoRepository = proyectoRepository;
+            _crearProyectoUseCase = crearProyectoUseCase;
             _municipioRepository = municipioRepository;
             _proyectoArchivosService = proyectoArchivosService;
             _navigateBack = navigateBack;
@@ -78,6 +78,17 @@ namespace Geomatica.Desktop.ViewModels
             LimpiarFechaFinCommand = new RelayCommand(() => FechaFin = null);
 
             _ = CargarDepartamentosAsync();
+        }
+
+        public CrearProyectoViewModel(
+            IProyectoRepository proyectoRepository, 
+            IMunicipioRepository municipioRepository, 
+            ProyectoArchivosService proyectoArchivosService, 
+            Action navigateBack, 
+            Action? onProyectoCreado = null,
+            INotificationService? notifications = null)
+            : this(new CrearProyectoUseCase(proyectoRepository), municipioRepository, proyectoArchivosService, navigateBack, onProyectoCreado, notifications)
+        {
         }
 
         private async Task CargarDepartamentosAsync()
@@ -340,7 +351,7 @@ namespace Geomatica.Desktop.ViewModels
                 string usuarioActual = System.Security.Principal.WindowsIdentity.GetCurrent()?.Name ?? Environment.UserName;
                 string equipoActual = Environment.MachineName;
 
-                await _proyectoRepository.InsertarAsync(
+                await _crearProyectoUseCase.EjecutarAsync(
                     Titulo, 
                     Descripcion,
                     FechaInicio, 

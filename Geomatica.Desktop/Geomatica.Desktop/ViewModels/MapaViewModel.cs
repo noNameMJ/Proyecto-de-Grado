@@ -1,4 +1,4 @@
-﻿using Esri.ArcGISRuntime.Data;
+using Esri.ArcGISRuntime.Data;
 using Esri.ArcGISRuntime.Geometry;
 using Esri.ArcGISRuntime.Mapping;
 using Esri.ArcGISRuntime.Symbology;
@@ -167,7 +167,9 @@ namespace Geomatica.Desktop.ViewModels
         // Inyección de notificaciones y servicios de importación
         private readonly Geomatica.Desktop.Services.INotificationService? _notifications;
         private readonly Geomatica.Desktop.Services.IFileGdbImporterService _gdbImporter;
+        private readonly Geomatica.Desktop.Services.ICadImporterService _cadImporter;
         public Geomatica.Desktop.Services.IFileGdbImporterService GdbImporter => _gdbImporter;
+        public Geomatica.Desktop.Services.ICadImporterService CadImporter => _cadImporter;
 
         public MapaViewModel(
             BuscarProyectosUseCase buscarProyectos, 
@@ -176,7 +178,8 @@ namespace Geomatica.Desktop.ViewModels
             FiltrosViewModel filtros, 
             ArchivosViewModel archivosVM,
             Geomatica.Desktop.Services.INotificationService? notifications = null,
-            Geomatica.Desktop.Services.IFileGdbImporterService? gdbImporter = null)
+            Geomatica.Desktop.Services.IFileGdbImporterService? gdbImporter = null,
+            Geomatica.Desktop.Services.ICadImporterService? cadImporter = null)
         {
             _buscarProyectos = buscarProyectos;
             _proyectos = proyectos;
@@ -185,6 +188,7 @@ namespace Geomatica.Desktop.ViewModels
             ArchivosVM = archivosVM;
             _notifications = notifications;
             _gdbImporter = gdbImporter ?? new Geomatica.Desktop.Services.FileGdbImporterService();
+            _cadImporter = cadImporter ?? new Geomatica.Desktop.Services.CadImporterService();
 
             HomeCommand = new RelayCommand(() => HomeRequested?.Invoke(this, EventArgs.Empty));
             RestablecerVistaMapaCommand = new AsyncRelayCommand(RestablecerVistaMapaAsync);
@@ -292,6 +296,11 @@ namespace Geomatica.Desktop.ViewModels
                 else if (ext == ".gdb")
                 {
                     await CargarFileGeodatabaseAsync(path);
+                    return;
+                }
+                else if (ext == ".dwg" || ext == ".dxf")
+                {
+                    await CargarCadAsync(path);
                     return;
                 }
                 else if (ext == ".slpk")
@@ -466,6 +475,41 @@ namespace Geomatica.Desktop.ViewModels
         }
     }
 
+    public async Task CargarCadAsync(string path)
+    {
+        if (Map == null) return;
+        try
+        {
+            string nombreCad = Path.GetFileName(path);
+            RasterDiagnostics.Log($"[MapaViewModel] Solicitando carga de CAD: {path}");
+            _notifications?.ShowInfo($"Procesando plano CAD '{nombreCad}' ({_cadImporter.ProveedorActivo})...", "Cargando Plano CAD");
+
+            var resultado = await _cadImporter.ImportarCadAsync(path);
+
+            if (!resultado.Success || string.IsNullOrEmpty(resultado.GeoPackagePath))
+            {
+                _notifications?.ShowError(
+                    resultado.MensajeError ?? "No se pudo procesar el plano CAD.",
+                    "Error al cargar CAD"
+                );
+                return;
+            }
+
+            await CargarGeoPackageAsync(resultado.GeoPackagePath, nombreOrigen: nombreCad, rutaOriginalGdb: path);
+
+            string origenTexto = resultado.FromCache ? "caché local" : resultado.ProveedorUtilizado;
+            _notifications?.ShowSuccess(
+                $"Plano CAD '{nombreCad}' cargado correctamente ({origenTexto}).",
+                "Plano CAD Cargado"
+            );
+        }
+        catch (Exception ex)
+        {
+            RasterDiagnostics.Log($"[MapaViewModel] Error inesperado cargando CAD: {ex}");
+            _notifications?.ShowError($"Error inesperado cargando plano CAD: {ex.Message}", "Error CAD");
+        }
+    }
+
     private async Task CargarGeoPackageAsync(string path, string? nombreOrigen = null, string? rutaOriginalGdb = null, string? capaFiltro = null)
     {
         if (Map == null) return;
@@ -477,7 +521,8 @@ namespace Geomatica.Desktop.ViewModels
             Layer? primeraCapa = null;
             string nombreBase = !string.IsNullOrWhiteSpace(nombreOrigen) ? nombreOrigen : Path.GetFileNameWithoutExtension(path);
             string rutaMostrar = !string.IsNullOrWhiteSpace(rutaOriginalGdb) ? rutaOriginalGdb : path;
-            bool esGdb = !string.IsNullOrWhiteSpace(rutaOriginalGdb);
+            bool esGdb = !string.IsNullOrWhiteSpace(rutaOriginalGdb) && rutaOriginalGdb.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase);
+            bool esCad = !string.IsNullOrWhiteSpace(rutaOriginalGdb) && (rutaOriginalGdb.EndsWith(".dwg", StringComparison.OrdinalIgnoreCase) || rutaOriginalGdb.EndsWith(".dxf", StringComparison.OrdinalIgnoreCase));
 
             // 1. Capas vectoriales (GeoPackageFeatureTables)
             foreach (var table in gpkg.GeoPackageFeatureTables)
@@ -544,8 +589,12 @@ namespace Geomatica.Desktop.ViewModels
                     GeometryType.Point or GeometryType.Multipoint => "📍",
                     GeometryType.Polyline => "📏",
                     GeometryType.Polygon => "⬡",
-                    _ => esGdb ? "🗃️" : "📦"
+                    _ => esGdb ? "🗃️" : (esCad ? "📐" : "📦")
                 };
+
+                string tipoTexto = esGdb
+                    ? $"Vectorial GDB ({tipoGeometriaTexto})"
+                    : (esCad ? $"Plano CAD ({tipoGeometriaTexto})" : $"Vectorial GeoPackage ({tipoGeometriaTexto})");
 
                 var itemCapa = new CapaUsuarioItem
                 {
@@ -556,7 +605,7 @@ namespace Geomatica.Desktop.ViewModels
                     CantidadElementos = featureCount,
                     RutaCompleta = rutaMostrar,
                     TipoIcono = tipoIcono,
-                    TipoTexto = esGdb ? $"Vectorial GDB ({tipoGeometriaTexto})" : $"Vectorial GeoPackage ({tipoGeometriaTexto})",
+                    TipoTexto = tipoTexto,
                     Capa = featureLayer,
                     ContenedorGeoPackage = gpkg,
                     ExtentParaZoom = featureLayer.FullExtent,
@@ -800,31 +849,65 @@ namespace Geomatica.Desktop.ViewModels
             RasterDiagnostics.LogPix4DProduct(path, "orthomosaic", sidecars);
             RasterDiagnostics.Log($"TIFF selected path={path}; sidecars={string.Join(", ", sidecars.Select(s => Path.GetFileName(s)))}");
 
-            // 1. Intentar carga directa del raster desde su ruta original
-            // Los GeoTIFFs transparentes de Pix4D con CRS embebido cargan de inmediato sin necesidad de sidecars
+            // 0. Si el GeoTIFF posee canal alfa (RGBA, 4 bandas como ortomosaicos de Pix4D/Agisoft),
+            // generar una vista VRT con NoData=0 para que el fondo/borde sea 100% transparente en el mapa.
+            // Para GeoTIFFs sin canal alfa (1 o 3 bandas), NO se genera VRT, preservando el fondo negro
+            // exactamente como fue solicitado ("para tiff sin canal alfa el fondo se vea negro cosa que es correcto").
             Raster? raster = null;
             string rasterPath = path;
             bool isDirectLoad = true;
 
-            try
+            bool tieneAlfa = GeoTiffSidecarResolver.TieneCanalAlfa(path);
+            if (tieneAlfa)
             {
-                progress.Report((15, "Intentando lectura directa del GeoTIFF con ArcGIS Runtime..."));
-                var directRaster = new Raster(path);
-                await directRaster.LoadAsync();
-                if (directRaster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.Loaded && directRaster.RasterInfo?.SpatialReference != null)
+                progress.Report((10, "Detectado canal alfa en GeoTIFF. Configurando transparencia de fondo..."));
+                RasterDiagnostics.Log($"GeoTIFF has alpha channel. Building transparent alpha VRT for: {path}");
+                var vrtAlfaPath = GeoTiffSidecarResolver.ObtenerOCrearVrtConAlfaTransparente(path, progress);
+                if (!string.IsNullOrEmpty(vrtAlfaPath) && File.Exists(vrtAlfaPath))
                 {
-                    raster = directRaster;
-                    progress.Report((70, "GeoTIFF leído correctamente con referencia espacial embebida."));
-                    RasterDiagnostics.Log($"Direct Raster load succeeded with SpatialReference={raster.RasterInfo.SpatialReference}");
-                }
-                else
-                {
-                    RasterDiagnostics.Log($"Direct Raster load did not obtain SpatialReference (LoadStatus={directRaster.LoadStatus}).");
+                    try
+                    {
+                        var vrtRaster = new Raster(vrtAlfaPath);
+                        await vrtRaster.LoadAsync();
+                        if (vrtRaster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.Loaded && vrtRaster.RasterInfo?.SpatialReference != null)
+                        {
+                            raster = vrtRaster;
+                            rasterPath = vrtAlfaPath;
+                            isDirectLoad = true;
+                            progress.Report((70, "GeoTIFF cargado con transparencia de canal alfa activa."));
+                            RasterDiagnostics.Log($"Transparent alpha VRT loaded successfully with SpatialReference={raster.RasterInfo.SpatialReference}");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        RasterDiagnostics.LogException("Transparent alpha VRT Raster.LoadAsync exception", ex);
+                    }
                 }
             }
-            catch (Exception ex)
+
+            // 1. Intentar carga directa del raster desde su ruta original (para TIFFs sin canal alfa o fallback)
+            if (raster == null)
             {
-                RasterDiagnostics.LogException("Direct Raster.LoadAsync exception", ex);
+                try
+                {
+                    progress.Report((15, "Intentando lectura directa del GeoTIFF con ArcGIS Runtime..."));
+                    var directRaster = new Raster(path);
+                    await directRaster.LoadAsync();
+                    if (directRaster.LoadStatus == Esri.ArcGISRuntime.LoadStatus.Loaded && directRaster.RasterInfo?.SpatialReference != null)
+                    {
+                        raster = directRaster;
+                        progress.Report((70, "GeoTIFF leído correctamente con referencia espacial embebida."));
+                        RasterDiagnostics.Log($"Direct Raster load succeeded with SpatialReference={raster.RasterInfo.SpatialReference}");
+                    }
+                    else
+                    {
+                        RasterDiagnostics.Log($"Direct Raster load did not obtain SpatialReference (LoadStatus={directRaster.LoadStatus}).");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    RasterDiagnostics.LogException("Direct Raster.LoadAsync exception", ex);
+                }
             }
 
             // 2. Si la carga directa no obtuvo SpatialReference, intentar el fallback con sidecars (.prj + .tfw)
@@ -1500,876 +1583,6 @@ namespace Geomatica.Desktop.ViewModels
         }
     }
 
-    [RelayCommand]
-    public async Task ToggleModo3DAsync()
-    {
-        IsModo3D = !IsModo3D;
-        Modo3DTextoIcono = IsModo3D ? "🗺️ 2D" : "🌐 3D";
-
-        if (IsModo3D)
-        {
-            if (Scene == null)
-            {
-                SetupScene();
-            }
-
-            await EnfocarCamaraModo3DAsync();
-            _notifications?.ShowInfo("Visor 3D activado con relieve topográfico. Use clic derecho sostenido para orbitar e inclinar.", "Modo 3D");
-        }
-        else
-        {
-            _notifications?.ShowInfo("Visor 2D activado.", "Modo 2D");
-        }
-    }
-
-    [RelayCommand]
-    public async Task InclinarCamara45Async()
-    {
-        if (_ownerSceneView == null) return;
-        try
-        {
-            if (HasCapa3DActiva && (Capa3DSeleccionada != null || UltimoExtent3D != null))
-            {
-                await VistaPerspectiva3DAsync();
-                return;
-            }
-
-            var currentCam = _ownerSceneView.Camera;
-            if (currentCam != null)
-            {
-                var newCam = currentCam.RotateTo(0.0, 45.0, 0.0);
-                await _ownerSceneView.SetViewpointCameraAsync(newCam, TimeSpan.FromSeconds(0.8));
-            }
-        }
-        catch { }
-    }
-
-    [RelayCommand]
-    public async Task InclinarCamaraCenitalAsync()
-    {
-        if (_ownerSceneView == null) return;
-        try
-        {
-            if (HasCapa3DActiva && UltimoExtent3D != null)
-            {
-                await VistaCenital3DAsync();
-                return;
-            }
-
-            var currentCam = _ownerSceneView.Camera;
-            if (currentCam != null)
-            {
-                var newCam = currentCam.RotateTo(currentCam.Heading, 0.0, currentCam.Roll);
-                await _ownerSceneView.SetViewpointCameraAsync(newCam, TimeSpan.FromSeconds(0.8));
-            }
-        }
-        catch { }
-    }
-
-    [RelayCommand]
-    public async Task ResetearCamara3DAsync()
-    {
-        if (_ownerSceneView == null) return;
-        try
-        {
-            var currentCam = _ownerSceneView.Camera;
-            if (currentCam != null)
-            {
-                var newCam = currentCam.RotateTo(0.0, currentCam.Pitch, 0.0);
-                await _ownerSceneView.SetViewpointCameraAsync(newCam, TimeSpan.FromSeconds(0.8));
-            }
-        }
-        catch { }
-    }
-
-    public static double CalcularRadioMetros(Envelope? extent)
-    {
-        if (extent == null) return 150.0;
-
-        try
-        {
-            if (extent.SpatialReference != null && extent.SpatialReference.Wkid == 4326)
-            {
-                double latCenter = (extent.YMin + extent.YMax) / 2.0;
-                double rad = latCenter * Math.PI / 180.0;
-                double metersPerDegLon = 111_320.0 * Math.Cos(rad);
-                double metersPerDegLat = 111_320.0;
-
-                double dx = extent.Width * metersPerDegLon;
-                double dy = extent.Height * metersPerDegLat;
-                double dz = extent.HasZ ? extent.Depth : 0.0;
-                double r = Math.Sqrt(dx * dx + dy * dy + dz * dz) / 2.0;
-                return Math.Max(r, 40.0);
-            }
-            else
-            {
-                double dx = extent.Width;
-                double dy = extent.Height;
-                double dz = extent.HasZ ? extent.Depth : 0.0;
-                double r = Math.Sqrt(dx * dx + dy * dy + dz * dz) / 2.0;
-                return Math.Max(r, 40.0);
-            }
-        }
-        catch
-        {
-            return 150.0;
-        }
-    }
-
-    private async Task AsegurarSceneViewListoAsync(int timeoutMs = 4000)
-    {
-        var sw = System.Diagnostics.Stopwatch.StartNew();
-        while (sw.ElapsedMilliseconds < timeoutMs)
-        {
-            if (_ownerSceneView != null && _ownerSceneView.ActualWidth > 50 && _ownerSceneView.ActualHeight > 50)
-            {
-                // 1. Asegurar que la Scene esté cargada en ArcGIS Runtime (crucial en la primera capa 3D)
-                if (_ownerSceneView.Scene != null && _ownerSceneView.Scene.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
-                {
-                    try
-                    {
-                        await _ownerSceneView.Scene.LoadAsync();
-                    }
-                    catch { }
-                }
-
-                // 2. Asegurar que la superficie de elevación esté cargada
-                if (_ownerSceneView.Scene?.BaseSurface != null)
-                {
-                    if (_ownerSceneView.Scene.BaseSurface.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
-                    {
-                        try
-                        {
-                            await _ownerSceneView.Scene.BaseSurface.LoadAsync();
-                        }
-                        catch { }
-                    }
-
-                    foreach (var src in _ownerSceneView.Scene.BaseSurface.ElevationSources)
-                    {
-                        if (src.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
-                        {
-                            try { await src.LoadAsync(); } catch { }
-                        }
-                    }
-                }
-
-                // 3. Si la cámara aún está en el origen mundial o sin posición, anclarla primero en Colombia
-                if (_ownerSceneView.Camera == null ||
-                    (Math.Abs(_ownerSceneView.Camera.Location.X) < 1.0 && Math.Abs(_ownerSceneView.Camera.Location.Y) < 1.0))
-                {
-                    _ownerSceneView.SetViewpointCamera(CamColombia3D);
-                }
-
-                // 4. Sincronizar GraphicsOverlays si aún no estuvieran en el SceneView
-                if (_ownerSceneView.GraphicsOverlays != null)
-                {
-                    foreach (var capa in Capas3D)
-                    {
-                        if (capa.OverlayGuia3D != null && !_ownerSceneView.GraphicsOverlays.Contains(capa.OverlayGuia3D))
-                            _ownerSceneView.GraphicsOverlays.Add(capa.OverlayGuia3D);
-                        if (capa.OverlayPuntos3D != null && !_ownerSceneView.GraphicsOverlays.Contains(capa.OverlayPuntos3D))
-                            _ownerSceneView.GraphicsOverlays.Add(capa.OverlayPuntos3D);
-                    }
-                }
-
-                // 5. Permitir que WPF y el despachador de renderizado completen el ciclo de presentación
-                if (Application.Current != null)
-                {
-                    try
-                    {
-                        await Application.Current.Dispatcher.InvokeAsync(() => { }, System.Windows.Threading.DispatcherPriority.Render);
-                    }
-                    catch { }
-                }
-
-                await Task.Delay(150);
-                return;
-            }
-            await Task.Delay(40);
-        }
-    }
-
-    [RelayCommand]
-    public async Task ZoomCapa3DAsync()
-    {
-        if (Capa3DSeleccionada != null)
-        {
-            await ZoomACapa3DAsync(Capa3DSeleccionada);
-            return;
-        }
-
-        if (UltimoExtent3D != null)
-        {
-            await AsegurarSceneViewListoAsync();
-            if (_ownerSceneView == null) return;
-            try
-            {
-                var center = UltimoExtent3D.GetCenter();
-                var wgs84Center = (center.SpatialReference != null && center.SpatialReference.Wkid != 4326)
-                    ? GeometryEngine.Project(center, SpatialReferences.Wgs84) as MapPoint ?? center
-                    : center;
-
-                double groundElev = double.NaN;
-                if (_ownerSceneView.Scene?.BaseSurface != null)
-                {
-                    try
-                    {
-                        var elev = await _ownerSceneView.Scene.BaseSurface.GetElevationAsync(wgs84Center);
-                        if (!double.IsNaN(elev)) groundElev = elev;
-                    }
-                    catch { }
-                }
-
-                double targetZ = UltimoCentroZ3D + OffsetZ3D;
-                if (!double.IsNaN(groundElev) && targetZ < groundElev)
-                {
-                    targetZ = groundElev + Math.Max(2.0, UltimoCentroZ3D) + OffsetZ3D;
-                }
-                else if (targetZ <= 0.0)
-                {
-                    targetZ = 960.0 + OffsetZ3D;
-                }
-
-                double radio = UltimoRadioMetros3D > 0 ? UltimoRadioMetros3D : CalcularRadioMetros(UltimoExtent3D);
-                double distance = Math.Clamp(radio * 2.5, 50.0, 30_000.0);
-
-                // Perspectiva inclinada a 45° con validación de relieve
-                double pitch = 45.0;
-                double pitchRad = pitch * Math.PI / 180.0;
-                double groundDistSouth = distance * Math.Sin(pitchRad);
-                double eyeLat = wgs84Center.Y - (groundDistSouth / 111_320.0);
-                double eyeLon = wgs84Center.X;
-                double eyeAltitude = targetZ + distance * Math.Cos(pitchRad);
-
-                if (_ownerSceneView.Scene?.BaseSurface != null)
-                {
-                    try
-                    {
-                        var eyeTerrainElev = await _ownerSceneView.Scene.BaseSurface.GetElevationAsync(new MapPoint(eyeLon, eyeLat, SpatialReferences.Wgs84));
-                        if (!double.IsNaN(eyeTerrainElev) && eyeAltitude < eyeTerrainElev + 25.0)
-                        {
-                            double neededAlt = eyeTerrainElev + 35.0;
-                            distance = Math.Max(distance, (neededAlt - targetZ) / Math.Cos(pitchRad));
-                            distance = Math.Clamp(distance, 50.0, 40_000.0);
-                        }
-                    }
-                    catch { }
-                }
-
-                var lookAtTarget = new MapPoint(wgs84Center.X, wgs84Center.Y, targetZ, SpatialReferences.Wgs84);
-                var camera = new Camera(lookAtTarget, distance, 0.0, pitch, 0.0);
-
-                if (_ownerSceneView.Camera == null ||
-                    (Math.Abs(_ownerSceneView.Camera.Location.X) < 1.0 && Math.Abs(_ownerSceneView.Camera.Location.Y) < 1.0))
-                {
-                    _ownerSceneView.SetViewpointCamera(camera);
-                }
-                else
-                {
-                    await _ownerSceneView.SetViewpointCameraAsync(camera, TimeSpan.FromSeconds(0.8));
-                }
-            }
-            catch (Exception ex)
-            {
-                AppLogger.Warn($"Error en ZoomCapa3DAsync: {ex.Message}");
-            }
-        }
-    }
-
-    [RelayCommand]
-    public async Task VistaCenital3DAsync()
-    {
-        var targetItem = Capa3DSeleccionada;
-        var extent = targetItem?.ExtentParaZoom ?? UltimoExtent3D;
-        if (extent == null) return;
-        await AsegurarSceneViewListoAsync();
-        if (_ownerSceneView == null) return;
-        try
-        {
-            var center = extent.GetCenter();
-            var wgs84Center = (center.SpatialReference != null && center.SpatialReference.Wkid != 4326)
-                ? GeometryEngine.Project(center, SpatialReferences.Wgs84) as MapPoint ?? center
-                : center;
-
-            double groundElev = double.NaN;
-            if (_ownerSceneView.Scene?.BaseSurface != null)
-            {
-                try
-                {
-                    var elev = await _ownerSceneView.Scene.BaseSurface.GetElevationAsync(wgs84Center);
-                    if (!double.IsNaN(elev)) groundElev = elev;
-                }
-                catch { }
-            }
-
-            double rawZ = (targetItem?.CentroZ ?? UltimoCentroZ3D) + (targetItem?.OffsetZ3D ?? OffsetZ3D);
-            double targetZ = (!double.IsNaN(groundElev) && rawZ < groundElev)
-                ? groundElev + 5.0 + (targetItem?.OffsetZ3D ?? OffsetZ3D)
-                : (rawZ <= 0.0 ? 960.0 : rawZ);
-
-            double radio = targetItem?.RadioMetros ?? (UltimoRadioMetros3D > 0 ? UltimoRadioMetros3D : CalcularRadioMetros(extent));
-            double distance = Math.Clamp(radio * 2.0, 50.0, 25_000.0);
-
-            var lookAtTarget = new MapPoint(wgs84Center.X, wgs84Center.Y, targetZ, SpatialReferences.Wgs84);
-            var camera = new Camera(lookAtTarget, distance, 0.0, 0.0, 0.0);
-            await _ownerSceneView.SetViewpointCameraAsync(camera, TimeSpan.FromSeconds(0.9));
-        }
-        catch { }
-    }
-
-    [RelayCommand]
-    public async Task VistaPerspectiva3DAsync()
-    {
-        if (Capa3DSeleccionada != null)
-        {
-            await ZoomACapa3DAsync(Capa3DSeleccionada);
-            return;
-        }
-
-        if (UltimoExtent3D != null)
-        {
-            await ZoomCapa3DAsync();
-            return;
-        }
-
-        if (_ownerSceneView != null)
-        {
-            var currentCam = _ownerSceneView.Camera;
-            if (currentCam != null)
-            {
-                var newCam = currentCam.RotateTo(0.0, 45.0, 0.0);
-                await _ownerSceneView.SetViewpointCameraAsync(newCam, TimeSpan.FromSeconds(0.8));
-            }
-        }
-    }
-
-    public async Task ZoomACapa3DAsync(CapaUsuarioItem item)
-    {
-        Capa3DSeleccionada = item;
-        if (item.ExtentParaZoom == null) return;
-
-        try
-        {
-            if (!IsModo3D)
-            {
-                IsModo3D = true;
-                Modo3DTextoIcono = "🗺️ 2D";
-            }
-
-            if (Scene == null)
-            {
-                SetupScene();
-            }
-
-            // 1. Asegurar que SceneView esté adjunto y con dimensiones válidas en el árbol visual
-            await AsegurarSceneViewListoAsync();
-            if (_ownerSceneView == null) return;
-
-            var extent = item.ExtentParaZoom;
-            var center = extent.GetCenter();
-            var wgs84Center = (center.SpatialReference != null && center.SpatialReference.Wkid != 4326)
-                ? GeometryEngine.Project(center, SpatialReferences.Wgs84) as MapPoint ?? center
-                : center;
-
-            // 2. Determinar radio en metros
-            double radio = item.RadioMetros;
-            if (radio <= 0.0)
-            {
-                radio = CalcularRadioMetros(extent);
-                item.RadioMetros = radio;
-            }
-
-            // 3. Consultar la elevación del terreno en la superficie base 3D
-            double groundElev = double.NaN;
-            if (_ownerSceneView.Scene?.BaseSurface != null)
-            {
-                try
-                {
-                    if (_ownerSceneView.Scene.BaseSurface.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
-                    {
-                        await _ownerSceneView.Scene.BaseSurface.LoadAsync();
-                    }
-                    var elev = await _ownerSceneView.Scene.BaseSurface.GetElevationAsync(wgs84Center);
-                    if (!double.IsNaN(elev))
-                    {
-                        groundElev = elev;
-                    }
-                }
-                catch { }
-            }
-
-            // 4. Calcular elevación Z objetivo segura (evitar que quede bajo tierra)
-            double targetZ = item.CentroZ + item.OffsetZ3D;
-            if (!double.IsNaN(groundElev))
-            {
-                if (targetZ < groundElev)
-                {
-                    targetZ = groundElev + Math.Max(2.0, item.CentroZ) + item.OffsetZ3D;
-                }
-            }
-            else if (targetZ <= 0.0)
-            {
-                targetZ = 960.0 + item.OffsetZ3D;
-            }
-
-            // 5. Distancia óptima para perspectiva 3D inclinada a 45°
-            double distance = Math.Clamp(radio * 2.5, 50.0, 30_000.0);
-
-            // 6. Verificar y evitar colisión de la cámara con relieve elevado al sur
-            double pitch = 45.0;
-            double pitchRad = pitch * Math.PI / 180.0;
-            double groundDistSouth = distance * Math.Sin(pitchRad);
-            double eyeLat = wgs84Center.Y - (groundDistSouth / 111_320.0);
-            double eyeLon = wgs84Center.X;
-            double eyeAltitude = targetZ + distance * Math.Cos(pitchRad);
-
-            if (_ownerSceneView.Scene?.BaseSurface != null)
-            {
-                try
-                {
-                    var eyeTerrainElev = await _ownerSceneView.Scene.BaseSurface.GetElevationAsync(new MapPoint(eyeLon, eyeLat, SpatialReferences.Wgs84));
-                    if (!double.IsNaN(eyeTerrainElev) && eyeAltitude < eyeTerrainElev + 25.0)
-                    {
-                        double neededAlt = eyeTerrainElev + 35.0;
-                        distance = Math.Max(distance, (neededAlt - targetZ) / Math.Cos(pitchRad));
-                        distance = Math.Clamp(distance, 50.0, 40_000.0);
-                    }
-                }
-                catch { }
-            }
-
-            var lookAtTarget = new MapPoint(wgs84Center.X, wgs84Center.Y, targetZ, SpatialReferences.Wgs84);
-            var camera45 = new Camera(lookAtTarget, distance, 0.0, pitch, 0.0);
-
-            // Si la cámara aún está en el origen mundial o sin posición, aplicar directamente para evitar deriva
-            if (_ownerSceneView.Camera == null ||
-                (Math.Abs(_ownerSceneView.Camera.Location.X) < 1.0 && Math.Abs(_ownerSceneView.Camera.Location.Y) < 1.0))
-            {
-                _ownerSceneView.SetViewpointCamera(camera45);
-            }
-            else
-            {
-                await _ownerSceneView.SetViewpointCameraAsync(camera45, TimeSpan.FromSeconds(0.8));
-            }
-        }
-        catch (Exception ex)
-        {
-            AppLogger.Warn($"Error en ZoomACapa3DAsync: {ex.Message}");
-        }
-    }
-
-    [RelayCommand]
-    public void SubirAltura3D()
-    {
-        if (Capa3DSeleccionada != null)
-        {
-            double step = Capa3DSeleccionada.RadioMetros < 25.0 ? 1.0 : 25.0;
-            Capa3DSeleccionada.OffsetZ3D += step;
-            OffsetZ3D = Capa3DSeleccionada.OffsetZ3D;
-            Capa3DSeleccionada.ReconstruirPuntos();
-        }
-    }
-
-    [RelayCommand]
-    public void BajarAltura3D()
-    {
-        if (Capa3DSeleccionada != null)
-        {
-            double step = Capa3DSeleccionada.RadioMetros < 25.0 ? 1.0 : 25.0;
-            Capa3DSeleccionada.OffsetZ3D -= step;
-            OffsetZ3D = Capa3DSeleccionada.OffsetZ3D;
-            Capa3DSeleccionada.ReconstruirPuntos();
-        }
-    }
-
-    [RelayCommand]
-    public void ResetearAltura3D()
-    {
-        if (Capa3DSeleccionada != null)
-        {
-            Capa3DSeleccionada.OffsetZ3D = 0.0;
-            OffsetZ3D = 0.0;
-            Capa3DSeleccionada.ReconstruirPuntos();
-        }
-    }
-
-    [RelayCommand]
-    public void AumentarTamanoPuntos3D()
-    {
-        if (Capa3DSeleccionada != null)
-        {
-            Capa3DSeleccionada.TamanoPunto3D = Math.Min(14.0, Capa3DSeleccionada.TamanoPunto3D + 1.0);
-            TamanoPunto3D = Capa3DSeleccionada.TamanoPunto3D;
-            Capa3DSeleccionada.ReconstruirPuntos();
-        }
-    }
-
-    [RelayCommand]
-    public void DisminuirTamanoPuntos3D()
-    {
-        if (Capa3DSeleccionada != null)
-        {
-            Capa3DSeleccionada.TamanoPunto3D = Math.Max(1.5, Capa3DSeleccionada.TamanoPunto3D - 1.0);
-            TamanoPunto3D = Capa3DSeleccionada.TamanoPunto3D;
-            Capa3DSeleccionada.ReconstruirPuntos();
-        }
-    }
-
-    private async Task EnfocarCamaraModo3DAsync()
-    {
-        await AsegurarSceneViewListoAsync();
-        if (_ownerSceneView == null) return;
-
-        if (Capa3DSeleccionada != null)
-        {
-            await ZoomACapa3DAsync(Capa3DSeleccionada);
-            return;
-        }
-
-        if (UltimoExtent3D != null)
-        {
-            await ZoomCapa3DAsync();
-            return;
-        }
-
-        if (LastViewpoint != null)
-        {
-            MapPoint? targetPt = LastViewpoint.TargetGeometry as MapPoint;
-            if (targetPt == null && LastViewpoint.TargetGeometry?.Extent != null)
-            {
-                targetPt = LastViewpoint.TargetGeometry.Extent.GetCenter();
-            }
-
-            if (targetPt != null)
-            {
-                var wgs84 = (targetPt.SpatialReference != null && targetPt.SpatialReference.Wkid != 4326)
-                    ? GeometryEngine.Project(targetPt, SpatialReferences.Wgs84) as MapPoint ?? targetPt
-                    : targetPt;
-
-                double groundElev = 0.0;
-                if (_ownerSceneView.Scene?.BaseSurface != null)
-                {
-                    try
-                    {
-                        var elev = await _ownerSceneView.Scene.BaseSurface.GetElevationAsync(wgs84);
-                        if (!double.IsNaN(elev)) groundElev = elev;
-                    }
-                    catch { }
-                }
-
-                double altOffset = LastViewpoint.TargetScale > 0 ? Math.Clamp(LastViewpoint.TargetScale * 0.7, 1000.0, 150_000.0) : 15_000.0;
-                double eyeAlt = groundElev + altOffset;
-                var cam = new Camera(wgs84.Y, wgs84.X, eyeAlt, 0.0, 45.0, 0.0);
-                await _ownerSceneView.SetViewpointCameraAsync(cam, TimeSpan.FromSeconds(1.0));
-                return;
-            }
-        }
-
-        // Vista regional inicial de Colombia en 3D
-        await _ownerSceneView.SetViewpointCameraAsync(CamColombia3D, TimeSpan.FromSeconds(1.0));
-    }
-
-    private async Task CargarSlpk3DAsync(string path)
-    {
-        try
-        {
-            if (Scene == null) SetupScene();
-
-            Layer slpkLayer;
-            try
-            {
-                slpkLayer = new PointCloudLayer(new Uri(path));
-                await slpkLayer.LoadAsync();
-            }
-            catch
-            {
-                slpkLayer = new ArcGISSceneLayer(new Uri(path));
-                await slpkLayer.LoadAsync();
-            }
-
-            slpkLayer.Name = Path.GetFileNameWithoutExtension(path);
-            Scene?.OperationalLayers.Add(slpkLayer);
-
-            // Esperar brevemente a que el runtime calcule el FullExtent si aún no está disponible
-            for (int i = 0; i < 10 && slpkLayer.FullExtent == null; i++)
-            {
-                await Task.Delay(100);
-            }
-
-            var extent = slpkLayer.FullExtent;
-            double radio = CalcularRadioMetros(extent);
-            double centroZ = 0.0;
-            if (extent != null && extent.HasZ && !double.IsNaN(extent.ZMin) && (extent.ZMin != 0 || extent.ZMax != 0))
-            {
-                centroZ = (extent.ZMin + extent.ZMax) / 2.0;
-            }
-            else if (extent != null && Scene?.BaseSurface != null)
-            {
-                try
-                {
-                    var c = extent.GetCenter();
-                    var wgs84Center = (c.SpatialReference != null && c.SpatialReference.Wkid != 4326)
-                        ? GeometryEngine.Project(c, SpatialReferences.Wgs84) as MapPoint ?? c
-                        : c;
-                    var elev = await Scene.BaseSurface.GetElevationAsync(wgs84Center);
-                    if (!double.IsNaN(elev)) centroZ = elev;
-                }
-                catch { }
-            }
-
-            var itemCapa = new CapaUsuarioItem
-            {
-                Nombre = Path.GetFileName(path),
-                RutaCompleta = path,
-                Capa = slpkLayer,
-                TipoIcono = "☁️",
-                TipoTexto = "Nube de Puntos 3D (SLPK)",
-                ExtentParaZoom = extent,
-                RadioMetros = radio,
-                CentroZ = centroZ,
-                InfoDetalle3D = $"Paquete de Escena 3D (.slpk)\nCapa: {slpkLayer.Name}"
-            };
-            itemCapa.QuitarCommand = new RelayCommand(() =>
-            {
-                Scene?.OperationalLayers.Remove(slpkLayer);
-                CapasAdicionales.Remove(itemCapa);
-                Capas3D.Remove(itemCapa);
-                itemCapa.Dispose();
-                SincronizarEstadoCapas3D();
-            });
-            itemCapa.ZoomCommand = new AsyncRelayCommand(async () => await ZoomACapa3DAsync(itemCapa));
-
-            CapasAdicionales.Add(itemCapa);
-            Capas3D.Add(itemCapa);
-            Capa3DSeleccionada = itemCapa;
-            SincronizarEstadoCapas3D();
-
-            if (!IsModo3D)
-            {
-                IsModo3D = true;
-                Modo3DTextoIcono = "🗺️ 2D";
-            }
-
-            if (extent != null)
-            {
-                await AsegurarSceneViewListoAsync();
-                await ZoomACapa3DAsync(itemCapa);
-            }
-
-            _notifications?.ShowSuccess($"Nube de puntos 3D '{Path.GetFileName(path)}' cargada exitosamente.", "Visor 3D");
-        }
-        catch (Exception ex)
-        {
-            AppLogger.Error($"Error al cargar .slpk en 3D: {path}", ex);
-            _notifications?.ShowError($"No se pudo cargar el archivo 3D: {ex.Message}", "Error Visor 3D");
-        }
-    }
-
-    private (double Lon, double Lat, double Alt)? _anclajeLocalActual3D;
-
-    private async Task<(double Lon, double Lat, double Alt)> ObtenerAnclajeLocal3DAsync()
-    {
-        if (_anclajeLocalActual3D.HasValue)
-        {
-            return _anclajeLocalActual3D.Value;
-        }
-
-        if (Scene == null)
-        {
-            SetupScene();
-        }
-
-        double lon = -73.1210; // Campus Principal UIS, Bucaramanga
-        double lat = 7.1390;
-        double alt = 960.0;
-
-        if (Filtros?.SelectedProyecto is FiltrosViewModel.ProyectoItem p && (p.Lon != 0 || p.Lat != 0))
-        {
-            lon = p.Lon;
-            lat = p.Lat;
-        }
-        else if (ArchivosVM?.ProyectoDetalle?.Proyecto != null && (ArchivosVM.ProyectoDetalle.Proyecto.Lon != 0 || ArchivosVM.ProyectoDetalle.Proyecto.Lat != 0))
-        {
-            lon = ArchivosVM.ProyectoDetalle.Proyecto.Lon;
-            lat = ArchivosVM.ProyectoDetalle.Proyecto.Lat;
-        }
-        else if (LastViewpoint?.TargetGeometry is MapPoint vpPoint)
-        {
-            var wgs84Vp = (vpPoint.SpatialReference != null && vpPoint.SpatialReference.Wkid != 4326)
-                ? GeometryEngine.Project(vpPoint, SpatialReferences.Wgs84) as MapPoint ?? vpPoint
-                : vpPoint;
-            if (wgs84Vp != null && !double.IsNaN(wgs84Vp.X) && !double.IsNaN(wgs84Vp.Y) && wgs84Vp.X >= -180 && wgs84Vp.X <= 180)
-            {
-                lon = wgs84Vp.X;
-                lat = wgs84Vp.Y;
-            }
-        }
-
-        try
-        {
-            if (Scene?.BaseSurface != null)
-            {
-                if (Scene.BaseSurface.LoadStatus != Esri.ArcGISRuntime.LoadStatus.Loaded)
-                {
-                    try { await Scene.BaseSurface.LoadAsync(); } catch { }
-                }
-                var testPt = new MapPoint(lon, lat, SpatialReferences.Wgs84);
-                var elev = await Scene.BaseSurface.GetElevationAsync(testPt);
-                if (!double.IsNaN(elev) && elev > -100.0)
-                {
-                    alt = elev;
-                }
-            }
-        }
-        catch { }
-
-        _anclajeLocalActual3D = (lon, lat, alt);
-        return _anclajeLocalActual3D.Value;
-    }
-
-    private async Task CargarNubePuntosLas3DAsync(string path)
-    {
-        IsOperacionEnProgreso = true;
-        ProgresoPorcentaje = 0;
-        ProgresoTitulo = $"Cargando nube LiDAR: {Path.GetFileName(path)}";
-        ProgresoDetalle = "Iniciando procesamiento en segundo plano...";
-
-        IProgress<(int porcentaje, string detalle)> progress = new Progress<(int porcentaje, string detalle)>(p =>
-        {
-            ProgresoPorcentaje = p.porcentaje;
-            ProgresoDetalle = p.detalle;
-        });
-
-        try
-        {
-            _notifications?.ShowInfo($"Procesando nube de puntos LiDAR '{Path.GetFileName(path)}'...", "Cargando 3D");
-
-            (double lon, double lat, double alt)? anclaje = null;
-            try
-            {
-                if (Scene == null) SetupScene();
-                anclaje = await ObtenerAnclajeLocal3DAsync();
-            }
-            catch { }
-
-            // Procesar completamente en segundo plano (lectura, submuestreo, reproyección WGS84 y cálculo de huella)
-            var result = await LidarBackgroundWorker.ProcesarNubeLidarAsync(path, anclaje, maxPointsToSample: 75_000, progress);
-
-            if (result.SampledPointsCount == 0)
-            {
-                _notifications?.ShowWarning("El archivo LiDAR no contiene puntos legibles o requiere descompresión.", "Sin Puntos");
-                return;
-            }
-
-            if (Scene == null) SetupScene();
-
-            // 1. Crear GraphicsOverlays PROPIOS e independientes para esta capa específica
-            var overlayGuia = new GraphicsOverlay
-            {
-                Id = $"Guia3D_{Guid.NewGuid():N}",
-                SceneProperties = { SurfacePlacement = SurfacePlacement.DrapedFlat }
-            };
-            var overlayPuntos = new GraphicsOverlay
-            {
-                Id = $"NubePuntos3D_{Guid.NewGuid():N}",
-                SceneProperties = { SurfacePlacement = SurfacePlacement.Absolute }
-            };
-
-            // 2. Huella y centro WGS84 ya calculados por el trabajador en segundo plano
-            var lineSymbol = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.FromArgb(235, 255, 193, 7), 2.5);
-            var fillSymbol = new SimpleFillSymbol(SimpleFillSymbolStyle.Solid, System.Drawing.Color.FromArgb(40, 255, 193, 7), lineSymbol);
-            overlayGuia.Graphics.Add(new Graphic(result.FootprintWgs84, fillSymbol));
-
-            var pinSymbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Cross, System.Drawing.Color.FromArgb(240, 220, 53, 69), 14.0);
-            overlayGuia.Graphics.Add(new Graphic(result.CenterWgs84, pinSymbol));
-
-            // 3. Agregar puntos precalculados a la capa gráfica
-            var initialGraphics = new List<Graphic>(result.PuntosMuestreadosWgs84.Count);
-            foreach (var item in result.PuntosMuestreadosWgs84)
-            {
-                var symbol = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, item.Color, result.TamanoPuntoRecomendado);
-                initialGraphics.Add(new Graphic(item.PtWgs84, symbol));
-            }
-            overlayPuntos.Graphics.AddRange(initialGraphics);
-
-            // Agregar los overlays al SceneView
-            if (_ownerSceneView != null && _ownerSceneView.GraphicsOverlays != null)
-            {
-                _ownerSceneView.GraphicsOverlays.Add(overlayGuia);
-                _ownerSceneView.GraphicsOverlays.Add(overlayPuntos);
-            }
-
-            var itemCapa = new CapaUsuarioItem
-            {
-                Nombre = result.NombreArchivo,
-                RutaCompleta = path,
-                Capa = null,
-                TipoIcono = "☁️",
-                TipoTexto = "Nube de Puntos (LAS/LAZ)",
-                OverlayGuia3D = overlayGuia,
-                OverlayPuntos3D = overlayPuntos,
-                PuntosMuestreados3D = result.PuntosMuestreadosWgs84,
-                CentroZ = result.CentroZWgs84,
-                RadioMetros = result.RadioMetros,
-                CrsNombre = result.CrsNombre,
-                ExtentParaZoom = result.EnvelopeWgs84,
-                InfoDetalle3D = result.InfoDetalle3D,
-                OffsetZ3D = 0.0,
-                TamanoPunto3D = result.TamanoPuntoRecomendado
-            };
-
-            itemCapa.QuitarCommand = new RelayCommand(() =>
-            {
-                if (_ownerSceneView?.GraphicsOverlays != null)
-                {
-                    _ownerSceneView.GraphicsOverlays.Remove(overlayGuia);
-                    _ownerSceneView.GraphicsOverlays.Remove(overlayPuntos);
-                }
-                CapasAdicionales.Remove(itemCapa);
-                Capas3D.Remove(itemCapa);
-                itemCapa.Dispose();
-                if (Capas3D.Count == 0)
-                {
-                    _anclajeLocalActual3D = null;
-                }
-                SincronizarEstadoCapas3D();
-            });
-
-            itemCapa.ZoomCommand = new AsyncRelayCommand(async () => await ZoomACapa3DAsync(itemCapa));
-
-            CapasAdicionales.Add(itemCapa);
-            Capas3D.Add(itemCapa);
-            Capa3DSeleccionada = itemCapa;
-            SincronizarEstadoCapas3D();
-
-            if (!IsModo3D)
-            {
-                IsModo3D = true;
-                Modo3DTextoIcono = "🗺️ 2D";
-            }
-
-            await AsegurarSceneViewListoAsync();
-            await ZoomACapa3DAsync(itemCapa);
-
-            _notifications?.ShowSuccess(
-                $"Nube de puntos renderizada: {result.SampledPointsCount:N0} puntos ({result.CrsNombre}). Capas 3D activas: {Capas3D.Count}.",
-                "Visor 3D");
-        }
-        catch (Exception ex)
-        {
-            AppLogger.Error($"Error al leer nube de puntos LAS/LAZ '{path}'", ex);
-            _notifications?.ShowError($"Error al cargar archivo LiDAR: {ex.Message}", "Error LAS 3D");
-        }
-        finally
-        {
-            IsOperacionEnProgreso = false;
-            ProgresoPorcentaje = 0;
-            ProgresoTitulo = "";
-            ProgresoDetalle = "";
-        }
-    }
-
     [ObservableProperty] private Map? map;
 
     // Guarda el último viewpoint mostrado en el MapView para restaurarlo
@@ -2674,363 +1887,5 @@ namespace Geomatica.Desktop.ViewModels
         Map = newMap;
     }
 
-    // Fallback para crear campos cuando no existen los helpers CreateXxx
-    private static Field OID(string name)
-        => Field.FromJson($"{{\"name\":\"{name}\",\"type\":\"esriFieldTypeOID\",\"alias\":\"{name}\"}}")!;
-
-    private static Field Int(string name, string? alias = null)
-        => Field.FromJson($"{{\"name\":\"{name}\",\"type\":\"esriFieldTypeInteger\",\"alias\":\"{alias ?? name}\"}}")!;
-
-    private static Field Str(string name, int length, string? alias = null)
-        => Field.FromJson($"{{\"name\":\"{name}\",\"type\":\"esriFieldTypeString\",\"alias\":\"{alias ?? name}\",\"length\":{length}}}")!;
-
-    /// <summary>
-    /// Busca el id de proyecto correspondiente al OID de un feature en la capa de proyectos.
-    /// </summary>
-    public int? BuscarIdProyectoPorOid(long oid)
-        => _oidToProjectId.TryGetValue(oid, out var id) ? id : null;
-
- /// <summary>
- /// Invalida el caché de municipios y la capa de proyectos para reflejar datos nuevos.
- /// Llamar después de crear/eliminar un proyecto.
- /// </summary>
- public void InvalidarCache()
- {
-  _cachedMunicipios = null;
-  _cachedGeometries = null;
-  _oidToProjectId.Clear();
-  _layerProyectos = null;
-  _layerMunicipios = null;
-  _updateGeneration++;
-  Map?.OperationalLayers.Clear();
- }
-
-  /// <summary>
-  /// Realiza la búsqueda geográfica y por filtros de proyectos y actualiza las capas del mapa.
-  /// </summary>
-  public async Task<IReadOnlyList<ProyectoGeomatico>> BuscarConFiltrosGeograficosAsync(CancellationToken ct = default)
-  {
-      string? dptoCodigo = null;
-      string? mpioCodigo = null;
-      double? minX = null;
-      double? minY = null;
-      double? maxX = null;
-      double? maxY = null;
-
-      if (Filtros.AreaInteres is FiltrosViewModel.MunicipioItem muni && !string.IsNullOrEmpty(muni.Codigo))
-      {
-          mpioCodigo = muni.Codigo;
-          var extent = await _municipios.ExtentPorMunicipiosAsync(new[] { muni.Codigo });
-          if (extent != null)
-          {
-              minX = extent.West;
-              minY = extent.South;
-              maxX = extent.East;
-              maxY = extent.North;
-          }
-      }
-      else if (Filtros.SelectedDepartamento is FiltrosViewModel.DepartamentoItem dept && !string.IsNullOrEmpty(dept.Codigo))
-      {
-          dptoCodigo = dept.Codigo;
-          var extent = await _municipios.ExtentPorDepartamentoAsync(dept.Codigo);
-          if (extent != null)
-          {
-              minX = extent.West;
-              minY = extent.South;
-              maxX = extent.East;
-              maxY = extent.North;
-          }
-      }
-
-      return await BuscarYActualizarCapasAsync(
-          Filtros.PalabraClave,
-          Filtros.Desde,
-          Filtros.Hasta,
-          dptoCodigo,
-          mpioCodigo,
-          minX,
-          minY,
-          maxX,
-          maxY,
-          ct);
-  }
-
- /// <summary>
- /// Actualiza las capas del mapa con los proyectos filtrados.
- /// Llamar desde MapaView después de obtener los resultados filtrados.
- /// </summary>
- public async Task<IReadOnlyList<ProyectoGeomatico>> BuscarYActualizarCapasAsync(
-     string? texto,
-     DateTime? desde,
-     DateTime? hasta,
-     string? dptoCodigo = null,
-     string? mpioCodigo = null,
-     double? minX = null,
-     double? minY = null,
-     double? maxX = null,
-     double? maxY = null,
-     CancellationToken ct = default)
- {
-  var proyectos = await _buscarProyectos.EjecutarAsync(texto, desde, hasta, dptoCodigo, mpioCodigo, minX, minY, maxX, maxY, ct);
-  await ActualizarCapasConFiltroAsync(proyectos);
-  return proyectos;
- }
-
- public async Task ActualizarCapasConFiltroAsync(IReadOnlyList<ProyectoGeomatico> proyectosFiltrados)
- {
-  if (Map == null) return;
-
-  var gen = ++_updateGeneration;
-
-  try
-  {
-   // Limpiar todas las capas operacionales para evitar capas huérfanas
-   Map.OperationalLayers.Clear();
-   _layerProyectos = null;
-   _layerMunicipios = null;
-
-   // 1. Crear capa de proyectos
-   var layerProy = await CrearCapaProyectosDesdeListaAsync(proyectosFiltrados);
-   if (gen != _updateGeneration) return;
-
-   // 2. Obtener municipios de los proyectos filtrados
-   var ids = proyectosFiltrados.Select(p => p.Id).ToList();
-   var codigosMuni = ids.Count > 0
-    ? await _proyectos.ObtenerCodigosMunicipioAsync(ids)
-    : (IReadOnlyList<string>)Array.Empty<string>();
-   if (gen != _updateGeneration) return;
-   _ultimosCodigosMunicipio = codigosMuni;
-
-   // 3. Asegurar que el caché de geometrías esté poblado
-   if (_cachedMunicipios == null)
-   {
-    var todosCodigosConProyecto = await _proyectos.ObtenerTodosCodigosMunicipioAsync();
-    _cachedMunicipios = todosCodigosConProyecto.Count > 0
-     ? await _municipios.PorCodigosGeoJsonAsync(todosCodigosConProyecto)
-     : (IReadOnlyList<MunicipioGeoJsonDto>)Array.Empty<MunicipioGeoJsonDto>();
-   }
-   if (gen != _updateGeneration) return;
-
-   if (_cachedGeometries == null)
-   {
-    var munis = _cachedMunicipios;
-    _cachedGeometries = await Task.Run(() =>
-    {
-     var dict = new Dictionary<string, Geometry>(munis.Count);
-     foreach (var m in munis)
-     {
-      if (string.IsNullOrEmpty(m.GeoJson)) continue;
-      try
-      {
-       var geom = ParseGeoJson(m.GeoJson);
-       if (geom != null) dict[m.Codigo] = geom;
-      }
-      catch { }
-     }
-     return dict;
-    });
-   }
-   if (gen != _updateGeneration) return;
-
-   // 4. Crear capa de municipios solo con los del filtro
-   var filteredMuni = _cachedMunicipios.Where(m => codigosMuni.Contains(m.Codigo));
-   var layerMuni = await CrearCapaMunicipiosFiltradaAsync(filteredMuni);
-   if (gen != _updateGeneration) return;
-
-   // 5. Agregar capas al mapa (municipios abajo, proyectos arriba)
-   Map.OperationalLayers.Clear();
-   if (layerMuni != null)
-   {
-    Map.OperationalLayers.Add(layerMuni);
-    await layerMuni.LoadAsync();
-   }
-   if (gen != _updateGeneration) return;
-   if (layerProy != null)
-   {
-    Map.OperationalLayers.Add(layerProy);
-    await layerProy.LoadAsync();
-   }
-
-   _layerMunicipios = layerMuni;
-   _layerProyectos = layerProy;
-  }
-  catch (Exception ex)
-  {
-   System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error actualizando capas con filtro: {ex}");
-  }
- }
-
- /// <summary>
- /// Devuelve el extent (Envelope) de los municipios que contienen proyectos del último filtro aplicado.
- /// </summary>
- public Envelope? ObtenerExtentMunicipiosFiltrados()
- {
-  if (_cachedGeometries == null || _ultimosCodigosMunicipio == null || _ultimosCodigosMunicipio.Count == 0)
-   return null;
-
-  double xmin = double.MaxValue, ymin = double.MaxValue;
-  double xmax = double.MinValue, ymax = double.MinValue;
-  bool any = false;
-  foreach (var codigo in _ultimosCodigosMunicipio)
-  {
-   if (_cachedGeometries.TryGetValue(codigo, out var geom))
-   {
-    var ext = geom.Extent;
-    if (ext != null)
-    {
-     xmin = Math.Min(xmin, ext.XMin);
-     ymin = Math.Min(ymin, ext.YMin);
-     xmax = Math.Max(xmax, ext.XMax);
-     ymax = Math.Max(ymax, ext.YMax);
-     any = true;
-    }
-   }
-  }
-  return any ? new Envelope(xmin, ymin, xmax, ymax, SpatialReferences.Wgs84) : null;
- }
-
- private async Task<Layer?> CrearCapaProyectosDesdeListaAsync(IReadOnlyList<ProyectoGeomatico> items)
- {
- var fields = new List<Field>
- {
-  OID("oid"),
-  Int("id_proyecto"),
-  Str("titulo", 200),
-  Str("ruta_archivos", 1024)
- };
- var table = new FeatureCollectionTable(fields, GeometryType.Point, SpatialReferences.Wgs84);
-
- _oidToProjectId.Clear();
- var features = new List<Feature>();
- int oid = 1;
- foreach (var p in items)
- {
-  if (p.Longitud == 0 && p.Latitud == 0) continue;
-  var currentOid = oid++;
-  _oidToProjectId[currentOid] = p.Id;
-  var attrs = new Dictionary<string, object?>
-  {
-  ["oid"] = currentOid,
-  ["id_proyecto"] = p.Id,
-  ["titulo"] = p.Titulo,
-  ["ruta_archivos"] = string.IsNullOrWhiteSpace(p.RutaArchivos) ? null : p.RutaArchivos
-  };
-  var geom = new MapPoint(p.Longitud, p.Latitud, SpatialReferences.Wgs84);
-  features.Add(table.CreateFeature(attrs, geom));
- }
-
- if (features.Count == 0) return null;
- await table.AddFeaturesAsync(features);
-
- var marker = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.OrangeRed, 9)
- {
-  Outline = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.White, 1.5)
- };
- table.Renderer = new SimpleRenderer(marker);
-
- var collection = new FeatureCollection(new[] { table });
- var layer = new FeatureCollectionLayer(collection)
- {
-  Name = "Proyectos"
- };
- return layer;
- }
-
- private async Task<Layer?> CrearCapaMunicipiosFiltradaAsync(IEnumerable<MunicipioGeoJsonDto> municipios)
- {
-  var fields = new List<Field>
-  {
-   OID("oid"),
-   Str("mpio_cdpmp",5),
-   Str("mpio_cnmbr",200)
-  };
-  var table = new FeatureCollectionTable(fields, GeometryType.Polygon, SpatialReferences.Wgs84);
-
-  int oid = 1;
-  var features = new List<Feature>();
-  foreach (var m in municipios)
-  {
-   if (!_cachedGeometries!.TryGetValue(m.Codigo, out var geom)) continue;
-
-   var attrs = new Dictionary<string, object?>
-   {
-    ["oid"] = oid++,
-    ["mpio_cdpmp"] = m.Codigo,
-    ["mpio_cnmbr"] = m.Nombre
-   };
-   features.Add(table.CreateFeature(attrs, geom));
-  }
-
-  if (features.Count == 0) return null;
-  await table.AddFeaturesAsync(features);
-
-  table.Renderer = new SimpleRenderer(
-   new SimpleFillSymbol(SimpleFillSymbolStyle.Solid,
-    System.Drawing.Color.FromArgb(40, 33, 150, 243),
-    new SimpleLineSymbol(SimpleLineSymbolStyle.Solid,
-     System.Drawing.Color.FromArgb(180, 33, 150, 243), 1.5f)));
-
-  var collection = new FeatureCollection(new[] { table });
-  var layer = new FeatureCollectionLayer(collection)
-  {
-   Name = "Municipios"
-  };
-  return layer;
- }
-
- /// <summary>
- /// Parses a GeoJSON geometry string (Polygon/MultiPolygon) into an ArcGIS Geometry.
- /// Geometry.FromJson() expects Esri JSON, not GeoJSON, so we parse coordinates manually.
- /// </summary>
- public static Geometry? ParseGeoJson(string geoJson)
- {
-  using var doc = JsonDocument.Parse(geoJson);
-  var root = doc.RootElement;
-  var type = root.GetProperty("type").GetString();
-  var coordinates = root.GetProperty("coordinates");
-
-  if (type is not ("Polygon" or "MultiPolygon")) return null;
-
-  var builder = new PolygonBuilder(SpatialReferences.Wgs84);
-
-  // MultiPolygon: [polygon, polygon, ...] where polygon = [ring, ring, ...]
-  // Polygon: [ring, ring, ...] where ring = [[lon, lat], ...]
-  if (type == "Polygon")
-  {
-  	foreach (var ring in coordinates.EnumerateArray())
-  	{
-  		var numPoints = ring.GetArrayLength();
-  		var points = new MapPoint[numPoints];
-  		int pointIndex = 0;
-
-  		foreach (var point in ring.EnumerateArray())
-  		{
-  			points[pointIndex++] = new MapPoint(point[0].GetDouble(), point[1].GetDouble(), SpatialReferences.Wgs84);
-  		}
-  		builder.AddPart(points);
-  	}
-  }
-  else
-  {
-  	foreach (var polygon in coordinates.EnumerateArray())
-  	{
-  		foreach (var ring in polygon.EnumerateArray())
-  		{
-  			var numPoints = ring.GetArrayLength();
-  			var points = new MapPoint[numPoints];
-  			int pointIndex = 0;
-
-  			foreach (var point in ring.EnumerateArray())
-  			{
-  				points[pointIndex++] = new MapPoint(point[0].GetDouble(), point[1].GetDouble(), SpatialReferences.Wgs84);
-  			}
-  			builder.AddPart(points);
-  		}
-  	}
-  }
-
-  return builder.ToGeometry();
- }
 }
 }
-

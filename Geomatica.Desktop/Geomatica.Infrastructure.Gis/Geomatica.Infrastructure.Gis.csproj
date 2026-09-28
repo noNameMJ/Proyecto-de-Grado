@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ACadSharp" Version="3.8.0" />
+    <PackageReference Include="Esri.ArcGISRuntime.WPF" Version="300.0.0" />
+    <PackageReference Include="MaxRev.Gdal.Core" Version="3.13.3.575" />
+    <PackageReference Include="MaxRev.Gdal.WindowsRuntime.Minimal" Version="3.13.3.575" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Geomatica.Domain\Geomatica.Domain.csproj" />
+  </ItemGroup>
+
+</Project>
+

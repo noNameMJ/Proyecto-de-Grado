@@ -121,7 +121,7 @@ public class FileGdbImporterServiceTests : IDisposable
         var res1 = await _service.ImportarGdbAsync(rutaGdbReal);
 
         // Assert 1
-        res1.Success.Should().BeTrue();
+        res1.Success.Should().BeTrue(because: res1.MensajeError);
         res1.GeoPackagePath.Should().NotBeNull();
         File.Exists(res1.GeoPackagePath!).Should().BeTrue();
         new FileInfo(res1.GeoPackagePath!).Length.Should().BeGreaterThan(0);
@@ -317,6 +317,199 @@ public class FileGdbImporterServiceTests : IDisposable
         adjuntos[0].Nombre.Should().Be("1.jpg");
         adjuntos[0].RutaArchivoLocal.Should().Be(testImgPath);
         adjuntos[0].EsImagen.Should().BeTrue();
+    }
+
+    [Fact]
+    public void Gdal_OpenFileGDB_DriverEstaDisponible()
+    {
+        MaxRev.Gdal.Core.GdalBase.ConfigureAll();
+        OSGeo.OGR.Ogr.RegisterAll();
+        var driver = OSGeo.OGR.Ogr.GetDriverByName("OpenFileGDB");
+        driver.Should().NotBeNull();
+    }
+
+    [Fact]
+    public void Gdal_PuedeAbrirGdbRealYListarCapas()
+    {
+        string rutaGdbReal = @"D:\Pruebas\INVENTARIO_FORESTAL_GDB\cce98b87-a635-4ece-a6a8-e5c7d5303c61.gdb";
+        if (!Directory.Exists(rutaGdbReal)) return;
+
+        MaxRev.Gdal.Core.GdalBase.ConfigureAll();
+        OSGeo.OGR.Ogr.RegisterAll();
+        using var ds = OSGeo.OGR.Ogr.Open(rutaGdbReal, 0);
+        ds.Should().NotBeNull();
+
+        int layerCount = ds.GetLayerCount();
+        layerCount.Should().BeGreaterThan(0);
+
+        var sb = new System.Text.StringBuilder();
+        for (int i = 0; i < layerCount; i++)
+        {
+            using var layer = ds.GetLayerByIndex(i);
+            string name = layer.GetName();
+            name.Should().NotBeNullOrWhiteSpace();
+            var geom = layer.GetGeomType();
+            long count = layer.GetFeatureCount(1);
+            sb.AppendLine($"Layer {i}: {name} ({geom}, {count} features)");
+            using var layerDefn = layer.GetLayerDefn();
+            for (int f = 0; f < layerDefn.GetFieldCount(); f++)
+            {
+                using var fieldDefn = layerDefn.GetFieldDefn(f);
+                sb.AppendLine($"   Field {f}: {fieldDefn.GetName()} ({fieldDefn.GetFieldType()})");
+            }
+        }
+    }
+
+    [Fact]
+    public void Gdal_PuedeLeerAdjuntoBinario()
+    {
+        string rutaGdbReal = @"D:\Pruebas\INVENTARIO_FORESTAL_GDB\cce98b87-a635-4ece-a6a8-e5c7d5303c61.gdb";
+        if (!Directory.Exists(rutaGdbReal)) return;
+
+        MaxRev.Gdal.Core.GdalBase.ConfigureAll();
+        OSGeo.OGR.Ogr.RegisterAll();
+        using var ds = OSGeo.OGR.Ogr.Open(rutaGdbReal, 0);
+        using var attachLayer = ds.GetLayerByName("Sheet1_Tabla1__ATTACH");
+        attachLayer.Should().NotBeNull();
+
+        using var feat = attachLayer.GetNextFeature();
+        feat.Should().NotBeNull();
+
+        int dataIdx = feat.GetFieldIndex("DATA");
+        string val = feat.GetFieldAsString(dataIdx);
+        val.Should().NotBeNullOrWhiteSpace();
+
+        byte[] bytes = Convert.FromHexString(val);
+        bytes.Length.Should().BeGreaterThan(1000);
+        // Validar cabecera JPEG FF D8
+        bytes[0].Should().Be(0xFF);
+        bytes[1].Should().Be(0xD8);
+    }
+
+    [Fact]
+    public async Task Gdal_VectorTranslate_PuedeExportarGdbAGeoPackage()
+    {
+        string rutaGdbReal = @"D:\Pruebas\INVENTARIO_FORESTAL_GDB\cce98b87-a635-4ece-a6a8-e5c7d5303c61.gdb";
+        if (!Directory.Exists(rutaGdbReal)) return;
+
+        MaxRev.Gdal.Core.GdalBase.ConfigureAll();
+        OSGeo.GDAL.Gdal.AllRegister();
+        OSGeo.OGR.Ogr.RegisterAll();
+
+        string outGpkg = Path.Combine(_cacheDir, "test_out.gpkg");
+        {
+            using var srcDs = OSGeo.OGR.Ogr.Open(rutaGdbReal, 0);
+            srcDs.Should().NotBeNull();
+
+            var gpkgDriver = OSGeo.OGR.Ogr.GetDriverByName("GPKG");
+            gpkgDriver.Should().NotBeNull();
+
+            using var destDs = gpkgDriver.CreateDataSource(outGpkg, null);
+            destDs.Should().NotBeNull();
+
+            int layerCount = srcDs.GetLayerCount();
+            for (int i = 0; i < layerCount; i++)
+            {
+                using var layer = srcDs.GetLayerByIndex(i);
+                using var copied = destDs.CopyLayer(layer, layer.GetName(), null);
+            }
+            destDs.FlushCache();
+        }
+
+        File.Exists(outGpkg).Should().BeTrue();
+        new FileInfo(outGpkg).Length.Should().BeGreaterThan(0);
+
+        var gpkg = await Esri.ArcGISRuntime.Data.GeoPackage.OpenAsync(outGpkg);
+        try
+        {
+            gpkg.GeoPackageFeatureTables.Should().NotBeEmpty();
+        }
+        finally
+        {
+            gpkg.Close();
+        }
+    }
+
+    [Fact]
+    public void DisponibilidadMotores_VerificaPrioridadSegunEntorno()
+    {
+        _service.IsGdalAvailable.Should().BeTrue();
+        if (_service.IsArcPyAvailable)
+        {
+            _service.ProveedorActivo.Should().Be("ArcPy (ArcGIS Pro)");
+        }
+        else
+        {
+            _service.ProveedorActivo.Should().Be("GDAL OpenFileGDB (Autónomo)");
+        }
+
+        // Si se fuerza un entorno sin Python/ArcPy, debe degradar elegantemente a GDAL
+        var serviceAutonomo = new FileGdbImporterService(customPythonPath: "no_existe_python.exe", customCacheDirectory: _cacheDir);
+        serviceAutonomo.IsArcPyAvailable.Should().BeFalse();
+        serviceAutonomo.IsGdalAvailable.Should().BeTrue();
+        serviceAutonomo.ProveedorActivo.Should().Be("GDAL OpenFileGDB (Autónomo)");
+    }
+
+    [Fact]
+    public async Task ImportarGdbAsync_ConGdbReal_ExportaSegunPrioridadYLeeDeCache()
+    {
+        string rutaGdbReal = @"D:\Pruebas\INVENTARIO_FORESTAL_GDB\cce98b87-a635-4ece-a6a8-e5c7d5303c61.gdb";
+        if (!Directory.Exists(rutaGdbReal)) return;
+
+        var result = await _service.ImportarGdbAsync(rutaGdbReal);
+
+        result.Success.Should().BeTrue(because: result.MensajeError);
+        result.GeoPackagePath.Should().NotBeNull();
+        File.Exists(result.GeoPackagePath!).Should().BeTrue();
+        new FileInfo(result.GeoPackagePath!).Length.Should().BeGreaterThan(0);
+
+        // Verificamos que se crearon los metadatos JSON
+        string metaPath = result.GeoPackagePath + ".meta.json";
+        File.Exists(metaPath).Should().BeTrue();
+
+        // Segunda llamada debe salir de caché inmediatamente
+        var resCache = await _service.ImportarGdbAsync(rutaGdbReal);
+        resCache.Success.Should().BeTrue();
+        resCache.FromCache.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ImportarGdbAsync_SinArcPy_DegradaExitosamenteAGdalAutonomo()
+    {
+        string rutaGdbReal = @"D:\Pruebas\INVENTARIO_FORESTAL_GDB\cce98b87-a635-4ece-a6a8-e5c7d5303c61.gdb";
+        if (!Directory.Exists(rutaGdbReal)) return;
+
+        string subCache = Path.Combine(_cacheDir, "AutonomoTest");
+        var serviceAutonomo = new FileGdbImporterService(customPythonPath: "no_existe_python.exe", customCacheDirectory: subCache);
+        serviceAutonomo.IsArcPyAvailable.Should().BeFalse();
+
+        var result = await serviceAutonomo.ImportarGdbAsync(rutaGdbReal);
+        result.Success.Should().BeTrue(because: result.MensajeError);
+        result.GeoPackagePath.Should().NotBeNull();
+        File.Exists(result.GeoPackagePath!).Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task ObtenerCapasGdbAsync_ConGdbReal_RetornaCapasYTablas()
+    {
+        string rutaGdbReal = @"D:\Pruebas\INVENTARIO_FORESTAL_GDB\cce98b87-a635-4ece-a6a8-e5c7d5303c61.gdb";
+        if (!Directory.Exists(rutaGdbReal)) return;
+
+        var capas = await _service.ObtenerCapasGdbAsync(rutaGdbReal);
+
+        capas.Should().NotBeEmpty();
+        capas.Should().Contain(c => c.Nombre == "Sheet1_Tabla1" && c.TipoGeometria == "Point");
+        capas.Should().Contain(c => c.Nombre == "Sheet1_Tabla1__ATTACH" && c.EsAdjunto);
+    }
+
+    [Fact]
+    public async Task ObtenerAdjuntosElementoAsync_ConGdbReal_EjecutaCorrectamente()
+    {
+        string rutaGdbReal = @"D:\Pruebas\INVENTARIO_FORESTAL_GDB\cce98b87-a635-4ece-a6a8-e5c7d5303c61.gdb";
+        if (!Directory.Exists(rutaGdbReal)) return;
+
+        var adjuntos = await _service.ObtenerAdjuntosElementoAsync(rutaGdbReal, "{EE8517DF-AE85-4963-B63E-51F1D6AF586D}");
+        adjuntos.Should().NotBeNull();
     }
 }
 

@@ -1,5 +1,7 @@
 using Esri.ArcGISRuntime.Geometry;
 using Esri.ArcGISRuntime.Rasters;
+using MaxRev.Gdal.Core;
+using OSGeo.GDAL;
 using System.Globalization;
 using System.IO;
 using System.Security;
@@ -23,6 +25,160 @@ public static class GeoTiffSidecarResolver
 
     public static string ObtenerRutaRasterCache(string tifPath)
         => Path.Combine(ObtenerDirectorioCacheRaster(tifPath), Path.GetFileName(tifPath));
+
+    /// <summary>
+    /// Determina si un archivo GeoTIFF contiene un canal alfa (transparencia).
+    /// Rasters de 1 banda (DEM) o 3 bandas (RGB sin alfa) retornan false.
+    /// Rasters de 4 o más bandas con canal alfa (RGBA) retornan true.
+    /// </summary>
+    public static bool TieneCanalAlfa(string tifPath)
+    {
+        if (string.IsNullOrWhiteSpace(tifPath) || !File.Exists(tifPath))
+            return false;
+
+        try
+        {
+            GdalBase.ConfigureAll();
+            using var ds = Gdal.Open(tifPath, Access.GA_ReadOnly);
+            if (ds == null) return false;
+
+            int bandCount = ds.RasterCount;
+            if (bandCount < 4) return false;
+
+            for (int b = 1; b <= bandCount; b++)
+            {
+                using var band = ds.GetRasterBand(b);
+                if (band.GetColorInterpretation() == ColorInterp.GCI_AlphaBand)
+                    return true;
+            }
+
+            // Si tiene 4 bandas y la 4ta no está etiquetada explícitamente, los ortomosaicos
+            // fotogramétricos (Pix4D, Agisoft) de 4 bandas corresponden al estándar RGBA.
+            return bandCount == 4;
+        }
+        catch (Exception ex)
+        {
+            RasterDiagnostics.LogException($"Error verificando canal alfa para {tifPath}", ex);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Genera o recupera de la memoria caché una vista virtual VRT para GeoTIFFs con canal alfa,
+    /// enmascarando los píxeles transparentes como NoData (0) para ArcGIS Runtime,
+    /// sin duplicar la imagen original en disco ni alterar el archivo original.
+    /// Si el archivo no tiene canal alfa, retorna null.
+    /// </summary>
+    public static string? ObtenerOCrearVrtConAlfaTransparente(string tifPath, IProgress<(int porcentaje, string detalle)>? progress = null)
+    {
+        if (string.IsNullOrWhiteSpace(tifPath) || !File.Exists(tifPath))
+            return null;
+
+        if (!TieneCanalAlfa(tifPath))
+            return null;
+
+        try
+        {
+            GdalBase.ConfigureAll();
+
+            var cacheDir = ObtenerDirectorioCacheRaster(tifPath);
+            Directory.CreateDirectory(cacheDir);
+
+            var fileNameWithoutExt = Path.GetFileNameWithoutExtension(tifPath);
+            var vrtPath = Path.Combine(cacheDir, $"{fileNameWithoutExt}_alpha.vrt");
+
+            var sourceInfo = new FileInfo(tifPath);
+            if (File.Exists(vrtPath))
+            {
+                var vrtInfo = new FileInfo(vrtPath);
+                if (vrtInfo.LastWriteTimeUtc >= sourceInfo.LastWriteTimeUtc && vrtInfo.Length > 0)
+                {
+                    progress?.Report((100, "Caché de transparencia alfa lista."));
+                    return vrtPath;
+                }
+            }
+
+            progress?.Report((25, "Configurando máscara de transparencia alfa vía VRT..."));
+
+            var optionsList = new List<string>
+            {
+                "-b", "1",
+                "-b", "2",
+                "-b", "3",
+                "-vrtnodata", "0 0 0"
+            };
+
+            // Verificar si el ráster tiene CRS embebido o si proviene de un archivo .prj sidecar
+            string? directory = Path.GetDirectoryName(tifPath);
+            using (var ds = Gdal.Open(tifPath, Access.GA_ReadOnly))
+            {
+                var projection = ds?.GetProjection();
+                if (string.IsNullOrWhiteSpace(projection) && !string.IsNullOrWhiteSpace(directory))
+                {
+                    var prjPath = Path.Combine(directory, fileNameWithoutExt + ".prj");
+                    if (File.Exists(prjPath))
+                    {
+                        var wkt = File.ReadAllText(prjPath);
+                        var wkidMatch = EpsgRegex.Matches(wkt).Cast<Match>().LastOrDefault();
+                        if (wkidMatch != null && int.TryParse(wkidMatch.Groups["wkid"].Value, out var wkid))
+                        {
+                            optionsList.Add("-a_srs");
+                            optionsList.Add($"EPSG:{wkid}");
+                        }
+                        else
+                        {
+                            optionsList.Add("-a_srs");
+                            optionsList.Add(prjPath);
+                        }
+                    }
+                }
+            }
+
+            progress?.Report((60, "Construyendo dataset virtual VRT..."));
+            var vrtOptions = new GDALBuildVRTOptions(optionsList.ToArray());
+            using (var dsVrt = Gdal.BuildVRT(vrtPath, new[] { tifPath }, vrtOptions, null, null))
+            {
+                dsVrt?.FlushCache();
+            }
+
+            if (!File.Exists(vrtPath) || new FileInfo(vrtPath).Length == 0)
+                return null;
+
+            // Si existe .tfw sidecar y el VRT generado no incluye GeoTransform, inyectarlo
+            if (!string.IsNullOrWhiteSpace(directory))
+            {
+                var tfwPath = BuscarWorldFile(directory, fileNameWithoutExt);
+                if (tfwPath != null && File.Exists(tfwPath))
+                {
+                    var vrtText = File.ReadAllText(vrtPath);
+                    if (!vrtText.Contains("<GeoTransform>"))
+                    {
+                        var values = LeerCoeficientes(tfwPath);
+                        var geoTransform = string.Join(", ", new[]
+                        {
+                            values[4], values[0], values[1], values[5], values[2], values[3]
+                        }.Select(value => value.ToString("G17", CultureInfo.InvariantCulture)));
+
+                        int insertIdx = vrtText.IndexOf('>') + 1;
+                        if (insertIdx > 0)
+                        {
+                            vrtText = vrtText.Insert(insertIdx, $"\r\n  <GeoTransform>{geoTransform}</GeoTransform>");
+                            File.WriteAllText(vrtPath, vrtText);
+                        }
+                    }
+                }
+            }
+
+            progress?.Report((100, "Transparencia de canal alfa configurada con éxito."));
+            RasterDiagnostics.Log($"VRT with alpha transparency created: {vrtPath}");
+            return vrtPath;
+        }
+        catch (Exception ex)
+        {
+            RasterDiagnostics.LogException($"Error generando VRT con transparencia alfa para {tifPath}", ex);
+            return null;
+        }
+    }
 
     public static async Task AsegurarAuxXmlGeorreferenciadoAsync(string tifPath, IProgress<(int porcentaje, string detalle)>? progress = null)
     {

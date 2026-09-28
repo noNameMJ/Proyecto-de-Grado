@@ -1,34 +1,11 @@
+using Geomatica.Domain.Entities;
+using Geomatica.Domain.Interfaces.Repositories;
 using Npgsql;
 using NpgsqlTypes;
 using System.Diagnostics;
 
 namespace Geomatica.Data.Repositories
 {
-    public interface IMunicipioRepository
-    {
-        Task<IReadOnlyList<MunicipioGeoJsonDto>> PorCodigosGeoJsonAsync(IReadOnlyList<string> codigos); // mpio_cdpmp
-        Task<IReadOnlyList<MunicipioGeoJsonDto>> TodosGeoJsonAsync(int? limit = null); // para carga base
-
-        Task<IReadOnlyList<DepartamentoDto>> ListarDepartamentosAsync();
-        Task<IReadOnlyList<MunicipioDto>> ListarTodosMunicipiosAsync();
-        Task<IReadOnlyList<MunicipioDto>> ListarMunicipiosPorDepartamentoAsync(string dptoCodigo);
-        Task<EnvelopeDto?> ExtentPorDepartamentoAsync(string dptoCcdgo);
-        Task<EnvelopeDto?> ExtentPorMunicipiosAsync(IReadOnlyList<string> codigos);
-        Task<MunicipioUbicacionDto?> ObtenerPorPuntoAsync(double lon, double lat);
-        Task<bool> PuntoEstaEnMunicipioAsync(string municipioCodigo, double lon, double lat);
-    }
-
-    public sealed record MunicipioGeoJsonDto(string Codigo, string Nombre, string? GeoJson);
-    public sealed record MunicipioDto(string Codigo, string Nombre);
-    public sealed record EnvelopeDto(double West, double South, double East, double North);
-    public sealed record DepartamentoDto(string Codigo, string Nombre);
-    public sealed record MunicipioUbicacionDto(
-        string MunicipioCodigo,
-        string MunicipioNombre,
-        string DepartamentoCodigo,
-        string DepartamentoNombre,
-        string? GeoJson);
-
     public sealed class MunicipioRepository : IMunicipioRepository
     {
         private readonly string _cn;

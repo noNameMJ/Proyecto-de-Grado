@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Geomatica.AppCore.UseCases;
 using Geomatica.Data.Repositories;
@@ -34,6 +34,7 @@ namespace Geomatica.Desktop.ViewModels
         private readonly EliminarProyectoUseCase _eliminarProyectoUseCase;
         private readonly ProyectoArchivosService _archivosService;
         private readonly IProyectoRepository _proyectoRepository;
+        private readonly ObtenerHistorialProyectoUseCase? _historialUseCase;
         private readonly Func<MapaViewModel> _mapFactory;
         private readonly Func<ArchivosViewModel> _filesFactory;
         private readonly Func<Action, Action?, CrearProyectoViewModel> _createFactory;
@@ -52,13 +53,15 @@ namespace Geomatica.Desktop.ViewModels
             Func<ArchivosViewModel> filesFactory,
             Func<Action, Action?, CrearProyectoViewModel> createFactory,
             Func<ProyectoDetalleDto, Action, Action?, EditarProyectoViewModel> editFactory,
-            IProyectoRepository proyectoRepository)
+            IProyectoRepository proyectoRepository,
+            ObtenerHistorialProyectoUseCase? historialUseCase = null)
         {
             Filtros = filtros;
             Notifications = notifications;
             _eliminarProyectoUseCase = eliminarProyectoUseCase;
             _archivosService = archivosService;
             _proyectoRepository = proyectoRepository;
+            _historialUseCase = historialUseCase ?? new ObtenerHistorialProyectoUseCase(proyectoRepository);
             _mapFactory = mapFactory;
             _filesFactory = filesFactory;
             _createFactory = createFactory;
@@ -124,7 +127,8 @@ namespace Geomatica.Desktop.ViewModels
                 },
                 _archivosService,
                 Notifications,
-                _proyectoRepository);
+                _proyectoRepository,
+                _historialUseCase);
             fichaVm.EditarSolicitado += OnEditarSolicitado;
 
             archivosVm.ProyectoDetalle = fichaVm;

@@ -6,9 +6,11 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <NoWarn>$(NoWarn);MSB3270</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="ACadSharp" Version="3.8.0" />
     <PackageReference Include="coverlet.collector" Version="6.0.4" />
     <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
     <PackageReference Include="xunit" Version="2.9.3" />
@@ -22,6 +24,7 @@
     <ProjectReference Include="..\Geomatica.AppCore\Geomatica.AppCore.csproj" />
     <ProjectReference Include="..\Geomatica.Data\Geomatica.Data.csproj" />
     <ProjectReference Include="..\Geomatica.Desktop\Geomatica.Desktop.csproj" />
+    <ProjectReference Include="..\Geomatica.Infrastructure.Gis\Geomatica.Infrastructure.Gis.csproj" />
   </ItemGroup>
 
   <ItemGroup>

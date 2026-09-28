@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using System.Collections.ObjectModel;
 using System.IO;
@@ -326,7 +326,18 @@ namespace Geomatica.Desktop.ViewModels
             if (!string.IsNullOrEmpty(seleccionadoActual))
             {
                 var match = ExtensionesDisponibles.ToList().FirstOrDefault(e => e.Extension.Equals(seleccionadoActual, StringComparison.OrdinalIgnoreCase));
-                FiltroExtensionSeleccionado = match ?? ExtensionesDisponibles[0];
+                if (match != null)
+                {
+                    FiltroExtensionSeleccionado = match;
+                }
+                else if (FiltroExtensionSeleccionado != null)
+                {
+                    ExtensionesDisponibles.Add(FiltroExtensionSeleccionado);
+                }
+                else
+                {
+                    FiltroExtensionSeleccionado = ExtensionesDisponibles[0];
+                }
             }
             else
             {
@@ -944,7 +955,7 @@ namespace Geomatica.Desktop.ViewModels
 
         private static readonly HashSet<string> FormatosSoportadosMapa = new(StringComparer.OrdinalIgnoreCase)
         {
-            ".shp", ".kml", ".kmz", ".gdb", ".geodatabase", ".slpk", ".las", ".laz", ".zlas", ".tif", ".tiff", ".gpkg"
+            ".shp", ".kml", ".kmz", ".gdb", ".geodatabase", ".slpk", ".las", ".laz", ".zlas", ".tif", ".tiff", ".gpkg", ".dwg", ".dxf"
         };
 
         public static bool EsFormatoSoportadoMapa(NodoArchivoVirtual? nodo)

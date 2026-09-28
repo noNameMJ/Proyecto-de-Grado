@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Geomatica.AppCore.UseCases;
 using Geomatica.Data.Repositories;
@@ -19,6 +19,7 @@ namespace Geomatica.Desktop.ViewModels
         private readonly Action? _onProyectoEliminado;
         private readonly ProyectoArchivosService _archivosService;
         private readonly IProyectoRepository? _proyectoRepository;
+        private readonly ObtenerHistorialProyectoUseCase? _historialUseCase;
         private readonly SemaphoreSlim _formatosLock = new(1, 1);
 
         public ProyectoDetalleDto Proyecto { get; }
@@ -190,7 +191,8 @@ namespace Geomatica.Desktop.ViewModels
             Action? onProyectoEliminado = null,
             ProyectoArchivosService? archivosService = null,
             INotificationService? notifications = null,
-            IProyectoRepository? proyectoRepository = null)
+            IProyectoRepository? proyectoRepository = null,
+            ObtenerHistorialProyectoUseCase? historialUseCase = null)
         {
             Proyecto = proyecto;
             _eliminarProyectoUseCase = eliminarProyectoUseCase;
@@ -198,6 +200,7 @@ namespace Geomatica.Desktop.ViewModels
             _archivosService = archivosService ?? new ProyectoArchivosService();
             _notifications = notifications;
             _proyectoRepository = proyectoRepository;
+            _historialUseCase = historialUseCase ?? (proyectoRepository != null ? new ObtenerHistorialProyectoUseCase(proyectoRepository) : null);
 
             PermisosCarpeta = _archivosService.EvaluarPermisosCarpeta(proyecto.RutaArchivos);
 
@@ -221,7 +224,7 @@ namespace Geomatica.Desktop.ViewModels
                 PalabrasClaveLista = Array.Empty<string>();
             }
 
-            if (_proyectoRepository != null)
+            if (_historialUseCase != null)
             {
                 _ = CargarHistorialAuditoriaAsync();
             }
@@ -323,12 +326,12 @@ namespace Geomatica.Desktop.ViewModels
 
         public async Task CargarHistorialAuditoriaAsync(CancellationToken ct = default)
         {
-            if (_proyectoRepository == null) return;
+            if (_historialUseCase == null) return;
 
             try
             {
                 CargandoHistorial = true;
-                var list = await _proyectoRepository.ObtenerHistorialProyectoAsync(Id, ct);
+                var list = await _historialUseCase.EjecutarAsync(Id, ct);
 
                 HistorialAuditoria.Clear();
                 foreach (var item in list)

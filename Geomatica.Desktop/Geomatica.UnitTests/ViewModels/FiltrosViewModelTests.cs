@@ -1,5 +1,6 @@
-﻿using Geomatica.Data.Repositories;
 using Geomatica.Desktop.ViewModels;
+using Geomatica.Domain.Entities;
+using Geomatica.Domain.Interfaces.Repositories;
 
 namespace Geomatica.UnitTests.ViewModels;
 

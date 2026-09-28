@@ -1,4 +1,4 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Geomatica.AppCore.UseCases;
 using Geomatica.Data.Repositories;
@@ -16,7 +16,7 @@ namespace Geomatica.Desktop.ViewModels
 {
     public partial class EditarProyectoViewModel : ObservableObject
     {
-        private readonly IProyectoRepository _proyectoRepository;
+        private readonly ActualizarProyectoUseCase _actualizarProyectoUseCase;
         private readonly IMunicipioRepository _municipioRepository;
         private readonly INotificationService? _notifications;
         private readonly Action _navigateBack;
@@ -68,7 +68,7 @@ namespace Geomatica.Desktop.ViewModels
         public IRelayCommand LimpiarFechaFinCommand { get; }
 
         public EditarProyectoViewModel(
-            IProyectoRepository proyectoRepository,
+            ActualizarProyectoUseCase actualizarProyectoUseCase,
             IMunicipioRepository municipioRepository,
             ProyectoDetalleDto proyecto,
             Action navigateBack,
@@ -77,7 +77,7 @@ namespace Geomatica.Desktop.ViewModels
             INotificationService? notifications = null,
             ProyectoArchivosService? archivosService = null)
         {
-            _proyectoRepository = proyectoRepository;
+            _actualizarProyectoUseCase = actualizarProyectoUseCase;
             _municipioRepository = municipioRepository;
             _notifications = notifications;
             _navigateBack = navigateBack;
@@ -113,6 +113,19 @@ namespace Geomatica.Desktop.ViewModels
             LimpiarFechaFinCommand = new RelayCommand(() => FechaFin = null);
 
             _ = CargarDatosInicialesAsync(proyecto.MunicipioCodigo);
+        }
+
+        public EditarProyectoViewModel(
+            IProyectoRepository proyectoRepository,
+            IMunicipioRepository municipioRepository,
+            ProyectoDetalleDto proyecto,
+            Action navigateBack,
+            Action? onProyectoEditado = null,
+            EliminarProyectoUseCase? eliminarProyectoUseCase = null,
+            INotificationService? notifications = null,
+            ProyectoArchivosService? archivosService = null)
+            : this(new ActualizarProyectoUseCase(proyectoRepository), municipioRepository, proyecto, navigateBack, onProyectoEditado, eliminarProyectoUseCase, notifications, archivosService)
+        {
         }
 
         private async Task CargarDatosInicialesAsync(string? municipioCodigo)
@@ -407,7 +420,7 @@ namespace Geomatica.Desktop.ViewModels
                 string usuarioActual = System.Security.Principal.WindowsIdentity.GetCurrent()?.Name ?? Environment.UserName;
                 string equipoActual = Environment.MachineName;
 
-                await _proyectoRepository.ActualizarAsync(
+                await _actualizarProyectoUseCase.EjecutarAsync(
                     IdProyecto,
                     Titulo,
                     Descripcion,

@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Geomatica.Domain", "Geomati
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Geomatica.UnitTests", "Geomatica.UnitTests\Geomatica.UnitTests.csproj", "{3C207B8A-9EEF-4E91-92FC-F675C1C1FB97}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Geomatica.Infrastructure.Gis", "Geomatica.Infrastructure.Gis\Geomatica.Infrastructure.Gis.csproj", "{D36921F3-E24B-405C-A65D-D1FCFE0F4564}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -83,6 +85,18 @@ Global
 		{3C207B8A-9EEF-4E91-92FC-F675C1C1FB97}.Release|x64.Build.0 = Release|Any CPU
 		{3C207B8A-9EEF-4E91-92FC-F675C1C1FB97}.Release|x86.ActiveCfg = Release|Any CPU
 		{3C207B8A-9EEF-4E91-92FC-F675C1C1FB97}.Release|x86.Build.0 = Release|Any CPU
+		{D36921F3-E24B-405C-A65D-D1FCFE0F4564}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{D36921F3-E24B-405C-A65D-D1FCFE0F4564}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{D36921F3-E24B-405C-A65D-D1FCFE0F4564}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{D36921F3-E24B-405C-A65D-D1FCFE0F4564}.Debug|x64.Build.0 = Debug|Any CPU
+		{D36921F3-E24B-405C-A65D-D1FCFE0F4564}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{D36921F3-E24B-405C-A65D-D1FCFE0F4564}.Debug|x86.Build.0 = Debug|Any CPU
+		{D36921F3-E24B-405C-A65D-D1FCFE0F4564}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{D36921F3-E24B-405C-A65D-D1FCFE0F4564}.Release|Any CPU.Build.0 = Release|Any CPU
+		{D36921F3-E24B-405C-A65D-D1FCFE0F4564}.Release|x64.ActiveCfg = Release|Any CPU
+		{D36921F3-E24B-405C-A65D-D1FCFE0F4564}.Release|x64.Build.0 = Release|Any CPU
+		{D36921F3-E24B-405C-A65D-D1FCFE0F4564}.Release|x86.ActiveCfg = Release|Any CPU
+		{D36921F3-E24B-405C-A65D-D1FCFE0F4564}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
