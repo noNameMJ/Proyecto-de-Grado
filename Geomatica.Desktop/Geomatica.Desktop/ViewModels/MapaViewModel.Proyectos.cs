@@ -3,6 +3,7 @@ using Esri.ArcGISRuntime.Geometry;
 using Esri.ArcGISRuntime.Mapping;
 using Esri.ArcGISRuntime.Symbology;
 using Geomatica.Domain.Entities;
+using Geomatica.Infrastructure.Gis.Services;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -42,6 +43,8 @@ public partial class MapaViewModel
         _layerProyectos = null;
         _layerMunicipios = null;
         _updateGeneration++;
+        OverlayProyectosEtiquetas.Graphics.Clear();
+        OverlayResaltadoProyecto.Graphics.Clear();
         Map?.OperationalLayers.Clear();
     }
 
@@ -235,12 +238,16 @@ public partial class MapaViewModel
         {
             OID("oid"),
             Int("id_proyecto"),
+            Str("codigo", 30),
             Str("titulo", 200),
             Str("ruta_archivos", 1024)
         };
         var table = new FeatureCollectionTable(fields, GeometryType.Point, SpatialReferences.Wgs84);
 
         _oidToProjectId.Clear();
+        OverlayProyectosEtiquetas.Graphics.Clear();
+        OverlayResaltadoProyecto.Graphics.Clear();
+
         var features = new List<Feature>();
         int oid = 1;
         foreach (var p in items)
@@ -248,25 +255,29 @@ public partial class MapaViewModel
             if (p.Longitud == 0 && p.Latitud == 0) continue;
             var currentOid = oid++;
             _oidToProjectId[currentOid] = p.Id;
+            var codigo = $"#PROY-{p.Id:D4}";
+
             var attrs = new Dictionary<string, object?>
             {
                 ["oid"] = currentOid,
                 ["id_proyecto"] = p.Id,
+                ["codigo"] = codigo,
                 ["titulo"] = p.Titulo,
                 ["ruta_archivos"] = string.IsNullOrWhiteSpace(p.RutaArchivos) ? null : p.RutaArchivos
             };
             var geom = new MapPoint(p.Longitud, p.Latitud, SpatialReferences.Wgs84);
             features.Add(table.CreateFeature(attrs, geom));
+
+            // Agregar etiqueta textual visible en el mapa con halo blanco de alta legibilidad
+            var etiqueta = ProyectoStylingHelper.CrearEtiquetaGraphic(geom, codigo, p.Titulo);
+            OverlayProyectosEtiquetas.Graphics.Add(etiqueta);
         }
 
         if (features.Count == 0) return null;
         await table.AddFeaturesAsync(features);
 
-        var marker = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Circle, System.Drawing.Color.OrangeRed, 9)
-        {
-            Outline = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.White, 1.5)
-        };
-        table.Renderer = new SimpleRenderer(marker);
+        // Asignar el icono característico unificado para todos los proyectos (Pin UIS con alta visibilidad)
+        table.Renderer = await ProyectoStylingHelper.CrearRendererProyectosAsync();
 
         var collection = new FeatureCollection(new[] { table });
         var layer = new FeatureCollectionLayer(collection)
@@ -274,6 +285,47 @@ public partial class MapaViewModel
             Name = "Proyectos"
         };
         return layer;
+    }
+
+    /// <summary>
+    /// Resalta interactivamente el proyecto seleccionado en el mapa con un halo luminoso,
+    /// su polígono de huella/cobertura geográfica (si tiene extensión válida) y centra la vista suavemente.
+    /// </summary>
+    public async Task ResaltarProyectoEnMapaAsync(FiltrosViewModel.ProyectoItem? proyecto)
+    {
+        OverlayResaltadoProyecto.Graphics.Clear();
+        if (proyecto == null || (proyecto.Lon == 0 && proyecto.Lat == 0)) return;
+
+        var pt = new MapPoint(proyecto.Lon, proyecto.Lat, SpatialReferences.Wgs84);
+        Envelope? extentGeom = null;
+
+        if (proyecto.TieneExtentValido)
+        {
+            extentGeom = new Envelope(proyecto.MinX, proyecto.MinY, proyecto.MaxX, proyecto.MaxY, SpatialReferences.Wgs84);
+        }
+
+        var graphics = ProyectoStylingHelper.CrearResaltadoGraphics(pt, extentGeom);
+        foreach (var g in graphics)
+        {
+            OverlayResaltadoProyecto.Graphics.Add(g);
+        }
+
+        if (_ownerMapView != null)
+        {
+            try
+            {
+                // Si el proyecto tiene una extensión geográfica amplia (> ~500 metros), encuadrar el polígono completo
+                if (extentGeom != null && extentGeom.Width > 0.005 && extentGeom.Height > 0.005)
+                {
+                    await _ownerMapView.SetViewpointGeometryAsync(extentGeom, 50.0);
+                }
+                else
+                {
+                    await _ownerMapView.SetViewpointCenterAsync(pt, 25_000);
+                }
+            }
+            catch { }
+        }
     }
 
     private async Task<Layer?> CrearCapaMunicipiosFiltradaAsync(IEnumerable<MunicipioGeoJsonDto> municipios)

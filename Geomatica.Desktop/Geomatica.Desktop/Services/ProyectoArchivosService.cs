@@ -1,7 +1,8 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -195,16 +196,60 @@ namespace Geomatica.Desktop.Services
         }
 
         /// <summary>
-        /// Crea la estructura inicial en el servidor para un nuevo proyecto.
+        /// Comprueba si la ruta especificada existe físicamente y contiene al menos una subcarpeta.
         /// </summary>
-        public void CrearEstructuraProyecto(string rutaRaizProyecto)
+        public virtual bool TieneCarpetas(string? rutaRaizProyecto)
         {
+            if (string.IsNullOrWhiteSpace(rutaRaizProyecto))
+                return false;
+
+            try
+            {
+                if (!Directory.Exists(rutaRaizProyecto))
+                    return false;
+
+                return Directory.EnumerateDirectories(rutaRaizProyecto).Any();
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Asegura que el directorio raíz del proyecto exista físicamente en disco o servidor,
+        /// sin crear subcarpetas automáticas.
+        /// </summary>
+        public virtual void AsegurarCarpetaRaiz(string rutaRaizProyecto)
+        {
+            if (string.IsNullOrWhiteSpace(rutaRaizProyecto))
+                return;
+
             try
             {
                 if (!Directory.Exists(rutaRaizProyecto))
                 {
                     Directory.CreateDirectory(rutaRaizProyecto);
                 }
+            }
+            catch (UnauthorizedAccessException)
+            {
+                throw new Exception("Su usuario no tiene permisos para crear carpetas en el servidor o disco local.");
+            }
+            catch (Exception ex)
+            {
+                throw new Exception($"Error al estructurar carpetas: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Crea la estructura inicial en el servidor para un nuevo proyecto (Datos_Espaciales, Documentos, Entregables, Otros).
+        /// </summary>
+        public virtual void CrearEstructuraProyecto(string rutaRaizProyecto)
+        {
+            try
+            {
+                AsegurarCarpetaRaiz(rutaRaizProyecto);
 
                 foreach (var carpeta in _carpetasBase)
                 {
@@ -223,6 +268,37 @@ namespace Geomatica.Desktop.Services
             catch (Exception ex)
             {
                 throw new Exception($"Error al estructurar carpetas: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Gestiona la estructura de carpetas según las reglas de negocio:
+        /// - En caso de existir subcarpetas en la ruta seleccionada, NO crearlas.
+        /// - En caso de no existir subcarpetas, consulta mediante el delegado si se desean crear o no.
+        /// </summary>
+        /// <returns>True si se crearon las subcarpetas estándar; False si no se crearon (o si ya existían).</returns>
+        public virtual bool GestionarEstructuraCarpetas(string rutaRaizProyecto, Func<bool> solicitarConfirmacion)
+        {
+            if (string.IsNullOrWhiteSpace(rutaRaizProyecto))
+                return false;
+
+            // 1. En caso de existir carpetas en la ruta seleccionada, NO crearlas
+            if (TieneCarpetas(rutaRaizProyecto))
+            {
+                return false;
+            }
+
+            // 2. En caso de no existir carpetas, preguntar si se desean o no
+            bool deseaCrear = solicitarConfirmacion != null && solicitarConfirmacion();
+            if (deseaCrear)
+            {
+                CrearEstructuraProyecto(rutaRaizProyecto);
+                return true;
+            }
+            else
+            {
+                AsegurarCarpetaRaiz(rutaRaizProyecto);
+                return false;
             }
         }
 
@@ -575,6 +651,167 @@ namespace Geomatica.Desktop.Services
             }
 
             return resultados;
+        }
+
+        /// <summary>
+        /// Comprime de forma asíncrona una carpeta o conjunto de archivos del proyecto en un archivo .ZIP,
+        /// reportando el progreso porcentual y permitiendo cancelación sin congelar la interfaz de usuario.
+        /// Preserva la jerarquía de subcarpetas (incluyendo directorios .gdb) y carpetas canónicas vacías.
+        /// </summary>
+        public virtual async Task<bool> EmpaquetarCarpetaZipAsync(
+            string rutaOrigen,
+            string rutaDestinoZip,
+            IProgress<double>? progreso = null,
+            CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(rutaOrigen))
+                throw new ArgumentException("La ruta de origen no puede estar vacía.", nameof(rutaOrigen));
+
+            if (!Directory.Exists(rutaOrigen) && !File.Exists(rutaOrigen))
+                throw new DirectoryNotFoundException($"La ruta de origen '{rutaOrigen}' no existe o no es accesible.");
+
+            if (string.IsNullOrWhiteSpace(rutaDestinoZip))
+                throw new ArgumentException("La ruta de destino del archivo ZIP no puede estar vacía.", nameof(rutaDestinoZip));
+
+            return await Task.Run(async () =>
+            {
+                string dirDestino = Path.GetDirectoryName(rutaDestinoZip) ?? "";
+                if (!string.IsNullOrEmpty(dirDestino) && !Directory.Exists(dirDestino))
+                {
+                    Directory.CreateDirectory(dirDestino);
+                }
+
+                if (File.Exists(rutaDestinoZip))
+                {
+                    File.Delete(rutaDestinoZip);
+                }
+
+                // Caso especial: Empaquetar un único archivo
+                if (File.Exists(rutaOrigen) && !Directory.Exists(rutaOrigen))
+                {
+                    var fileInfo = new FileInfo(rutaOrigen);
+                    using (var zipStream = new FileStream(rutaDestinoZip, FileMode.Create, FileAccess.Write, FileShare.None, 65536, useAsync: true))
+                    using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Create, leaveOpen: false))
+                    {
+                        var entry = archive.CreateEntry(fileInfo.Name, CompressionLevel.Optimal);
+                        entry.LastWriteTime = fileInfo.LastWriteTime;
+
+                        using (var src = new FileStream(fileInfo.FullName, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 65536, useAsync: true))
+                        using (var dst = entry.Open())
+                        {
+                            await src.CopyToAsync(dst, 65536, ct).ConfigureAwait(false);
+                        }
+                    }
+                    progreso?.Report(100.0);
+                    return true;
+                }
+
+                var enumOptions = new EnumerationOptions
+                {
+                    IgnoreInaccessible = true,
+                    RecurseSubdirectories = true,
+                    AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System
+                };
+
+                var dirInfo = new DirectoryInfo(rutaOrigen);
+                string raizNormalizada = dirInfo.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+                var todosLosArchivos = dirInfo.EnumerateFiles("*", enumOptions)
+                    .Where(f => !f.Name.StartsWith(".probe_", StringComparison.OrdinalIgnoreCase) &&
+                                !f.Name.EndsWith(".lock", StringComparison.OrdinalIgnoreCase))
+                    .ToList();
+
+                var directorios = dirInfo.EnumerateDirectories("*", enumOptions).ToList();
+
+                try
+                {
+                    using (var zipStream = new FileStream(rutaDestinoZip, FileMode.Create, FileAccess.Write, FileShare.None, 65536, useAsync: true))
+                    using (var archive = new ZipArchive(zipStream, ZipArchiveMode.Create, leaveOpen: false))
+                    {
+                        // Preservar carpetas canónicas vacías
+                        foreach (var subDir in directorios)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            bool tieneElementos = false;
+                            try
+                            {
+                                tieneElementos = Directory.EnumerateFileSystemEntries(subDir.FullName).Any();
+                            }
+                            catch { }
+
+                            if (!tieneElementos)
+                            {
+                                string relFolder = subDir.FullName.Substring(raizNormalizada.Length)
+                                    .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                    .Replace('\\', '/') + "/";
+                                archive.CreateEntry(relFolder);
+                            }
+                        }
+
+                        if (todosLosArchivos.Count == 0)
+                        {
+                            progreso?.Report(100.0);
+                            return true;
+                        }
+
+                        int totalArchivos = todosLosArchivos.Count;
+                        int procesados = 0;
+
+                        foreach (var file in todosLosArchivos)
+                        {
+                            ct.ThrowIfCancellationRequested();
+
+                            string rutaCompleta = file.FullName;
+                            string entradaRelativa = rutaCompleta.Substring(raizNormalizada.Length)
+                                .TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                                .Replace('\\', '/');
+
+                            try
+                            {
+                                var entry = archive.CreateEntry(entradaRelativa, CompressionLevel.Optimal);
+                                entry.LastWriteTime = file.LastWriteTime;
+
+                                using (var sourceStream = new FileStream(rutaCompleta, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 65536, useAsync: true))
+                                using (var entryStream = entry.Open())
+                                {
+                                    await sourceStream.CopyToAsync(entryStream, 65536, ct).ConfigureAwait(false);
+                                }
+                            }
+                            catch (IOException ioEx)
+                            {
+                                Debug.WriteLine($"[ProyectoArchivosService] Archivo en uso o bloqueado durante ZIP: {file.FullName}. {ioEx.Message}");
+                            }
+                            catch (UnauthorizedAccessException authEx)
+                            {
+                                Debug.WriteLine($"[ProyectoArchivosService] Sin permisos para leer archivo durante ZIP: {file.FullName}. {authEx.Message}");
+                            }
+
+                            procesados++;
+                            progreso?.Report((double)procesados / totalArchivos * 100.0);
+                        }
+                    }
+
+                    progreso?.Report(100.0);
+                    return true;
+                }
+                catch (OperationCanceledException)
+                {
+                    if (File.Exists(rutaDestinoZip))
+                    {
+                        try { File.Delete(rutaDestinoZip); } catch { }
+                    }
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[ProyectoArchivosService] Error generando archivo ZIP: {ex.Message}");
+                    if (File.Exists(rutaDestinoZip))
+                    {
+                        try { File.Delete(rutaDestinoZip); } catch { }
+                    }
+                    throw;
+                }
+            }, ct);
         }
     }
 }

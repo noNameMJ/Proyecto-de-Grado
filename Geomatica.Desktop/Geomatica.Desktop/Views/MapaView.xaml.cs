@@ -1,4 +1,4 @@
-﻿using Esri.ArcGISRuntime.Data;
+using Esri.ArcGISRuntime.Data;
 using Esri.ArcGISRuntime.Mapping;
 using Esri.ArcGISRuntime.UI;
 using Esri.ArcGISRuntime.UI.Controls;
@@ -514,18 +514,14 @@ namespace Geomatica.Desktop.Views
             _loadCts?.Cancel();
             try
             {
-                var mv = _controlMapView;
-                if (mv == null) return;
-
-                var punto = new Esri.ArcGISRuntime.Geometry.MapPoint(
-                    proyecto.Lon, proyecto.Lat,
-                    Esri.ArcGISRuntime.Geometry.SpatialReferences.Wgs84);
-
-                await mv.SetViewpointCenterAsync(punto, 25_000);
+                if (_currentVm != null)
+                {
+                    await _currentVm.ResaltarProyectoEnMapaAsync(proyecto);
+                }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[MapaView] Error en zoom a proyecto seleccionado: {ex}");
+                Debug.WriteLine($"[MapaView] Error en zoom/resaltado a proyecto seleccionado: {ex}");
             }
         }
 
@@ -577,6 +573,16 @@ namespace Geomatica.Desktop.Views
                 {
                     mv.DismissCallout();
                     _currentVm.ElementoIdentificado = null;
+
+                    var proyItem = _currentVm.Filtros.ResultadosLista
+                        .OfType<ViewModels.FiltrosViewModel.ProyectoItem>()
+                        .FirstOrDefault(p => p.Id == idProyecto.Value);
+                    if (proyItem != null)
+                    {
+                        _currentVm.Filtros.SelectedProyecto = proyItem;
+                        await _currentVm.ResaltarProyectoEnMapaAsync(proyItem);
+                    }
+
                     await _currentVm.AbrirFichaProyectoAsync(idProyecto.Value);
                     return;
                 }
@@ -764,7 +770,10 @@ namespace Geomatica.Desktop.Views
 
                     foreach (var p in items)
                     {
-                        vm.Filtros.ResultadosLista.Add(new ViewModels.FiltrosViewModel.ProyectoItem(p.Id, p.Titulo, p.Longitud, p.Latitud, p.RutaArchivos));
+                        vm.Filtros.ResultadosLista.Add(new ViewModels.FiltrosViewModel.ProyectoItem(
+                            p.Id, p.Titulo, p.Longitud, p.Latitud, p.RutaArchivos,
+                            p.Fecha, p.PalabrasClave, p.Responsable,
+                            p.MinX, p.MinY, p.MaxX, p.MaxY));
                     }
 
                     string textoConteo = items.Count == 1 ? "1 proyecto encontrado" : $"{items.Count} proyectos encontrados";

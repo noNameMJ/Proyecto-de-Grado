@@ -894,11 +894,51 @@ namespace Geomatica.Desktop.ViewModels
         }
 
         [RelayCommand]
-        private void Descargar()
+        private async Task DescargarAsync()
         {
+            if (Seleccionado == null)
+            {
+                _notifications?.ShowWarning("Seleccione un archivo o carpeta para descargar.", "Atención");
+                return;
+            }
+
+            // Si es una carpeta virtual, descargar empaquetada como ZIP
+            if (Seleccionado is CarpetaVirtual carpeta)
+            {
+                string rutaCarpetaFisica = Path.Combine(_rutaRaizProyecto, carpeta.RutaRelativaVirtual.TrimStart('/', '\\'));
+                if (!Directory.Exists(rutaCarpetaFisica))
+                {
+                    _notifications?.ShowWarning("La carpeta seleccionada no existe en el disco.", "Atención");
+                    return;
+                }
+
+                var sfdFolder = new Microsoft.Win32.SaveFileDialog
+                {
+                    Title = $"Guardar carpeta '{carpeta.Nombre}' como ZIP...",
+                    FileName = $"{carpeta.Nombre}.zip",
+                    Filter = "Archivo Comprimido ZIP (*.zip)|*.zip|Todos los archivos|*.*"
+                };
+
+                if (sfdFolder.ShowDialog() == true)
+                {
+                    try
+                    {
+                        Estado = $"Empaquetando '{carpeta.Nombre}' en ZIP...";
+                        await _archivosService.EmpaquetarCarpetaZipAsync(rutaCarpetaFisica, sfdFolder.FileName);
+                        Estado = $"Descargado: {Path.GetFileName(sfdFolder.FileName)}";
+                        _notifications?.ShowSuccess($"Carpeta '{carpeta.Nombre}' comprimida y guardada exitosamente en:\n{sfdFolder.FileName}", "Descarga Completa");
+                    }
+                    catch (Exception ex)
+                    {
+                        _notifications?.ShowError($"Error al descargar carpeta como ZIP: {ex.Message}", "Error de Descarga");
+                    }
+                }
+                return;
+            }
+
             if (Seleccionado is not ArchivoVirtual archivo)
             {
-                _notifications?.ShowWarning("Seleccione un archivo para descargar.", "Atención");
+                _notifications?.ShowWarning("Seleccione un archivo o carpeta para descargar.", "Atención");
                 return;
             }
 
@@ -918,8 +958,8 @@ namespace Geomatica.Desktop.ViewModels
                 {
                     try
                     {
-                        if (File.Exists(sfdZip.FileName)) File.Delete(sfdZip.FileName);
-                        System.IO.Compression.ZipFile.CreateFromDirectory(rutaFisica, sfdZip.FileName);
+                        Estado = $"Empaquetando '{archivo.Nombre}' en ZIP...";
+                        await _archivosService.EmpaquetarCarpetaZipAsync(rutaFisica, sfdZip.FileName);
                         Estado = $"Descargado: {Path.GetFileName(sfdZip.FileName)}";
                         _notifications?.ShowSuccess($"Geodatabase '{archivo.Nombre}' comprimida y guardada exitosamente.", "Descarga Completa");
                     }

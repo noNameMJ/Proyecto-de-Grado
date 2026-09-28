@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -20,15 +20,30 @@ namespace Geomatica.Desktop.Models
         public string NombreCapaInterna { get; set; } = "";
         public string TipoGeometria { get; set; } = "";
         public long CantidadElementos { get; set; }
-        public string BadgeDetalle => CantidadElementos > 0
-            ? $"{TipoGeometria} • {CantidadElementos:N0} elementos"
-            : TipoGeometria;
+        public string BadgeDetalle
+        {
+            get
+            {
+                var partes = new List<string>();
+                if (!string.IsNullOrEmpty(TipoGeometria)) partes.Add(TipoGeometria);
+                if (CantidadElementos > 0) partes.Add($"{CantidadElementos:N0} elementos");
+                if (!string.IsNullOrEmpty(ColorNombre)) partes.Add(ColorNombre);
+                return partes.Count > 0 ? string.Join(" • ", partes) : TipoTexto;
+            }
+        }
 
         public string RutaCompleta { get; set; } = "";
         public string TipoIcono { get; set; } = "🗺️";
         public string TipoTexto { get; set; } = "Capa Ráster";
         public Layer? Capa { get; set; }
         public Envelope? ExtentParaZoom { get; set; }
+
+        // Color distintivo asignado en la paleta para capas vectoriales
+        public string? ColorHex { get; set; }
+        public string? ColorNombre { get; set; }
+        public System.Drawing.Color? ColorSimbolo { get; set; }
+        public string ColorBadgeBrush => ColorHex ?? "#1976D2";
+        public bool HasColorSimbolo => !string.IsNullOrEmpty(ColorHex);
 
         /// <summary>
         /// Referencia al contenedor GeoPackage en caso de que la capa provenga de un archivo .gpkg.

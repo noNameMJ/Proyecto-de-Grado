@@ -285,6 +285,28 @@ namespace Geomatica.Desktop.ViewModels
             }
         }
 
+        /// <summary>
+        /// Delegado para consultar al usuario si desea crear la estructura de carpetas estándar.
+        /// Permite ser sustituido en pruebas unitarias para simular la confirmación.
+        /// </summary>
+        public Func<string, bool>? ConfirmarCreacionEstructuraHandler { get; set; }
+
+        private bool ConsultarDeseaCrearEstructura(string ruta)
+        {
+            if (ConfirmarCreacionEstructuraHandler != null)
+            {
+                return ConfirmarCreacionEstructuraHandler(ruta);
+            }
+
+            var result = MessageBox.Show(
+                $"La carpeta seleccionada para el proyecto no contiene subcarpetas de organización:\n\n\"{ruta}\"\n\n¿Desea crear la estructura de carpetas estándar del proyecto?\n\n• Datos_Espaciales/\n• Documentos/\n• Entregables/\n• Otros/",
+                "Estructura de Carpetas del Proyecto",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question);
+
+            return result == MessageBoxResult.Yes;
+        }
+
         private async Task GuardarAsync()
         {
             TituloInvalido = string.IsNullOrWhiteSpace(Titulo);
@@ -331,7 +353,7 @@ namespace Geomatica.Desktop.ViewModels
             {
                 if (!string.IsNullOrWhiteSpace(Ruta))
                 {
-                    _proyectoArchivosService.CrearEstructuraProyecto(Ruta);
+                    _proyectoArchivosService.GestionarEstructuraCarpetas(Ruta, () => ConsultarDeseaCrearEstructura(Ruta));
                 }
             }
             catch (Exception ex)

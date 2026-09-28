@@ -66,6 +66,12 @@ namespace Geomatica.Desktop.ViewModels
             ? "Abrir carpeta en el Explorador de Windows"
             : "Acceso denegado: Su usuario no tiene permisos en el servidor (geomaticaad@uis.edu.co) para abrir esta carpeta.";
 
+        public string TooltipDescargarZip => PuedeLeerArchivos
+            ? "Descargar y empaquetar todos los archivos del proyecto en un archivo comprimido .ZIP"
+            : "Acceso denegado: Su usuario no tiene permisos en el servidor (geomaticaad@uis.edu.co) para acceder o descargar los archivos de este proyecto.";
+
+        public bool PuedeDescargarZip => PuedeLeerArchivos && !string.IsNullOrWhiteSpace(RutaArchivos) && !IsDescargandoZip;
+
         public DateTime? FechaInicio => Proyecto.FechaInicio;
         public DateTime? FechaFin => Proyecto.FechaFin;
         public DateTime? Fecha => Proyecto.FechaInicio;
@@ -118,6 +124,27 @@ namespace Geomatica.Desktop.ViewModels
 
         [ObservableProperty]
         private bool _cargandoFormatos;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(PuedeDescargarZip))]
+        private bool _isDescargandoZip;
+
+        [ObservableProperty]
+        private double _progresoDescargaZip;
+
+        [ObservableProperty]
+        private string? _estadoDescargaZipTexto;
+
+        partial void OnIsDescargandoZipChanged(bool value)
+        {
+            DescargarZipCommand?.NotifyCanExecuteChanged();
+        }
+
+        /// <summary>
+        /// Delegado para inyectar o personalizar el diálogo de selección de archivo de guardado (SaveFileDialog).
+        /// Facilita pruebas unitarias sin dependencias de UI modal de Windows.
+        /// </summary>
+        public Func<string, string, string?>? SaveFileDialogCustomHandler { get; set; }
 
         [ObservableProperty]
         private int _totalArchivosDetectados;
@@ -179,6 +206,7 @@ namespace Geomatica.Desktop.ViewModels
         public IRelayCommand EditarCommand { get; }
         public IAsyncRelayCommand EliminarCommand { get; }
         public IRelayCommand AbrirCarpetaCommand { get; }
+        public IAsyncRelayCommand DescargarZipCommand { get; }
         public IRelayCommand CopiarCoordenadasCommand { get; }
         public IRelayCommand CopiarRutaCommand { get; }
 
@@ -208,6 +236,7 @@ namespace Geomatica.Desktop.ViewModels
             EditarCommand = new RelayCommand(() => EditarSolicitado?.Invoke(this, Proyecto), () => PuedeEditar);
             EliminarCommand = new AsyncRelayCommand(EliminarProyectoAsync, () => PuedeEliminar);
             AbrirCarpetaCommand = new RelayCommand(AbrirCarpeta, () => PuedeLeerArchivos && !string.IsNullOrWhiteSpace(RutaArchivos));
+            DescargarZipCommand = new AsyncRelayCommand(DescargarZipAsync, () => PuedeDescargarZip);
             CopiarCoordenadasCommand = new RelayCommand(CopiarCoordenadas);
             CopiarRutaCommand = new RelayCommand(CopiarRuta, () => !string.IsNullOrWhiteSpace(RutaArchivos));
 
@@ -284,6 +313,101 @@ namespace Geomatica.Desktop.ViewModels
                 Debug.WriteLine($"[FichaProyecto] Error abriendo carpeta: {ex}");
                 _notifications?.ShowError($"No se pudo abrir la carpeta: {ex.Message}", "Error");
             }
+        }
+
+        private async Task DescargarZipAsync()
+        {
+            if (!PuedeDescargarZip)
+            {
+                _notifications?.ShowWarning(TooltipDescargarZip, "Acceso Denegado");
+                return;
+            }
+
+            if (!Directory.Exists(RutaArchivos))
+            {
+                _notifications?.ShowWarning("La carpeta configurada para este proyecto no existe o no se encuentra accesible en la red.", "Ruta no encontrada");
+                return;
+            }
+
+            string nombreSugerido = $"{CodigoId}_{SanitizarNombreArchivo(Titulo)}.zip";
+            string filtro = "Archivo Comprimido ZIP (*.zip)|*.zip|Todos los archivos (*.*)|*.*";
+
+            string? rutaDestino = null;
+            if (SaveFileDialogCustomHandler != null)
+            {
+                rutaDestino = SaveFileDialogCustomHandler(nombreSugerido, filtro);
+            }
+            else
+            {
+                var sfd = new Microsoft.Win32.SaveFileDialog
+                {
+                    Title = "Guardar paquete ZIP del proyecto como...",
+                    FileName = nombreSugerido,
+                    Filter = filtro
+                };
+
+                if (sfd.ShowDialog() == true)
+                {
+                    rutaDestino = sfd.FileName;
+                }
+            }
+
+            if (string.IsNullOrWhiteSpace(rutaDestino))
+                return;
+
+            await ExportarZipDirectoAsync(rutaDestino);
+        }
+
+        public async Task<bool> ExportarZipDirectoAsync(string rutaDestinoZip, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(RutaArchivos) || !Directory.Exists(RutaArchivos))
+                return false;
+
+            try
+            {
+                IsDescargandoZip = true;
+                ProgresoDescargaZip = 0;
+                EstadoDescargaZipTexto = "Iniciando empaquetado...";
+
+                var progress = new Progress<double>(p =>
+                {
+                    ProgresoDescargaZip = p;
+                    EstadoDescargaZipTexto = $"Empaquetando archivos... {p:F0}%";
+                });
+
+                bool exito = await _archivosService.EmpaquetarCarpetaZipAsync(RutaArchivos, rutaDestinoZip, progress, ct);
+
+                if (exito)
+                {
+                    _notifications?.ShowSuccess($"El proyecto se ha empaquetado y descargado exitosamente en:\n{Path.GetFileName(rutaDestinoZip)}", "Empaquetado ZIP Exitoso");
+                }
+                return exito;
+            }
+            catch (OperationCanceledException)
+            {
+                _notifications?.ShowWarning("El empaquetado ZIP fue cancelado.", "Operación Cancelada");
+                return false;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[FichaProyecto] Error al empaquetar ZIP: {ex}");
+                _notifications?.ShowError($"Error al generar el archivo ZIP: {ex.Message}", "Error de Exportación");
+                return false;
+            }
+            finally
+            {
+                IsDescargandoZip = false;
+                EstadoDescargaZipTexto = null;
+                ProgresoDescargaZip = 0;
+            }
+        }
+
+        private static string SanitizarNombreArchivo(string nombre)
+        {
+            var invalidos = Path.GetInvalidFileNameChars();
+            var limpio = new string(nombre.Where(c => !invalidos.Contains(c)).ToArray()).Trim();
+            limpio = limpio.Replace(' ', '_');
+            return string.IsNullOrWhiteSpace(limpio) ? "Proyecto" : limpio;
         }
 
         private async Task EliminarProyectoAsync()

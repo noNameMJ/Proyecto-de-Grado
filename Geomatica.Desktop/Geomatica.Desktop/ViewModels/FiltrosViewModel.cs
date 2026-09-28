@@ -1,6 +1,7 @@
-﻿using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Geomatica.Data.Repositories;
+using Geomatica.Infrastructure.Gis.Services;
 using System.Collections.ObjectModel;
 
 namespace Geomatica.Desktop.ViewModels
@@ -242,12 +243,40 @@ namespace Geomatica.Desktop.ViewModels
             public override string ToString() => Nombre;
         }
 
-        public record ProyectoItem(int Id, string Titulo, double Lon, double Lat, string? Ruta)
+        public record ProyectoItem(
+            int Id,
+            string Titulo,
+            double Lon,
+            double Lat,
+            string? Ruta,
+            DateTime? Fecha = null,
+            string? PalabrasClave = null,
+            string? Responsable = null,
+            double MinX = 0,
+            double MinY = 0,
+            double MaxX = 0,
+            double MaxY = 0,
+            string? TipoRecurso = null)
         {
             public string CodigoId => $"#PROY-{Id:D4}";
+
+            public string FechaTexto => Fecha.HasValue && Fecha.Value != DateTime.MinValue
+                ? Fecha.Value.ToString("dd/MM/yyyy")
+                : "Sin fecha";
+
             public string CoordenadasTexto => (Lon != 0 || Lat != 0)
                 ? $"{Lat.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}°N, {Lon.ToString("F4", System.Globalization.CultureInfo.InvariantCulture)}°W"
                 : "Sin coordenadas";
+
+            public string PalabrasClaveTexto => !string.IsNullOrWhiteSpace(PalabrasClave)
+                ? PalabrasClave.Trim()
+                : "";
+
+            public bool HasPalabrasClave => !string.IsNullOrWhiteSpace(PalabrasClave);
+
+            public bool TieneExtentValido => (MinX != 0 || MaxX != 0 || MinY != 0 || MaxY != 0) &&
+                                             !(Math.Abs(MinX - MaxX) < 1e-7 && Math.Abs(MinY - MaxY) < 1e-7);
+
             public override string ToString() => Titulo;
         }
     }

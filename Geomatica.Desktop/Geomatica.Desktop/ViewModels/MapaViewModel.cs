@@ -20,6 +20,7 @@ using Esri.ArcGISRuntime.UI;
 using Geomatica.Desktop.Models;
 using Geomatica.Desktop.Views;
 using Geomatica.Desktop.Services;
+using Geomatica.Infrastructure.Gis.Services;
 
 namespace Geomatica.Desktop.ViewModels
 {
@@ -44,6 +45,12 @@ namespace Geomatica.Desktop.ViewModels
         // Track the MapView that currently displays this Map to release ownership when re-attaching
         private MapView? _ownerMapView;
         private readonly Dictionary<Layer, Envelope> _rasterExtentsSeguros = new();
+        private int _colorCapaIndex = 0;
+
+        private GisColorInfo ObtenerSiguienteColorCapa()
+        {
+            return GisColorPalette.ObtenerSiguienteColor(ref _colorCapaIndex);
+        }
 
         public ObservableCollection<CapaUsuarioItem> CapasAdicionales { get; } = new();
         [ObservableProperty] private bool isPanelCapasVisible;
@@ -62,6 +69,10 @@ namespace Geomatica.Desktop.ViewModels
         // Herramientas de Medición SIG (Desacopladas en MapaMedicionController)
         private readonly MapaMedicionController _medicionController = new();
         public GraphicsOverlay OverlayMedicion => _medicionController.OverlayMedicion;
+
+        // Overlays de Distinción de Proyectos (Etiquetas de texto y Resaltado interactivo)
+        public GraphicsOverlay OverlayProyectosEtiquetas { get; } = new() { Id = "OverlayProyectosEtiquetas" };
+        public GraphicsOverlay OverlayResaltadoProyecto { get; } = new() { Id = "OverlayResaltadoProyecto" };
         [ObservableProperty] private bool isHerramientasMedicionVisible;
         [ObservableProperty] private string modoMedicion = "Ninguno"; // "Ninguno", "Distancia", "Area"
         [ObservableProperty] private string resultadoMedicion = "";
@@ -260,6 +271,7 @@ namespace Geomatica.Desktop.ViewModels
                 RasterDiagnostics.LogDispatcher("MapaViewModel.CargarCapaAdicionalAsync");
                 RasterDiagnostics.LogFile(path);
                 Layer? layer = null;
+                GisColorInfo? colorAsignado = null;
                 var ext = Path.GetExtension(path).ToLowerInvariant();
 
                 if (ext == ".shp")
@@ -275,7 +287,10 @@ namespace Geomatica.Desktop.ViewModels
                         _notifications?.ShowWarning(validacionShp.MensajeAdvertencia, "Advertencia Shapefile");
                     }
                     var shapefile = await ShapefileFeatureTable.OpenAsync(path);
-                    layer = new FeatureLayer(shapefile);
+                    var fl = new FeatureLayer(shapefile);
+                    colorAsignado = ObtenerSiguienteColorCapa();
+                    fl.Renderer = GisColorPalette.CrearRendererParaGeometria(shapefile.GeometryType, colorAsignado.Color);
+                    layer = fl;
                 }
                 else if (ext == ".gpkg")
                 {
@@ -291,7 +306,13 @@ namespace Geomatica.Desktop.ViewModels
                 {
                     var gdb = await Geodatabase.OpenAsync(path);
                     var table = gdb.GeodatabaseFeatureTables.FirstOrDefault();
-                    if (table != null) layer = new FeatureLayer(table);
+                    if (table != null)
+                    {
+                        var fl = new FeatureLayer(table);
+                        colorAsignado = ObtenerSiguienteColorCapa();
+                        fl.Renderer = GisColorPalette.CrearRendererParaGeometria(table.GeometryType, colorAsignado.Color);
+                        layer = fl;
+                    }
                 }
                 else if (ext == ".gdb")
                 {
@@ -384,7 +405,10 @@ namespace Geomatica.Desktop.ViewModels
                 Capa = layer,
                 ExtentParaZoom = _rasterExtentsSeguros.GetValueOrDefault(layer),
                 IsVisible = true,
-                Opacidad = 1.0
+                Opacidad = 1.0,
+                ColorHex = colorAsignado?.Hex,
+                ColorNombre = colorAsignado?.Nombre,
+                ColorSimbolo = colorAsignado?.Color
             };
             if (layer is FeatureLayer fl && fl.FeatureTable != null)
             {
@@ -402,6 +426,7 @@ namespace Geomatica.Desktop.ViewModels
                 if (CapasAdicionales.Count == 0)
                 {
                     IsPanelCapasVisible = false;
+                    _colorCapaIndex = 0;
                 }
             });
             
@@ -536,35 +561,9 @@ namespace Geomatica.Desktop.ViewModels
                     ShowInLegend = false
                 };
 
-                // Asignar simbología mejorada de alta visibilidad según tipo de geometría
-                if (table.GeometryType == GeometryType.Point || table.GeometryType == GeometryType.Multipoint)
-                {
-                    var markerSymbol = new SimpleMarkerSymbol(
-                        SimpleMarkerSymbolStyle.Circle,
-                        System.Drawing.Color.FromArgb(230, 0x1B, 0x5E, 0x20), // Verde esmeralda UIS
-                        9.0)
-                    {
-                        Outline = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.White, 1.2)
-                    };
-                    featureLayer.Renderer = new SimpleRenderer(markerSymbol);
-                }
-                else if (table.GeometryType == GeometryType.Polyline)
-                {
-                    var lineSymbol = new SimpleLineSymbol(
-                        SimpleLineSymbolStyle.Solid,
-                        System.Drawing.Color.FromArgb(230, 0x0D, 0x47, 0xA1), // Azul marino
-                        2.5);
-                    featureLayer.Renderer = new SimpleRenderer(lineSymbol);
-                }
-                else if (table.GeometryType == GeometryType.Polygon)
-                {
-                    var fillSymbol = new SimpleFillSymbol(
-                        SimpleFillSymbolStyle.Solid,
-                        System.Drawing.Color.FromArgb(90, 0x00, 0x79, 0x6B), // Turquesa translúcido
-                        new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.FromArgb(220, 0x00, 0x4D, 0x40), 1.5)
-                    );
-                    featureLayer.Renderer = new SimpleRenderer(fillSymbol);
-                }
+                // Asignar color y simbología estética de alto contraste desde GisColorPalette
+                var colorInfo = ObtenerSiguienteColorCapa();
+                featureLayer.Renderer = GisColorPalette.CrearRendererParaGeometria(table.GeometryType, colorInfo.Color);
 
                 await Application.Current.Dispatcher.InvokeAsync(() => Map.OperationalLayers.Add(featureLayer));
                 await featureLayer.LoadAsync();
@@ -610,7 +609,10 @@ namespace Geomatica.Desktop.ViewModels
                     ContenedorGeoPackage = gpkg,
                     ExtentParaZoom = featureLayer.FullExtent,
                     IsVisible = true,
-                    Opacidad = 1.0
+                    Opacidad = 1.0,
+                    ColorHex = colorInfo.Hex,
+                    ColorNombre = colorInfo.Nombre,
+                    ColorSimbolo = colorInfo.Color
                 };
 
                 itemCapa.AbrirTablaAtributosCommand = new AsyncRelayCommand(() => AbrirTablaAtributosAsync(itemCapa, table));
@@ -620,7 +622,11 @@ namespace Geomatica.Desktop.ViewModels
                     Map.OperationalLayers.Remove(featureLayer);
                     CapasAdicionales.Remove(itemCapa);
                     itemCapa.Dispose();
-                    if (CapasAdicionales.Count == 0) IsPanelCapasVisible = false;
+                    if (CapasAdicionales.Count == 0)
+                    {
+                        IsPanelCapasVisible = false;
+                        _colorCapaIndex = 0;
+                    }
                 });
                 itemCapa.ZoomCommand = new RelayCommand(async () =>
                 {
@@ -668,7 +674,11 @@ namespace Geomatica.Desktop.ViewModels
                         Map.OperationalLayers.Remove(rasterLayer);
                         CapasAdicionales.Remove(itemCapa);
                         itemCapa.Dispose();
-                        if (CapasAdicionales.Count == 0) IsPanelCapasVisible = false;
+                        if (CapasAdicionales.Count == 0)
+                        {
+                            IsPanelCapasVisible = false;
+                            _colorCapaIndex = 0;
+                        }
                     });
                     itemCapa.ZoomCommand = new RelayCommand(async () =>
                     {
@@ -1343,9 +1353,14 @@ namespace Geomatica.Desktop.ViewModels
             {
                 _ownerMapView.Map = Map;
             }
-            if (_ownerMapView.GraphicsOverlays != null && !_ownerMapView.GraphicsOverlays.Contains(OverlayMedicion))
+            if (_ownerMapView.GraphicsOverlays != null)
             {
-                _ownerMapView.GraphicsOverlays.Add(OverlayMedicion);
+                if (!_ownerMapView.GraphicsOverlays.Contains(OverlayMedicion))
+                    _ownerMapView.GraphicsOverlays.Add(OverlayMedicion);
+                if (!_ownerMapView.GraphicsOverlays.Contains(OverlayProyectosEtiquetas))
+                    _ownerMapView.GraphicsOverlays.Add(OverlayProyectosEtiquetas);
+                if (!_ownerMapView.GraphicsOverlays.Contains(OverlayResaltadoProyecto))
+                    _ownerMapView.GraphicsOverlays.Add(OverlayResaltadoProyecto);
             }
         }
     }
@@ -1393,9 +1408,14 @@ namespace Geomatica.Desktop.ViewModels
 
                 try 
                 { 
-                    if (mv.GraphicsOverlays != null && mv.GraphicsOverlays.Contains(OverlayMedicion))
+                    if (mv.GraphicsOverlays != null)
                     {
-                        mv.GraphicsOverlays.Remove(OverlayMedicion);
+                        if (mv.GraphicsOverlays.Contains(OverlayMedicion))
+                            mv.GraphicsOverlays.Remove(OverlayMedicion);
+                        if (mv.GraphicsOverlays.Contains(OverlayProyectosEtiquetas))
+                            mv.GraphicsOverlays.Remove(OverlayProyectosEtiquetas);
+                        if (mv.GraphicsOverlays.Contains(OverlayResaltadoProyecto))
+                            mv.GraphicsOverlays.Remove(OverlayResaltadoProyecto);
                     }
                     _ownerMapView.Map = null; 
                 } 
@@ -1695,6 +1715,7 @@ namespace Geomatica.Desktop.ViewModels
             item.Dispose();
         }
         CapasAdicionales.Clear();
+        _colorCapaIndex = 0;
         Capas3D.Clear();
         Capa3DSeleccionada = null;
         _anclajeLocalActual3D = null;
