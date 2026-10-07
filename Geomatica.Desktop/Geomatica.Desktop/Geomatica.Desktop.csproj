@@ -36,5 +36,9 @@
     <ProjectReference Include="..\Geomatica.Data\Geomatica.Data.csproj" />
     <ProjectReference Include="..\Geomatica.Infrastructure.Gis\Geomatica.Infrastructure.Gis.csproj" />
   </ItemGroup>
+ 
+  <Target Name="EnsureContentGeneratedFile" BeforeTargets="CoreCompile">
+    <Touch Files="$(IntermediateOutputPath)$(TargetName)_Content.g.cs" AlwaysCreate="true" Condition="!Exists('$(IntermediateOutputPath)$(TargetName)_Content.g.cs')" />
+  </Target>
 
 </Project>

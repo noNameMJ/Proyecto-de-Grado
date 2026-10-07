@@ -13,26 +13,32 @@
 
     <Grid Background="{StaticResource PanelBrush}">
         <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Margin="16,14,16,20" MaxWidth="600">
+            <StackPanel Margin="16,14,16,20" HorizontalAlignment="Stretch" MaxWidth="780">
 
                 <!-- ═══════════════════════════════════════════════════════════
-                     BARRA SUPERIOR: Badge de Tipo + Botones de Acción
+                     BARRA SUPERIOR: Badge de Metadato ISO 19115 + Botones de Acción
                      ═══════════════════════════════════════════════════════════ -->
-                <DockPanel Margin="0,0,0,10">
-                    <!-- Badge Identificador del Proyecto -->
-                    <Border DockPanel.Dock="Left" Background="#E8F4EC" BorderBrush="#B2DFBF" BorderThickness="1"
+                <Grid Margin="0,0,0,10">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <!-- Badge Identificador del Metadato (ISO 19115 fileIdentifier) -->
+                    <Border Grid.Column="0" Background="#E8F4EC" BorderBrush="#B2DFBF" BorderThickness="1"
                             CornerRadius="10" Padding="8,3" VerticalAlignment="Center">
                         <StackPanel Orientation="Horizontal">
-                            <TextBlock Text="📋 " FontSize="10" VerticalAlignment="Center"/>
-                            <TextBlock Text="PROYECTO" FontSize="10" FontWeight="Bold"
+                            <TextBlock Text="🌐 " FontSize="10" VerticalAlignment="Center"/>
+                            <TextBlock Text="METADATOS ISO 19115" FontSize="10" FontWeight="Bold"
                                        Foreground="{StaticResource UisGreenBrush}" VerticalAlignment="Center"/>
                             <TextBlock Text="{Binding CodigoId, StringFormat='  {0}'}" FontSize="10" FontWeight="SemiBold"
                                        Foreground="#1A5C34" VerticalAlignment="Center"/>
                         </StackPanel>
                     </Border>
 
-                    <!-- Botones de Acción: Cerrar, Editar y Eliminar -->
-                    <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                    <!-- Botones de Acción: Editar, Eliminar y Cerrar -->
+                    <StackPanel Grid.Column="2" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
                         <Button Command="{Binding EditarCommand}"
                                 IsEnabled="{Binding PuedeEditar}"
                                 Style="{StaticResource SecondaryButton}"
@@ -60,7 +66,7 @@
                             <TextBlock Text="✕" FontSize="13" FontWeight="Bold" Foreground="{StaticResource TextSecondaryBrush}"/>
                         </Button>
                     </StackPanel>
-                </DockPanel>
+                </Grid>
 
                 <!-- Franja decorativa UIS (Verde institucional a Dorado) -->
                 <Border Height="3" CornerRadius="1.5" Margin="0,0,0,12">
@@ -73,16 +79,16 @@
                 </Border>
 
                 <!-- ═══════════════════════════════════════════════════════════
-                     TÍTULO DEL PROYECTO
+                     TÍTULO OFICIAL DEL RECURSO (citation.title)
                      ═══════════════════════════════════════════════════════════ -->
                 <TextBlock Text="{Binding Titulo}" FontWeight="Bold" FontSize="17"
                            LineHeight="22" TextWrapping="Wrap" Margin="0,0,0,10"
                            Foreground="{StaticResource TextPrimaryBrush}"
                            FontFamily="{StaticResource AppFont}"/>
 
-                <!-- Badges rápidos de metadatos (Fecha, Municipio, Archivos) -->
-                <WrapPanel Margin="0,0,0,12">
-                    <!-- Chip Fecha / Periodo -->
+                <!-- Badges rápidos de metadatos (Fecha, Municipio, Permisos, Creador, Modificación) -->
+                <WrapPanel Margin="0,0,0,14">
+                    <!-- Chip Fecha / Periodo Temporal -->
                     <Border Background="White" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
                             CornerRadius="12" Padding="8,3" Margin="0,0,6,6">
                         <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -92,7 +98,7 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Chip Municipio -->
+                    <!-- Chip Municipio (Territorio) -->
                     <Border Background="#FFFDF0" BorderBrush="#EBDCA8" BorderThickness="1"
                             CornerRadius="12" Padding="8,3" Margin="0,0,6,6"
                             Visibility="{Binding HasMunicipio, Converter={StaticResource BoolToVis}}">
@@ -138,105 +144,118 @@
                     </Border>
                 </WrapPanel>
 
-                <!-- ═══════════════════════════════════════════════════════════
-                     SECCIÓN: DESCRIPCIÓN
-                     ═══════════════════════════════════════════════════════════ -->
-                <TextBlock Text="DESCRIPCIÓN" FontSize="11" FontWeight="Bold"
-                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,5"
-                           FontFamily="{StaticResource AppFontSemibold}"/>
-                <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
-                        BorderThickness="1" Padding="12,10" Margin="0,0,0,12">
-                    <TextBlock Text="{Binding Descripcion, TargetNullValue='Sin descripción registrada para este proyecto.'}"
-                               TextWrapping="Wrap" FontSize="12.5" LineHeight="18"
-                               Foreground="{StaticResource TextPrimaryBrush}"
-                               FontFamily="{StaticResource AppFont}"/>
-                </Border>
+                <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                     1. IDENTIFICACIÓN Y DESCRIPCIÓN (MD_DataIdentification)
+                     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+                <DockPanel Margin="0,0,0,6">
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                        <TextBlock Text="📋 " FontSize="12" VerticalAlignment="Center"/>
+                        <TextBlock Text="1. IDENTIFICACIÓN Y DESCRIPCIÓN" FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
+                            CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <TextBlock Text="MD_DataIdentification" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
+                    </Border>
+                </DockPanel>
 
-                <!-- ═══════════════════════════════════════════════════════════
-                     SECCIÓN: ACTORES Y GOBERNANZA
-                     ═══════════════════════════════════════════════════════════ -->
-                <StackPanel Visibility="{Binding HasActores, Converter={StaticResource BoolToVis}}" Margin="0,0,0,12">
-                    <TextBlock Text="ACTORES Y GOBERNANZA" FontSize="11" FontWeight="Bold"
-                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,5"
-                               FontFamily="{StaticResource AppFontSemibold}"/>
-                    <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
-                            BorderThickness="1" Padding="12,10">
-                        <StackPanel>
-                            <!-- Representante -->
-                            <DockPanel Margin="0,0,0,6" Visibility="{Binding HasRepresentante, Converter={StaticResource BoolToVis}}">
-                                <TextBlock Text="👤 Representante:" FontSize="11.5" FontWeight="SemiBold"
+                <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
+                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14">
+                    <StackPanel>
+                        <!-- Resumen / Abstract -->
+                        <TextBlock Text="RESUMEN DESCRIPTIVO (ABSTRACT)" FontSize="9" FontWeight="Bold"
+                                   Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFontSemibold}" Margin="0,0,0,4"/>
+                        <TextBlock Text="{Binding Descripcion, TargetNullValue='Sin descripción registrada para este recurso.'}"
+                                   TextWrapping="Wrap" FontSize="12.5" LineHeight="18"
+                                   Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}"
+                                   Margin="0,0,0,10"/>
+
+                        <!-- Responsables y Gobernanza (CI_ResponsibleParty) -->
+                        <StackPanel Visibility="{Binding HasActores, Converter={StaticResource BoolToVis}}" Margin="0,4,0,10">
+                            <Separator Style="{StaticResource ModernSeparator}" Margin="0,0,0,8"/>
+                            <TextBlock Text="PUNTOS DE CONTACTO Y CUSTODIA (CI_ResponsibleParty)" FontSize="9" FontWeight="Bold"
+                                       Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFontSemibold}" Margin="0,0,0,6"/>
+
+                            <DockPanel Margin="0,0,0,4" Visibility="{Binding HasRepresentante, Converter={StaticResource BoolToVis}}">
+                                <TextBlock Text="👤 Responsable / Líder:" FontSize="11.5" FontWeight="SemiBold"
                                            Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFont}"
-                                           Width="110" VerticalAlignment="Center"/>
+                                           Width="140" VerticalAlignment="Center"/>
                                 <TextBlock Text="{Binding Representante}" FontSize="12" FontWeight="SemiBold"
                                            Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}"
                                            TextWrapping="Wrap" VerticalAlignment="Center"/>
                             </DockPanel>
 
-                            <!-- Entidades -->
                             <DockPanel Visibility="{Binding HasEntidades, Converter={StaticResource BoolToVis}}">
-                                <TextBlock Text="🏛️ Entidades:" FontSize="11.5" FontWeight="SemiBold"
+                                <TextBlock Text="🏛️ Entidades Vinculadas:" FontSize="11.5" FontWeight="SemiBold"
                                            Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFont}"
-                                           Width="110" VerticalAlignment="Center"/>
+                                           Width="140" VerticalAlignment="Center"/>
                                 <TextBlock Text="{Binding Entidades}" FontSize="12"
                                            Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}"
                                            TextWrapping="Wrap" VerticalAlignment="Center"/>
                             </DockPanel>
                         </StackPanel>
+
+                        <!-- Palabras Clave / Temas (MD_Keywords) -->
+                        <StackPanel Visibility="{Binding HasPalabrasClave, Converter={StaticResource BoolToVis}}">
+                            <Separator Style="{StaticResource ModernSeparator}" Margin="0,0,0,8"/>
+                            <TextBlock Text="PALABRAS CLAVE Y CATEGORÍAS (MD_Keywords)" FontSize="9" FontWeight="Bold"
+                                       Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFontSemibold}" Margin="0,0,0,6"/>
+                            <ItemsControl ItemsSource="{Binding PalabrasClaveLista}">
+                                <ItemsControl.ItemsPanel>
+                                    <ItemsPanelTemplate>
+                                        <WrapPanel Orientation="Horizontal"/>
+                                    </ItemsPanelTemplate>
+                                </ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Background="#EDF6F0" BorderBrush="#BFE0C8" BorderThickness="1"
+                                                CornerRadius="10" Padding="8,3" Margin="0,0,5,5">
+                                            <TextBlock Text="{Binding StringFormat='#{0}'}" FontSize="11" FontWeight="SemiBold"
+                                                       Foreground="{StaticResource UisGreenBrush}" FontFamily="{StaticResource AppFont}"/>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </StackPanel>
+                    </StackPanel>
+                </Border>
+
+                <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                     2. EXTENSIÓN Y LOCALIZACIÓN GEOGRÁFICA (EX_Extent)
+                     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+                <DockPanel Margin="0,0,0,6">
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                        <TextBlock Text="📍 " FontSize="12" VerticalAlignment="Center"/>
+                        <TextBlock Text="2. EXTENSIÓN Y LOCALIZACIÓN GEOGRÁFICA" FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
+                            CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <TextBlock Text="EX_Extent" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
                     </Border>
-                </StackPanel>
+                </DockPanel>
 
-                <!-- ═══════════════════════════════════════════════════════════
-                     SECCIÓN: PALABRAS CLAVE / ETIQUETAS
-                     ═══════════════════════════════════════════════════════════ -->
-                <StackPanel Visibility="{Binding HasPalabrasClave, Converter={StaticResource BoolToVis}}" Margin="0,0,0,12">
-                    <TextBlock Text="PALABRAS CLAVE" FontSize="11" FontWeight="Bold"
-                               Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,5"
-                               FontFamily="{StaticResource AppFontSemibold}"/>
-                    <ItemsControl ItemsSource="{Binding PalabrasClaveLista}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <WrapPanel Orientation="Horizontal"/>
-                            </ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Background="#EDF6F0" BorderBrush="#BFE0C8" BorderThickness="1"
-                                        CornerRadius="10" Padding="8,3" Margin="0,0,5,5">
-                                    <TextBlock Text="{Binding StringFormat='#{0}'}" FontSize="11" FontWeight="SemiBold"
-                                               Foreground="{StaticResource UisGreenBrush}" FontFamily="{StaticResource AppFont}"/>
-                                </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-
-                <!-- ═══════════════════════════════════════════════════════════
-                     SECCIÓN: UBICACIÓN Y COORDENADAS
-                     ═══════════════════════════════════════════════════════════ -->
-                <TextBlock Text="UBICACIÓN GEOGRÁFICA" FontSize="11" FontWeight="Bold"
-                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,5"
-                           FontFamily="{StaticResource AppFontSemibold}"/>
                 <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
-                        BorderThickness="1" Padding="12,10" Margin="0,0,0,12">
+                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14">
                     <StackPanel>
-                        <!-- Municipio y Código (si existe) -->
+                        <!-- Jurisdicción Político-Administrativa -->
                         <DockPanel Margin="0,0,0,8" Visibility="{Binding HasMunicipio, Converter={StaticResource BoolToVis}}">
-                            <TextBlock Text="Municipio:" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
+                            <TextBlock Text="Municipio / Territorio:" FontSize="12" Foreground="{StaticResource TextSecondaryBrush}"
                                        FontFamily="{StaticResource AppFont}" VerticalAlignment="Center"/>
                             <TextBlock Text="{Binding MunicipioNombre}" FontWeight="SemiBold" FontSize="12"
                                        Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}"
                                        Margin="6,0,0,0" VerticalAlignment="Center"/>
-                            <TextBlock Text="{Binding MunicipioCodigo, StringFormat='(Cód. {0})'}"
+                            <TextBlock Text="{Binding MunicipioCodigo, StringFormat='(DIVIPOLA {0})'}"
                                        FontSize="11" Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFont}"
                                        Margin="6,0,0,0" VerticalAlignment="Center"/>
                         </DockPanel>
 
-                        <!-- Métricas de Latitud y Longitud -->
+                        <!-- Métricas de Latitud y Longitud WGS84 -->
                         <UniformGrid Columns="2" Margin="0,0,0,8">
                             <Border Background="#F8F9FA" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
                                     CornerRadius="4" Padding="8,6" Margin="0,0,4,0">
                                 <StackPanel>
-                                    <TextBlock Text="LATITUD" FontSize="9" FontWeight="Bold"
+                                    <TextBlock Text="LATITUD (WGS 84)" FontSize="9" FontWeight="Bold"
                                                Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFontSemibold}"/>
                                     <TextBlock Text="{Binding LatitudTexto}" FontSize="12.5" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}" Margin="0,2,0,0"/>
@@ -245,7 +264,7 @@
                             <Border Background="#F8F9FA" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
                                     CornerRadius="4" Padding="8,6" Margin="4,0,0,0">
                                 <StackPanel>
-                                    <TextBlock Text="LONGITUD" FontSize="9" FontWeight="Bold"
+                                    <TextBlock Text="LONGITUD (WGS 84)" FontSize="9" FontWeight="Bold"
                                                Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFontSemibold}"/>
                                     <TextBlock Text="{Binding LongitudTexto}" FontSize="12.5" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}" Margin="0,2,0,0"/>
@@ -259,22 +278,110 @@
                                 Padding="10,5" FontSize="11.5" ToolTip="Copiar latitud y longitud al portapapeles">
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
                                 <TextBlock Text="📋 " FontSize="11" VerticalAlignment="Center"/>
-                                <TextBlock Text="Copiar coordenadas" VerticalAlignment="Center"/>
+                                <TextBlock Text="Copiar coordenadas geográficas" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
                     </StackPanel>
                 </Border>
 
-                <!-- ═══════════════════════════════════════════════════════════
-                     SECCIÓN: REPOSITORIO DE ARCHIVOS
-                     ═══════════════════════════════════════════════════════════ -->
-                <TextBlock Text="REPOSITORIO DE ARCHIVOS" FontSize="11" FontWeight="Bold"
-                           Foreground="{StaticResource TextSecondaryBrush}" Margin="0,4,0,5"
-                           FontFamily="{StaticResource AppFontSemibold}"/>
+                <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                     3. SISTEMA DE REFERENCIA ESPACIAL (MD_ReferenceSystem)
+                     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+                <DockPanel Margin="0,0,0,6">
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                        <TextBlock Text="🧭 " FontSize="12" VerticalAlignment="Center"/>
+                        <TextBlock Text="3. SISTEMA DE REFERENCIA ESPACIAL" FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
+                            CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <TextBlock Text="MD_ReferenceSystem" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
+                    </Border>
+                </DockPanel>
+
                 <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
-                        BorderThickness="1" Padding="12,10" Margin="0,0,0,12">
+                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14">
                     <StackPanel>
-                        <!-- Cuadro de texto con la ruta -->
+                        <!-- SRID y Formato Principal en métricas -->
+                        <UniformGrid Columns="2" Margin="0,0,0,4">
+                            <Border Background="#F8F9FA" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                                    CornerRadius="4" Padding="8,6" Margin="0,0,4,0">
+                                <StackPanel>
+                                    <TextBlock Text="SISTEMA DE REFERENCIA (SRID / EPSG)" FontSize="9" FontWeight="Bold"
+                                               Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFontSemibold}"/>
+                                    <TextBlock Text="{Binding SistemaReferencia, TargetNullValue='No especificado'}" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+                            <Border Background="#F8F9FA" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                                    CornerRadius="4" Padding="8,6" Margin="4,0,0,0">
+                                <StackPanel>
+                                    <TextBlock Text="REPRESENTACIÓN ESPACIAL / FORMATO" FontSize="9" FontWeight="Bold"
+                                               Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFontSemibold}"/>
+                                    <TextBlock Text="{Binding FormatoDatos, TargetNullValue='No especificado'}" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}" Margin="0,2,0,0" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </Border>
+                        </UniformGrid>
+
+                        <!-- Estado cuando aún no se ha auto-detectado o registrado SRID -->
+                        <TextBlock Text="💡 Puede extraer el sistema de referencia automáticamente desde los archivos editando el proyecto."
+                                   FontSize="10.5" Foreground="{StaticResource TextMutedBrush}" Margin="2,6,0,0"
+                                   Visibility="{Binding HasNoIsoMetadata, Converter={StaticResource BoolToVis}}"/>
+                    </StackPanel>
+                </Border>
+
+                <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                     4. CALIDAD Y LINAJE DE LOS DATOS (LI_Lineage)
+                     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+                <DockPanel Margin="0,0,0,6">
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                        <TextBlock Text="🛡️ " FontSize="12" VerticalAlignment="Center"/>
+                        <TextBlock Text="4. CALIDAD Y LINAJE DE LOS DATOS" FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
+                            CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <TextBlock Text="LI_Lineage" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
+                    </Border>
+                </DockPanel>
+
+                <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
+                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14">
+                    <StackPanel>
+                        <TextBlock Text="DECLARACIÓN DE LINAJE Y PROCEDENCIA (LINEAGE STATEMENT)" FontSize="9" FontWeight="Bold"
+                                   Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFontSemibold}" Margin="0,0,0,4"/>
+                        <Border Background="#F8F9FA" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                                CornerRadius="4" Padding="10,8" Margin="0,0,0,0">
+                            <TextBlock Text="{Binding Linaje, TargetNullValue='Sin historial de linaje registrado. Utilice la función de auto-detección al editar el proyecto para documentar fuentes e insumos automáticamente.'}"
+                                       FontSize="11.5" LineHeight="17"
+                                       Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}"
+                                       TextWrapping="Wrap"/>
+                        </Border>
+                    </StackPanel>
+                </Border>
+
+                <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                     5. DISTRIBUCIÓN Y RECURSOS DIGITALES (MD_Distribution)
+                     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+                <DockPanel Margin="0,0,0,6">
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                        <TextBlock Text="📦 " FontSize="12" VerticalAlignment="Center"/>
+                        <TextBlock Text="5. DISTRIBUCIÓN Y RECURSOS DIGITALES" FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
+                            CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <TextBlock Text="MD_Distribution" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
+                    </Border>
+                </DockPanel>
+
+                <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
+                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14">
+                    <StackPanel>
+                        <!-- Enlace y Ruta de Almacenamiento (onLine.linkage) -->
+                        <TextBlock Text="ENLACE AL REPOSITORIO FÍSICO (onLine.linkage)" FontSize="9" FontWeight="Bold"
+                                   Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFontSemibold}" Margin="0,0,0,4"/>
                         <Border Background="#F8F9FA" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
                                 CornerRadius="4" Padding="8,6" Margin="0,0,0,8">
                             <TextBlock Text="{Binding RutaArchivos, TargetNullValue='Sin ruta de archivos asignada'}"
@@ -282,13 +389,13 @@
                                        TextWrapping="Wrap" MaxHeight="60" TextTrimming="CharacterEllipsis"/>
                         </Border>
 
-                        <!-- Resumen de Formatos Detectados Automáticamente -->
+                        <!-- Resumen de Formatos e Insumos Detectados -->
                         <Border Background="#F8F9FA" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
                                 CornerRadius="4" Padding="8,6" Margin="0,0,0,8"
                                 Visibility="{Binding HasRutaArchivos, Converter={StaticResource BoolToVis}}">
                             <StackPanel>
                                 <DockPanel Margin="0,0,0,4">
-                                    <TextBlock Text="Formatos e insumos espaciales:" FontSize="10.5" FontWeight="SemiBold"
+                                    <TextBlock Text="Formatos detectados en el repositorio:" FontSize="10.5" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFont}"/>
                                     <TextBlock Text="{Binding TotalArchivosDetectados, StringFormat='({0} archivos)'}" FontSize="10"
                                                Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFont}"
@@ -334,7 +441,7 @@
                             </StackPanel>
                         </Border>
 
-                        <!-- Botones de Acción de Archivos -->
+                        <!-- Botones de Acción de Archivos y Transferencia Digital -->
                         <Grid>
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*"/>
@@ -391,104 +498,115 @@
                     </StackPanel>
                 </Border>
 
-                <!-- ═══════════════════════════════════════════════════════════
-                     SECCIÓN: HISTORIAL DE CAMBIOS Y AUDITORÍA
-                     ═══════════════════════════════════════════════════════════ -->
-                <DockPanel Margin="0,4,0,5">
-                    <TextBlock Text="HISTORIAL DE ACTIVIDAD Y CAMBIOS" FontSize="11" FontWeight="Bold"
-                               Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"
-                               FontFamily="{StaticResource AppFontSemibold}"/>
-                    <Button Command="{Binding ToggleHistorialCommand}"
-                            Style="{StaticResource GhostButton}"
-                            Padding="8,2" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center"
-                            ToolTip="Mostrar u ocultar la lista de cambios de este proyecto">
-                        <TextBlock Text="{Binding TextoBotonHistorial}" FontSize="11" FontWeight="SemiBold"
-                                   Foreground="{StaticResource UisGreenBrush}" FontFamily="{StaticResource AppFontSemibold}"/>
-                    </Button>
+                <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+                     6. INFORMACIÓN DEL METADATO Y AUDITORÍA (MD_Metadata)
+                     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
+                <DockPanel Margin="0,0,0,6">
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                        <TextBlock Text="🕒 " FontSize="12" VerticalAlignment="Center"/>
+                        <TextBlock Text="6. INFORMACIÓN DEL METADATO Y AUDITORÍA" FontSize="11" FontWeight="Bold"
+                                   Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
+                            CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <TextBlock Text="MD_Metadata" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
+                    </Border>
                 </DockPanel>
 
                 <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
-                        BorderThickness="1" Padding="12,10" Margin="0,0,0,12"
-                        Visibility="{Binding MostrarHistorial, Converter={StaticResource BoolToVis}}">
+                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14">
                     <StackPanel>
-                        <!-- Estado de carga -->
-                        <TextBlock Text="Cargando historial de cambios..."
-                                   FontSize="11.5" Foreground="{StaticResource TextMutedBrush}"
-                                   FontStyle="Italic" Margin="2"
-                                   Visibility="{Binding CargandoHistorial, Converter={StaticResource BoolToVis}}"/>
+                        <!-- Fecha del Metadato (dateStamp) -->
+                        <DockPanel Margin="0,0,0,8">
+                            <TextBlock Text="Fecha de registro / última actualización:" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding FechaActualizacionTexto}" FontSize="11.5" FontWeight="SemiBold" Foreground="{StaticResource TextPrimaryBrush}" Margin="6,0,0,0" VerticalAlignment="Center"/>
+                            <Button Command="{Binding ToggleHistorialCommand}"
+                                    Style="{StaticResource GhostButton}" DockPanel.Dock="Right"
+                                    Padding="8,2" FontSize="11" HorizontalAlignment="Right" VerticalAlignment="Center"
+                                    ToolTip="Mostrar u ocultar la trazabilidad completa del registro">
+                                <TextBlock Text="{Binding TextoBotonHistorial}" FontSize="11" FontWeight="SemiBold"
+                                           Foreground="{StaticResource UisGreenBrush}" FontFamily="{StaticResource AppFontSemibold}"/>
+                            </Button>
+                        </DockPanel>
 
-                        <!-- Mensaje cuando no hay registros -->
-                        <TextBlock Text="No se encontraron registros de auditoría para este proyecto."
-                                   FontSize="11.5" Foreground="{StaticResource TextMutedBrush}"
-                                   FontStyle="Italic" Margin="2"
-                                   Visibility="{Binding HasNoHistorial, Converter={StaticResource BoolToVis}}"/>
+                        <!-- Panel Desplegable de Auditoría -->
+                        <Border Background="#FAFBFC" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                                CornerRadius="6" Padding="10,8" Margin="0,4,0,0"
+                                Visibility="{Binding MostrarHistorial, Converter={StaticResource BoolToVis}}">
+                            <StackPanel>
+                                <TextBlock Text="Cargando historial de cambios..."
+                                           FontSize="11.5" Foreground="{StaticResource TextMutedBrush}"
+                                           FontStyle="Italic" Margin="2"
+                                           Visibility="{Binding CargandoHistorial, Converter={StaticResource BoolToVis}}"/>
 
-                        <!-- Lista de eventos de auditoría -->
-                        <ItemsControl ItemsSource="{Binding HistorialAuditoria}">
-                            <ItemsControl.ItemTemplate>
-                                <DataTemplate>
-                                    <Border Background="#FAFBFC" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
-                                            CornerRadius="6" Padding="10,8" Margin="0,0,0,6">
-                                        <Grid>
-                                            <Grid.RowDefinitions>
-                                                <RowDefinition Height="Auto"/>
-                                                <RowDefinition Height="Auto"/>
-                                            </Grid.RowDefinitions>
+                                <TextBlock Text="No se encontraron registros de auditoría para este proyecto."
+                                           FontSize="11.5" Foreground="{StaticResource TextMutedBrush}"
+                                           FontStyle="Italic" Margin="2"
+                                           Visibility="{Binding HasNoHistorial, Converter={StaticResource BoolToVis}}"/>
 
-                                            <!-- Fila Superior: Badge Acción + Fecha/Hora -->
-                                            <DockPanel Grid.Row="0">
-                                                <!-- Badge Acción -->
-                                                <Border DockPanel.Dock="Left" Background="{Binding AccionBadgeBg}"
-                                                        BorderBrush="{Binding AccionBadgeBorder}" BorderThickness="1"
-                                                        CornerRadius="8" Padding="6,2" VerticalAlignment="Center">
-                                                    <StackPanel Orientation="Horizontal">
-                                                        <TextBlock Text="{Binding AccionIcono}" FontSize="10" VerticalAlignment="Center" Margin="0,0,3,0"/>
-                                                        <TextBlock Text="{Binding Accion}" FontSize="10" FontWeight="Bold"
-                                                                   Foreground="{Binding AccionBadgeColor}" VerticalAlignment="Center"/>
+                                <ItemsControl ItemsSource="{Binding HistorialAuditoria}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="White" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                                                    CornerRadius="6" Padding="10,8" Margin="0,0,0,6">
+                                                <Grid>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto"/>
+                                                        <RowDefinition Height="Auto"/>
+                                                    </Grid.RowDefinitions>
+
+                                                    <DockPanel Grid.Row="0">
+                                                        <Border DockPanel.Dock="Left" Background="{Binding AccionBadgeBg}"
+                                                                BorderBrush="{Binding AccionBadgeBorder}" BorderThickness="1"
+                                                                CornerRadius="8" Padding="6,2" VerticalAlignment="Center">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock Text="{Binding AccionIcono}" FontSize="10" VerticalAlignment="Center" Margin="0,0,3,0"/>
+                                                                <TextBlock Text="{Binding Accion}" FontSize="10" FontWeight="Bold"
+                                                                           Foreground="{Binding AccionBadgeColor}" VerticalAlignment="Center"/>
+                                                            </StackPanel>
+                                                        </Border>
+
+                                                        <TextBlock DockPanel.Dock="Right" Text="{Binding FechaHoraTexto}" FontSize="11"
+                                                                   Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFont}"
+                                                                   VerticalAlignment="Center" HorizontalAlignment="Right"/>
+                                                    </DockPanel>
+
+                                                    <StackPanel Grid.Row="1" Margin="0,6,0,0">
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="👤 " FontSize="10" VerticalAlignment="Center"/>
+                                                            <TextBlock Text="{Binding Usuario}" FontSize="11" FontWeight="SemiBold"
+                                                                       Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}"
+                                                                       VerticalAlignment="Center"/>
+                                                            <TextBlock Text="{Binding Equipo, StringFormat='  (💻 {0})'}" FontSize="10.5"
+                                                                       Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFont}"
+                                                                       VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                        <TextBlock Text="{Binding Detalles}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                                                   FontFamily="{StaticResource AppFont}" Margin="0,3,0,0" TextWrapping="Wrap"/>
                                                     </StackPanel>
-                                                </Border>
-
-                                                <!-- Fecha y Hora -->
-                                                <TextBlock DockPanel.Dock="Right" Text="{Binding FechaHoraTexto}" FontSize="11"
-                                                           Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFont}"
-                                                           VerticalAlignment="Center" HorizontalAlignment="Right"/>
-                                            </DockPanel>
-
-                                            <!-- Fila Inferior: Usuario, Equipo y Detalles -->
-                                            <StackPanel Grid.Row="1" Margin="0,6,0,0">
-                                                <StackPanel Orientation="Horizontal">
-                                                    <TextBlock Text="👤 " FontSize="10" VerticalAlignment="Center"/>
-                                                    <TextBlock Text="{Binding Usuario}" FontSize="11" FontWeight="SemiBold"
-                                                               Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFont}"
-                                                               VerticalAlignment="Center"/>
-                                                    <TextBlock Text="{Binding Equipo, StringFormat='  (💻 {0})'}" FontSize="10.5"
-                                                               Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFont}"
-                                                               VerticalAlignment="Center"/>
-                                                </StackPanel>
-                                                <TextBlock Text="{Binding Detalles}" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
-                                                           FontFamily="{StaticResource AppFont}" Margin="0,3,0,0" TextWrapping="Wrap"/>
-                                            </StackPanel>
-                                        </Grid>
-                                    </Border>
-                                </DataTemplate>
-                            </ItemsControl.ItemTemplate>
-                        </ItemsControl>
+                                                </Grid>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </Border>
 
                 <!-- ═══════════════════════════════════════════════════════════
-                     BANNER INFORMATIVO INFERIOR
+                     BANNER INFORMATIVO INFERIOR: Estándar ISO 19115
                      ═══════════════════════════════════════════════════════════ -->
                 <Border Background="#F2FAF5" BorderBrush="#BEE5CF" BorderThickness="1"
-                        CornerRadius="6" Padding="10,8">
+                        CornerRadius="6" Padding="12,9" Margin="0,4,0,0">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Grid.Column="0" Text="💡" FontSize="13" Margin="0,0,8,0" VerticalAlignment="Top"/>
+                        <TextBlock Grid.Column="0" Text="🌐" FontSize="14" Margin="0,0,10,0" VerticalAlignment="Center"/>
                         <TextBlock Grid.Column="1"
-                                   Text="Los archivos y capas del proyecto se encuentran listados en el panel inferior."
+                                   Text="Ficha técnica de metadatos espaciales estructurada bajo la norma ISO 19115-1:2014 y el Perfil Geográfico Colombiano (ICDE / IGAC). Los archivos físicos y capas del proyecto se exploran y visualizan en el visor geográfico."
                                    FontSize="11" Foreground="#1E6539" FontFamily="{StaticResource AppFont}"
                                    TextWrapping="Wrap" LineHeight="15" VerticalAlignment="Center"/>
                     </Grid>

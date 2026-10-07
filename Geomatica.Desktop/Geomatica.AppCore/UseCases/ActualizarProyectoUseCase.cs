@@ -24,7 +24,10 @@ public sealed class ActualizarProyectoUseCase
         string? equipo = null,
         DateTime? fechaFin = null,
         string? entidades = null,
-        string? representante = null)
+        string? representante = null,
+        string? sistemaReferencia = null,
+        string? formatoDatos = null,
+        string? linaje = null)
     {
         if (idProyecto <= 0)
             throw new ArgumentException("El identificador del proyecto debe ser mayor a cero.", nameof(idProyecto));
@@ -45,7 +48,10 @@ public sealed class ActualizarProyectoUseCase
             equipo,
             fechaFin,
             entidades,
-            representante);
+            representante,
+            sistemaReferencia,
+            formatoDatos,
+            linaje);
     }
 }
 

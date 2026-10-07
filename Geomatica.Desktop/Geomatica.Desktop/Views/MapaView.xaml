@@ -42,7 +42,7 @@
             <ColumnDefinition x:Name="ColSplitterFiltros" Width="4"/>
             <ColumnDefinition x:Name="ColMapa" Width="*"/>
             <ColumnDefinition x:Name="ColSplitterDetalle" Width="Auto"/>
-            <ColumnDefinition x:Name="ColDetalle" Width="Auto" MinWidth="0" MaxWidth="600"/>
+            <ColumnDefinition x:Name="ColDetalle" Width="Auto" MinWidth="0" MaxWidth="800"/>
         </Grid.ColumnDefinitions>
 
         <!-- Panel lateral izquierdo: Filtros -->
@@ -842,7 +842,7 @@
                       Visibility="Collapsed"/>
 
         <!-- Panel lateral derecho: Detalle del proyecto -->
-        <Border x:Name="panelDetalle" Grid.Column="4" MinWidth="300" MaxWidth="600" Background="{StaticResource PanelBrush}"
+        <Border x:Name="panelDetalle" Grid.Column="4" MinWidth="340" MaxWidth="800" Background="{StaticResource PanelBrush}"
                 BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1,0,0,0"
                 Visibility="Collapsed">
             <views:FichaProyectoView DataContext="{Binding ArchivosVM.ProyectoDetalle}"/>

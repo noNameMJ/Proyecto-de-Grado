@@ -17,14 +17,17 @@
             <DataTemplate DataType="{x:Type vms:ArchivosViewModel}">
                 <views:ArchivosView/>
             </DataTemplate>
+            <DataTemplate DataType="{x:Type vms:FormularioProyectoViewModel}">
+                <views:FormularioProyectoView/>
+            </DataTemplate>
             <DataTemplate DataType="{x:Type vms:CrearProyectoViewModel}">
-                <views:CrearProyectoView/>
+                <views:FormularioProyectoView/>
             </DataTemplate>
             <DataTemplate DataType="{x:Type vms:FichaProyectoViewModel}">
                 <views:FichaProyectoView/>
             </DataTemplate>
             <DataTemplate DataType="{x:Type vms:EditarProyectoViewModel}">
-                <views:EditarProyectoView/>
+                <views:FormularioProyectoView/>
             </DataTemplate>
         </ResourceDictionary>
     </Application.Resources>

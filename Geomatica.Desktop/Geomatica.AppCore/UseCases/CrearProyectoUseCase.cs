@@ -23,7 +23,10 @@ public sealed class CrearProyectoUseCase
         string? equipo = null,
         DateTime? fechaFin = null,
         string? entidades = null,
-        string? representante = null)
+        string? representante = null,
+        string? sistemaReferencia = null,
+        string? formatoDatos = null,
+        string? linaje = null)
     {
         if (string.IsNullOrWhiteSpace(titulo))
             throw new ArgumentException("El título del proyecto es obligatorio.", nameof(titulo));
@@ -40,7 +43,10 @@ public sealed class CrearProyectoUseCase
             equipo,
             fechaFin,
             entidades,
-            representante);
+            representante,
+            sistemaReferencia,
+            formatoDatos,
+            linaje);
     }
 }
 

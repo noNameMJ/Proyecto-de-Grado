@@ -320,17 +320,17 @@ namespace Geomatica.Data.Repositories
             }
         }
 
-        public async Task InsertarAsync(string titulo, string? descripcion, DateTime? fechaInicio, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, DateTime? fechaFin = null, string? entidades = null, string? representante = null)
+        public async Task InsertarAsync(string titulo, string? descripcion, DateTime? fechaInicio, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, DateTime? fechaFin = null, string? entidades = null, string? representante = null, string? sistemaReferencia = null, string? formatoDatos = null, string? linaje = null)
         {
             // 1. Insertar proyecto
             // Using RETURNING id_proyecto to get the generated ID.
             var sqlProp = @"
-                INSERT INTO geovisor.proyecto (titulo, descripcion, fecha_inicio, palabra_clave, ruta_archivos, geom, fecha_fin, entidades, representante)
+                INSERT INTO geovisor.proyecto (titulo, descripcion, fecha_inicio, palabra_clave, ruta_archivos, geom, fecha_fin, entidades, representante, sistema_referencia, formato_datos, linaje)
                 VALUES (@titulo, @desc, @fechaInicio, @kw, @ruta,
                         CASE WHEN @geom IS NOT NULL
                              THEN ST_GeomFromText(@geom, 4686)
                              ELSE NULL END,
-                        @fechaFin, @entidades, @rep)
+                        @fechaFin, @entidades, @rep, @sisRef, @fmt, @linaje)
                 RETURNING id_proyecto;";
 
 
@@ -352,6 +352,9 @@ namespace Geomatica.Data.Repositories
                     cmd.Parameters.Add(new NpgsqlParameter("@fechaFin", NpgsqlDbType.Date) { Value = (object?)fechaFin?.Date ?? DBNull.Value });
                     cmd.Parameters.Add(new NpgsqlParameter("@entidades", NpgsqlDbType.Varchar, 255) { Value = (object?)entidades ?? DBNull.Value });
                     cmd.Parameters.Add(new NpgsqlParameter("@rep", NpgsqlDbType.Varchar, 255) { Value = (object?)representante ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@sisRef", NpgsqlDbType.Varchar, 100) { Value = (object?)sistemaReferencia ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@fmt", NpgsqlDbType.Varchar, 100) { Value = (object?)formatoDatos ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@linaje", NpgsqlDbType.Text) { Value = (object?)linaje ?? DBNull.Value });
 
                     var newIdObj = await cmd.ExecuteScalarAsync();
                     newId = Convert.ToInt32(newIdObj);
@@ -470,7 +473,11 @@ namespace Geomatica.Data.Repositories
                        m.mpio_cnmbr,
                        p.fecha_fin,
                        p.entidades,
-                       p.representante
+                       p.representante,
+                       p.sistema_referencia,
+                       p.formato_datos,
+                       p.linaje,
+                       p.fecha_actualizacion
                 FROM geovisor.proyecto p
                 LEFT JOIN geovisor.proyecto_municipio pm ON pm.id_proyecto = p.id_proyecto
                 LEFT JOIN geovisor.municipio m ON m.mpio_cdpmp = pm.mpio_cdpmp
@@ -499,13 +506,17 @@ namespace Geomatica.Data.Repositories
                     MunicipioNombre: rd.IsDBNull(9) ? null : rd.GetString(9),
                     FechaFin: rd.IsDBNull(10) ? null : rd.GetDateTime(10),
                     Entidades: rd.IsDBNull(11) ? null : rd.GetString(11),
-                    Representante: rd.IsDBNull(12) ? null : rd.GetString(12)
+                    Representante: rd.IsDBNull(12) ? null : rd.GetString(12),
+                    SistemaReferencia: rd.IsDBNull(13) ? null : rd.GetString(13),
+                    FormatoDatos: rd.IsDBNull(14) ? null : rd.GetString(14),
+                    Linaje: rd.IsDBNull(15) ? null : rd.GetString(15),
+                    FechaActualizacion: rd.IsDBNull(16) ? null : rd.GetDateTime(16)
                 );
             }
             return null;
         }
 
-        public async Task ActualizarAsync(int idProyecto, string titulo, string? descripcion, DateTime? fechaInicio, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, DateTime? fechaFin = null, string? entidades = null, string? representante = null)
+        public async Task ActualizarAsync(int idProyecto, string titulo, string? descripcion, DateTime? fechaInicio, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, DateTime? fechaFin = null, string? entidades = null, string? representante = null, string? sistemaReferencia = null, string? formatoDatos = null, string? linaje = null)
         {
             const string sqlUpdate = @"
                 UPDATE geovisor.proyecto
@@ -519,7 +530,11 @@ namespace Geomatica.Data.Repositories
                                 ELSE geom END,
                     fecha_fin = @fechaFin,
                     entidades = @entidades,
-                    representante = @rep
+                    representante = @rep,
+                    sistema_referencia = @sisRef,
+                    formato_datos = @fmt,
+                    linaje = @linaje,
+                    fecha_actualizacion = CURRENT_TIMESTAMP
                 WHERE id_proyecto = @id;";
 
             using var con = new NpgsqlConnection(_cn);
@@ -540,6 +555,9 @@ namespace Geomatica.Data.Repositories
                     cmd.Parameters.Add(new NpgsqlParameter("@fechaFin", NpgsqlDbType.Date) { Value = (object?)fechaFin?.Date ?? DBNull.Value });
                     cmd.Parameters.Add(new NpgsqlParameter("@entidades", NpgsqlDbType.Varchar, 255) { Value = (object?)entidades ?? DBNull.Value });
                     cmd.Parameters.Add(new NpgsqlParameter("@rep", NpgsqlDbType.Varchar, 255) { Value = (object?)representante ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@sisRef", NpgsqlDbType.Varchar, 100) { Value = (object?)sistemaReferencia ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@fmt", NpgsqlDbType.Varchar, 100) { Value = (object?)formatoDatos ?? DBNull.Value });
+                    cmd.Parameters.Add(new NpgsqlParameter("@linaje", NpgsqlDbType.Text) { Value = (object?)linaje ?? DBNull.Value });
                     await cmd.ExecuteNonQueryAsync();
                 }
 

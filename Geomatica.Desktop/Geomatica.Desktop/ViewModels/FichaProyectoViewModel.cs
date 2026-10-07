@@ -89,6 +89,18 @@ namespace Geomatica.Desktop.ViewModels
         public bool HasRepresentante => !string.IsNullOrWhiteSpace(Proyecto.Representante);
         public bool HasActores => HasEntidades || HasRepresentante;
 
+        // ISO 19115 Metadata
+        public string? SistemaReferencia => Proyecto.SistemaReferencia;
+        public string? FormatoDatos => Proyecto.FormatoDatos;
+        public string? Linaje => Proyecto.Linaje;
+        public DateTime? FechaActualizacion => Proyecto.FechaActualizacion;
+        public string FechaActualizacionTexto => Proyecto.FechaActualizacion?.ToString("dd/MM/yyyy HH:mm") ?? "No registrada";
+        public bool HasSistemaReferencia => !string.IsNullOrWhiteSpace(Proyecto.SistemaReferencia);
+        public bool HasFormatoDatos => !string.IsNullOrWhiteSpace(Proyecto.FormatoDatos);
+        public bool HasLinaje => !string.IsNullOrWhiteSpace(Proyecto.Linaje);
+        public bool HasIsoMetadata => HasSistemaReferencia || HasFormatoDatos || HasLinaje;
+        public bool HasNoIsoMetadata => !HasIsoMetadata;
+
         public string PeriodoTexto
         {
             get

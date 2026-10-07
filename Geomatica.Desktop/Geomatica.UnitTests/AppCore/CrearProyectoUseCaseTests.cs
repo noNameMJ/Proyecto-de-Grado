@@ -47,9 +47,12 @@ public class CrearProyectoUseCaseTests
             mpio,
             usuario,
             equipo,
-            null,
-            null,
-            null), Times.Once);
+            It.IsAny<DateTime?>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>()), Times.Once);
     }
 
     [Theory]
@@ -64,6 +67,52 @@ public class CrearProyectoUseCaseTests
         // Assert
         await act.Should().ThrowAsync<ArgumentException>()
             .WithMessage("*título*");
+    }
+
+    [Fact]
+    public async Task EjecutarAsync_ConMetadatosIso19115_PasaMetadatosAlRepositorio()
+    {
+        // Arrange
+        var titulo = "Proyecto Fotogramétrico 2026";
+        var srid = "EPSG:9377 (MAGNA-SIRGAS Origen Nacional)";
+        var formato = "Raster (GeoTIFF)";
+        var linaje = "Vuelo dron DJI Mavic 3 Enterprise, procesamiento en Pix4D";
+
+        // Act
+        await _useCase.EjecutarAsync(
+            titulo: titulo,
+            descripcion: "Resumen técnico",
+            fechaInicio: DateTime.Today,
+            palabraClave: "ortomosaico",
+            ruta: @"D:\Proyectos\Foto2026",
+            geom: null,
+            municipioCodigo: "68001",
+            usuario: "operador",
+            equipo: "PC-01",
+            fechaFin: null,
+            entidades: "UIS",
+            representante: "Ing. Topógrafo",
+            sistemaReferencia: srid,
+            formatoDatos: formato,
+            linaje: linaje);
+
+        // Assert
+        _repoMock.Verify(r => r.InsertarAsync(
+            titulo,
+            "Resumen técnico",
+            DateTime.Today,
+            "ortomosaico",
+            @"D:\Proyectos\Foto2026",
+            null,
+            "68001",
+            "operador",
+            "PC-01",
+            null,
+            "UIS",
+            "Ing. Topógrafo",
+            srid,
+            formato,
+            linaje), Times.Once);
     }
 }
 

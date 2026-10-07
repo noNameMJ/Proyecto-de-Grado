@@ -4,56 +4,63 @@ using Esri.ArcGISRuntime.Symbology;
 using Esri.ArcGISRuntime.UI;
 using Geomatica.Desktop.ViewModels;
 using System;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 
 namespace Geomatica.Desktop.Views
 {
-    public partial class CrearProyectoView : UserControl
+    /// <summary>
+    /// Vista unificada para el formulario de proyectos (Creación y Edición).
+    /// Centraliza la interacción con el mapa picker de ArcGIS y la sincronización con el ViewModel.
+    /// </summary>
+    public partial class FormularioProyectoView : UserControl
     {
         private readonly GraphicsOverlay _pinOverlay = new();
         private readonly GraphicsOverlay _municipioOverlay = new();
-        private readonly Esri.ArcGISRuntime.UI.Controls.MapView _pickerMapView;
-        private CrearProyectoViewModel? _currentVm;
+        private FormularioProyectoViewModel? _currentVm;
 
-        public CrearProyectoView()
+        public FormularioProyectoView()
         {
-            CargarXaml();
-
-            _pickerMapView = FindName("pickerMapView") as Esri.ArcGISRuntime.UI.Controls.MapView
-                ?? throw new InvalidOperationException("No se encontró el control 'pickerMapView' en CrearProyectoView.xaml.");
+            InitializeComponent();
 
             var map = new Map(BasemapStyle.ArcGISTopographic);
             var center = new MapPoint(-73.1198, 7.1254, SpatialReferences.Wgs84);
             map.InitialViewpoint = new Viewpoint(center, 2_000_000);
-            _pickerMapView.Map = map;
-            _pickerMapView.GraphicsOverlays?.Add(_municipioOverlay);
-            _pickerMapView.GraphicsOverlays?.Add(_pinOverlay);
-            _pickerMapView.GeoViewTapped += PickerMapView_GeoViewTapped;
+            pickerMapView.Map = map;
+            pickerMapView.GraphicsOverlays?.Add(_municipioOverlay);
+            pickerMapView.GraphicsOverlays?.Add(_pinOverlay);
+            pickerMapView.GeoViewTapped += PickerMapView_GeoViewTapped;
 
             DataContextChanged += OnDataContextChanged;
             Unloaded += (_, _) =>
             {
                 DetachVm();
-                _pickerMapView.GeoViewTapped -= PickerMapView_GeoViewTapped;
-                _pickerMapView.Map = null;
+                pickerMapView.GeoViewTapped -= PickerMapView_GeoViewTapped;
+                pickerMapView.Map = null;
             };
-        }
-
-        private void CargarXaml()
-        {
-            var resourceLocator = new Uri("/Geomatica.Desktop;component/Views/CrearProyectoView.xaml", UriKind.Relative);
-            Application.LoadComponent(this, resourceLocator);
         }
 
         private void OnDataContextChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
             DetachVm();
-            if (e.NewValue is CrearProyectoViewModel vm)
+            if (e.NewValue is FormularioProyectoViewModel vm)
             {
                 _currentVm = vm;
                 vm.MunicipioGeoJsonChanged += OnMunicipioGeoJsonChanged;
                 vm.CoordenadasPinChanged += OnCoordenadasPinChanged;
+
+                // Mostrar pin inicial si el ViewModel ya cuenta con coordenadas válidas (ej. modo edición)
+                if (!string.IsNullOrWhiteSpace(vm.LatStr) && !string.IsNullOrWhiteSpace(vm.LonStr))
+                {
+                    var latNorm = vm.LatStr.Replace(',', '.');
+                    var lonNorm = vm.LonStr.Replace(',', '.');
+                    if (double.TryParse(latNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var lat)
+                        && double.TryParse(lonNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out var lon))
+                    {
+                        ActualizarPin(new MapPoint(lon, lat, SpatialReferences.Wgs84));
+                    }
+                }
             }
         }
 
@@ -101,7 +108,7 @@ namespace Geomatica.Desktop.Views
 
                 if (geom.Extent != null)
                 {
-                    await _pickerMapView.SetViewpointGeometryAsync(geom.Extent, 40);
+                    await pickerMapView.SetViewpointGeometryAsync(geom.Extent, 40);
                 }
             });
         }
@@ -113,7 +120,7 @@ namespace Geomatica.Desktop.Views
             var wgs84 = (MapPoint)e.Location.Project(SpatialReferences.Wgs84);
             if (wgs84 == null) return;
 
-            if (DataContext is CrearProyectoViewModel vm)
+            if (DataContext is FormularioProyectoViewModel vm)
             {
                 await vm.ProcesarClickMapaAsync(wgs84.Y, wgs84.X);
             }

@@ -290,7 +290,7 @@ namespace Geomatica.Desktop.Views
             }
         }
 
-        private double _lastDetalleWidth = 380.0;
+        private double _lastDetalleWidth = 480.0;
 
         private void ActualizarLayoutArchivos(bool hasProyectoDetalle, bool isExtendido)
         {
@@ -338,7 +338,7 @@ namespace Geomatica.Desktop.Views
                     gridSplitterDetalle.Visibility = Visibility.Visible;
                     panelDetalle.Visibility = Visibility.Visible;
 
-                    double w = _lastDetalleWidth > 200 ? _lastDetalleWidth : 380.0;
+                    double w = _lastDetalleWidth > 200 ? _lastDetalleWidth : 480.0;
                     ColDetalle.Width = new GridLength(w, GridUnitType.Pixel);
 
                     RowMapa.Height = new GridLength(1, GridUnitType.Star);

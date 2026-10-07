@@ -1,4 +1,4 @@
-﻿namespace Geomatica.Domain.Entities;
+namespace Geomatica.Domain.Entities;
 
 public sealed record ProyectoDto(int Id, string Titulo, double Lon, double Lat, string? RutaArchivos);
 
@@ -15,7 +15,11 @@ public sealed record ProyectoDetalleDto(
     string? MunicipioNombre,
     DateTime? FechaFin = null,
     string? Entidades = null,
-    string? Representante = null)
+    string? Representante = null,
+    string? SistemaReferencia = null,
+    string? FormatoDatos = null,
+    string? Linaje = null,
+    DateTime? FechaActualizacion = null)
 {
     /// <summary>
     /// Propiedad de compatibilidad con código existente que esperaba 'Fecha'.

@@ -20,12 +20,13 @@ namespace Geomatica.Desktop.ViewModels
             MapaViewModel => "🗺️ Vista: Mapa",
             ArchivosViewModel a when a.HasProyectoDetalle => "📋 Vista: Ficha de Proyecto",
             ArchivosViewModel => "📂 Vista: Archivos",
-            EditarProyectoViewModel => "✏️ Vista: Editar Proyecto",
+            FormularioProyectoViewModel f when f.EsModoEdicion => "✏️ Vista: Editar Proyecto",
+            FormularioProyectoViewModel => "➕ Vista: Creación",
             _ => "➕ Vista: Creación"
         };
 
         public bool IsMapaActive => CurrentView is MapaViewModel;
-        public bool IsCrearProyectoActive => CurrentView is CrearProyectoViewModel;
+        public bool IsCrearProyectoActive => CurrentView is FormularioProyectoViewModel f ? !f.EsModoEdicion : CurrentView is CrearProyectoViewModel;
         public string UsuarioWindowsActual => $"{Environment.UserDomainName}\\{Environment.UserName}";
 
         public FiltrosViewModel Filtros { get; }

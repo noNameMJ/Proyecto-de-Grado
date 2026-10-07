@@ -92,6 +92,9 @@ public class CrearProyectoEstructuraCarpetasTests : IDisposable
             It.IsAny<string>(),
             It.IsAny<DateTime?>(),
             It.IsAny<string?>(),
+            It.IsAny<string?>(),
+            It.IsAny<string?>(),
+            It.IsAny<string?>(),
             It.IsAny<string?>()
         ), Times.Once);
     }

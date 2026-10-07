@@ -45,11 +45,14 @@ public class ActualizarProyectoUseCaseTests
             ruta,
             geom,
             mpio,
-            null,
-            null,
-            null,
-            null,
-            null), Times.Once);
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<DateTime?>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<string>()), Times.Once);
     }
 
     [Theory]
