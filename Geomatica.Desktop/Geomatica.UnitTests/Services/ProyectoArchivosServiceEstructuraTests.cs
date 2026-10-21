@@ -94,6 +94,32 @@ public class ProyectoArchivosServiceEstructuraTests : IDisposable
     }
 
     [Fact]
+    public void GestionarEstructuraCarpetas_SiExistenArchivos_NoCreaEstructuraNiPregunta()
+    {
+        // Arrange: carpeta sin subcarpetas pero que ya contiene archivos del proyecto
+        string dirProyecto = Path.Combine(_tempDir, "ProyectoConArchivos");
+        Directory.CreateDirectory(dirProyecto);
+        File.WriteAllText(Path.Combine(dirProyecto, "ortofoto.tif"), "datos");
+
+        bool fueConsultado = false;
+
+        // Act
+        bool resultado = _service.GestionarEstructuraCarpetas(dirProyecto, () =>
+        {
+            fueConsultado = true;
+            return true;
+        });
+
+        // Assert: no debe consultar ni debe crear las carpetas base estándar
+        resultado.Should().BeFalse();
+        fueConsultado.Should().BeFalse();
+        Directory.Exists(Path.Combine(dirProyecto, "Datos_Espaciales")).Should().BeFalse();
+        Directory.Exists(Path.Combine(dirProyecto, "Documentos")).Should().BeFalse();
+        Directory.Exists(Path.Combine(dirProyecto, "Entregables")).Should().BeFalse();
+        Directory.Exists(Path.Combine(dirProyecto, "Otros")).Should().BeFalse();
+    }
+
+    [Fact]
     public void GestionarEstructuraCarpetas_SiNoExistenCarpetasYUsuarioAcepta_CreaEstructuraEstandar()
     {
         // Arrange: carpeta sin subcarpetas

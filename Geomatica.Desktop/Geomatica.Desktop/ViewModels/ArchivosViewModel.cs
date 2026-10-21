@@ -40,6 +40,134 @@ namespace Geomatica.Desktop.ViewModels
 
         public ObservableCollection<object> Items { get; } = new();
 
+        // ══════════════════════════════════════════════════════════════
+        // Ordenamiento de columnas en la tabla de archivos
+        // ══════════════════════════════════════════════════════════════
+        [ObservableProperty] private string columnaOrden = "Nombre";
+        [ObservableProperty] private bool ordenAscendente = true;
+
+        public string HeaderNombre => ObtenerTextoHeader("Nombre", "Nombre");
+        public string HeaderUbicacion => ObtenerTextoHeader("Ubicacion", "Ubicación");
+        public string HeaderTamano => ObtenerTextoHeader("Tamano", "Tamaño");
+        public string HeaderModificado => ObtenerTextoHeader("Modificado", "Modificado");
+        public string HeaderTipo => ObtenerTextoHeader("Tipo", "Tipo");
+
+        private string ObtenerTextoHeader(string columna, string titulo)
+        {
+            if (string.Equals(ColumnaOrden, columna, StringComparison.OrdinalIgnoreCase))
+            {
+                return OrdenAscendente ? $"{titulo} ▲" : $"{titulo} ▼";
+            }
+            return titulo;
+        }
+
+        public void ActualizarHeaders()
+        {
+            OnPropertyChanged(nameof(HeaderNombre));
+            OnPropertyChanged(nameof(HeaderUbicacion));
+            OnPropertyChanged(nameof(HeaderTamano));
+            OnPropertyChanged(nameof(HeaderModificado));
+            OnPropertyChanged(nameof(HeaderTipo));
+        }
+
+        [RelayCommand]
+        public void OrdenarPor(string columna)
+        {
+            if (string.IsNullOrWhiteSpace(columna)) return;
+
+            if (string.Equals(ColumnaOrden, columna, StringComparison.OrdinalIgnoreCase))
+            {
+                OrdenAscendente = !OrdenAscendente;
+            }
+            else
+            {
+                ColumnaOrden = columna;
+                OrdenAscendente = true;
+            }
+
+            ActualizarHeaders();
+
+            if (Items.Count > 1)
+            {
+                var nodosActuales = Items.OfType<NodoArchivoVirtual>().ToList();
+                var ordenados = OrdenarNodos(nodosActuales).ToList();
+                var sel = SelectedEntry;
+
+                Items.Clear();
+                foreach (var n in ordenados)
+                {
+                    Items.Add(n);
+                }
+
+                if (sel != null)
+                {
+                    SelectedEntry = Items.FirstOrDefault(i => ReferenceEquals(i, sel) ||
+                        (i is NodoArchivoVirtual nav && sel is NodoArchivoVirtual snav && string.Equals(nav.RutaRelativaVirtual, snav.RutaRelativaVirtual, StringComparison.OrdinalIgnoreCase)));
+                }
+            }
+        }
+
+        private IEnumerable<NodoArchivoVirtual> OrdenarNodos(IEnumerable<NodoArchivoVirtual> nodos)
+        {
+            return ColumnaOrden.ToLowerInvariant() switch
+            {
+                "nombre" => OrdenAscendente
+                    ? nodos.OrderByDescending(n => n.EsCarpeta)
+                           .ThenBy(n => n.Nombre, StringComparer.OrdinalIgnoreCase)
+                    : nodos.OrderByDescending(n => n.EsCarpeta)
+                           .ThenByDescending(n => n.Nombre, StringComparer.OrdinalIgnoreCase),
+
+                "ubicacion" => OrdenAscendente
+                    ? nodos.OrderByDescending(n => n.EsCarpeta)
+                           .ThenBy(n => n.UbicacionRelativa, StringComparer.OrdinalIgnoreCase)
+                           .ThenBy(n => n.Nombre, StringComparer.OrdinalIgnoreCase)
+                    : nodos.OrderByDescending(n => n.EsCarpeta)
+                           .ThenByDescending(n => n.UbicacionRelativa, StringComparer.OrdinalIgnoreCase)
+                           .ThenBy(n => n.Nombre, StringComparer.OrdinalIgnoreCase),
+
+                "tamano" => OrdenAscendente
+                    ? nodos.OrderByDescending(n => n.EsCarpeta)
+                           .ThenBy(n => n is ArchivoVirtual av ? av.TamanoBytes : 0)
+                           .ThenBy(n => n.Nombre, StringComparer.OrdinalIgnoreCase)
+                    : nodos.OrderByDescending(n => n.EsCarpeta)
+                           .ThenByDescending(n => n is ArchivoVirtual av ? av.TamanoBytes : 0)
+                           .ThenBy(n => n.Nombre, StringComparer.OrdinalIgnoreCase),
+
+                "modificado" => OrdenAscendente
+                    ? nodos.OrderByDescending(n => n.EsCarpeta)
+                           .ThenBy(n => ObtenerFechaModificacionNodo(n))
+                           .ThenBy(n => n.Nombre, StringComparer.OrdinalIgnoreCase)
+                    : nodos.OrderByDescending(n => n.EsCarpeta)
+                           .ThenByDescending(n => ObtenerFechaModificacionNodo(n))
+                           .ThenBy(n => n.Nombre, StringComparer.OrdinalIgnoreCase),
+
+                "tipo" => OrdenAscendente
+                    ? nodos.OrderByDescending(n => n.EsCarpeta)
+                           .ThenBy(n => ObtenerExtensionNodo(n), StringComparer.OrdinalIgnoreCase)
+                           .ThenBy(n => n.Nombre, StringComparer.OrdinalIgnoreCase)
+                    : nodos.OrderByDescending(n => n.EsCarpeta)
+                           .ThenByDescending(n => ObtenerExtensionNodo(n), StringComparer.OrdinalIgnoreCase)
+                           .ThenBy(n => n.Nombre, StringComparer.OrdinalIgnoreCase),
+
+                _ => nodos.OrderByDescending(n => n.EsCarpeta)
+                          .ThenBy(n => n.Nombre, StringComparer.OrdinalIgnoreCase)
+            };
+        }
+
+        private static DateTime ObtenerFechaModificacionNodo(NodoArchivoVirtual nodo)
+        {
+            if (nodo is ArchivoVirtual av) return av.FechaModificacion;
+            if (nodo is CarpetaVirtual cv && cv.FechaModificacion.HasValue) return cv.FechaModificacion.Value;
+            return DateTime.MinValue;
+        }
+
+        private static string ObtenerExtensionNodo(NodoArchivoVirtual nodo)
+        {
+            if (nodo is ArchivoVirtual av) return av.Extension ?? string.Empty;
+            if (nodo is CarpetaVirtual cv) return cv.Extension ?? "Carpeta";
+            return string.Empty;
+        }
+
         [ObservableProperty] private NodoArchivoVirtual? seleccionado;
         [ObservableProperty] private object? selectedEntry;
         [ObservableProperty] private string estado = "";
@@ -86,6 +214,7 @@ namespace Geomatica.Desktop.ViewModels
             OnPropertyChanged(nameof(IsFormatoMapaSeleccionado));
             OnPropertyChanged(nameof(NombreSeleccionado));
             OnPropertyChanged(nameof(PuedeModificarSeleccionado));
+            OnPropertyChanged(nameof(CanIrAUbicacion));
 
             // Detección e inspección automática de Geodatabase (.gdb)
             bool esGdb = false;
@@ -166,6 +295,7 @@ namespace Geomatica.Desktop.ViewModels
         public bool IsCarpetaSeleccionada => Seleccionado is CarpetaVirtual;
         public bool IsFormatoMapaSeleccionado => EsFormatoSoportadoMapa(Seleccionado);
         public string NombreSeleccionado => Seleccionado?.Nombre ?? "";
+        public bool CanIrAUbicacion => Seleccionado is ArchivoVirtual || (Seleccionado is CarpetaVirtual cv && cv.Nombre.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase));
 
         private enum ClipboardOp { None, Copy, Cut }
         private NodoArchivoVirtual? _clipboardNodo;
@@ -186,13 +316,36 @@ namespace Geomatica.Desktop.ViewModels
             OnPropertyChanged(nameof(CanPasteEfectivo));
         }
 
-        public record FiltroExtensionOption(string Extension, string Etiqueta, string Icono = "📁", int Cantidad = 0)
+        public partial class FiltroExtensionOption : ObservableObject
         {
-            public string DisplayTexto => string.IsNullOrEmpty(Extension) ? Etiqueta : $"{Icono} .{Extension.TrimStart('.').ToUpperInvariant()} ({Cantidad})";
+            public string Extension { get; init; } = "";
+            public string Etiqueta { get; init; } = "";
+            public string Icono { get; init; } = "📁";
+            public int Cantidad { get; init; } = 0;
+            public string Categoria { get; init; } = "Otros";
+
+            [ObservableProperty]
+            private bool _isSelected;
+
+            public FiltroExtensionOption(string extension, string etiqueta, string icono = "📁", int cantidad = 0, string categoria = "Otros", bool isSelected = false)
+            {
+                Extension = extension;
+                Etiqueta = etiqueta;
+                Icono = icono;
+                Cantidad = cantidad;
+                Categoria = categoria;
+                _isSelected = isSelected;
+            }
+
+            public string ExtensionUpper => string.IsNullOrEmpty(Extension) ? "" : Extension.TrimStart('.').ToUpperInvariant();
+            public string DisplayTexto => string.IsNullOrEmpty(Extension) ? Etiqueta : $"{Icono} .{ExtensionUpper} ({Cantidad})";
             public override string ToString() => DisplayTexto;
         }
 
         public ObservableCollection<FiltroExtensionOption> ExtensionesDisponibles { get; } = new();
+
+        public IEnumerable<FiltroExtensionOption> ExtensionesFiltrables => ExtensionesDisponibles.Where(e => !string.IsNullOrEmpty(e.Extension));
+        public bool HasExtensionesFiltrables => ExtensionesDisponibles.Any(e => !string.IsNullOrEmpty(e.Extension));
 
         [ObservableProperty]
         private FiltroExtensionOption? _filtroExtensionSeleccionado;
@@ -203,16 +356,215 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty]
         private string _bannerFiltroTexto = "";
 
+        [ObservableProperty]
+        private bool _isMenuFiltroTiposAbierto;
+
+        public IReadOnlyList<string> ExtensionesSeleccionadas => ExtensionesDisponibles
+            .Where(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected)
+            .Select(e => e.Extension)
+            .ToList();
+
+        public bool HayExtensionesSeleccionadas => ExtensionesDisponibles.Any(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected);
+
+        public string TextoBotonFiltroExtension
+        {
+            get
+            {
+                var seleccionadas = ExtensionesDisponibles.Where(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected).ToList();
+                if (seleccionadas.Count == 0)
+                {
+                    return "Todos los tipos ▾";
+                }
+                if (seleccionadas.Count == 1)
+                {
+                    return $"{seleccionadas[0].Icono} .{seleccionadas[0].ExtensionUpper} ({seleccionadas[0].Cantidad}) ▾";
+                }
+                return $"({seleccionadas.Count}) tipos selecc. ▾";
+            }
+        }
+
+        [RelayCommand]
+        private void ToggleMenuFiltroTipos()
+        {
+            IsMenuFiltroTiposAbierto = !IsMenuFiltroTiposAbierto;
+        }
+
+        [RelayCommand]
+        private void CerrarMenuFiltroTipos()
+        {
+            IsMenuFiltroTiposAbierto = false;
+        }
+
+        [RelayCommand]
+        public void SeleccionarTodasExtensiones()
+        {
+            _isUpdatingExtensionSelection = true;
+            try
+            {
+                foreach (var opt in ExtensionesDisponibles)
+                {
+                    opt.IsSelected = !string.IsNullOrEmpty(opt.Extension);
+                }
+                FiltroExtensionSeleccionado = null;
+            }
+            finally
+            {
+                _isUpdatingExtensionSelection = false;
+            }
+            OnPropertyChanged(nameof(TextoBotonFiltroExtension));
+            OnPropertyChanged(nameof(HayExtensionesSeleccionadas));
+            OnPropertyChanged(nameof(ExtensionesSeleccionadas));
+            RefrescarSegunFiltros();
+        }
+
+        [RelayCommand]
+        public void FiltrarPorCategoria(string? categoria)
+        {
+            if (string.IsNullOrWhiteSpace(categoria) || categoria.Equals("Todos", StringComparison.OrdinalIgnoreCase))
+            {
+                LimpiarFiltroExtension();
+                return;
+            }
+
+            var extsPorCategoria = categoria.ToLowerInvariant() switch
+            {
+                "vectorial" => new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".shp", ".gpkg", ".geojson", ".kml", ".kmz", ".tab", ".mif", ".gml", ".gdb" },
+                "raster" or "ráster" => new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".tif", ".tiff", ".img", ".dem", ".asc", ".dt2", ".ecw", ".jp2", ".sid" },
+                "lidar" => new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".las", ".laz" },
+                "cad" => new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".dwg", ".dxf", ".dgn" },
+                "docs" => new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".txt", ".csv", ".zip", ".rar", ".7z" },
+                _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+            };
+
+            _isUpdatingExtensionSelection = true;
+            bool algunCoincidente = false;
+            try
+            {
+                foreach (var opt in ExtensionesDisponibles.Where(e => !string.IsNullOrEmpty(e.Extension)))
+                {
+                    bool coincide = extsPorCategoria.Contains(opt.Extension) ||
+                                    opt.Categoria.Contains(categoria, StringComparison.OrdinalIgnoreCase);
+                    opt.IsSelected = coincide;
+                    if (coincide) algunCoincidente = true;
+                }
+
+                var opcionTodos = ExtensionesDisponibles.FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
+                if (opcionTodos != null)
+                {
+                    opcionTodos.IsSelected = !algunCoincidente;
+                }
+                FiltroExtensionSeleccionado = null;
+            }
+            finally
+            {
+                _isUpdatingExtensionSelection = false;
+            }
+
+            OnPropertyChanged(nameof(TextoBotonFiltroExtension));
+            OnPropertyChanged(nameof(HayExtensionesSeleccionadas));
+            OnPropertyChanged(nameof(ExtensionesSeleccionadas));
+            RefrescarSegunFiltros();
+        }
+
+        private bool _isUpdatingExtensionSelection = false;
+
+        private void OnOpcionExtensionSelectionChanged(FiltroExtensionOption opt)
+        {
+            if (_isUpdatingExtensionSelection) return;
+            _isUpdatingExtensionSelection = true;
+            try
+            {
+                var opcionTodos = ExtensionesDisponibles.FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
+                var seleccionadas = ExtensionesDisponibles.Where(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected).ToList();
+
+                if (string.IsNullOrEmpty(opt.Extension))
+                {
+                    if (opt.IsSelected)
+                    {
+                        foreach (var o in ExtensionesDisponibles.Where(e => !string.IsNullOrEmpty(e.Extension)))
+                        {
+                            o.IsSelected = false;
+                        }
+                        FiltroExtensionSeleccionado = opt;
+                    }
+                }
+                else
+                {
+                    if (opcionTodos != null)
+                    {
+                        opcionTodos.IsSelected = (seleccionadas.Count == 0);
+                    }
+                    if (seleccionadas.Count == 1)
+                    {
+                        FiltroExtensionSeleccionado = seleccionadas[0];
+                    }
+                    else if (seleccionadas.Count == 0 && opcionTodos != null)
+                    {
+                        FiltroExtensionSeleccionado = opcionTodos;
+                    }
+                    else
+                    {
+                        FiltroExtensionSeleccionado = null;
+                    }
+                }
+
+                OnPropertyChanged(nameof(TextoBotonFiltroExtension));
+                OnPropertyChanged(nameof(HayExtensionesSeleccionadas));
+                OnPropertyChanged(nameof(ExtensionesSeleccionadas));
+                RefrescarSegunFiltros();
+            }
+            finally
+            {
+                _isUpdatingExtensionSelection = false;
+            }
+        }
+
         partial void OnFiltroExtensionSeleccionadoChanged(FiltroExtensionOption? value)
         {
+            if (_isUpdatingExtensionSelection) return;
+            _isUpdatingExtensionSelection = true;
+            try
+            {
+                if (value != null)
+                {
+                    foreach (var opt in ExtensionesDisponibles.ToList())
+                    {
+                        opt.IsSelected = (opt == value);
+                    }
+                }
+            }
+            finally
+            {
+                _isUpdatingExtensionSelection = false;
+            }
+            OnPropertyChanged(nameof(TextoBotonFiltroExtension));
+            OnPropertyChanged(nameof(HayExtensionesSeleccionadas));
+            OnPropertyChanged(nameof(ExtensionesSeleccionadas));
             RefrescarSegunFiltros();
         }
 
         [RelayCommand]
         public void LimpiarFiltroExtension()
         {
-            var opcionTodos = ExtensionesDisponibles.ToList().FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
-            FiltroExtensionSeleccionado = opcionTodos;
+            _isUpdatingExtensionSelection = true;
+            try
+            {
+                foreach (var opt in ExtensionesDisponibles.ToList())
+                {
+                    opt.IsSelected = string.IsNullOrEmpty(opt.Extension);
+                }
+                var opcionTodos = ExtensionesDisponibles.FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
+                FiltroExtensionSeleccionado = opcionTodos;
+            }
+            finally
+            {
+                _isUpdatingExtensionSelection = false;
+            }
+
+            OnPropertyChanged(nameof(TextoBotonFiltroExtension));
+            OnPropertyChanged(nameof(HayExtensionesSeleccionadas));
+            OnPropertyChanged(nameof(ExtensionesSeleccionadas));
+            RefrescarSegunFiltros();
         }
 
         public void FiltrarPorExtension(string extension)
@@ -224,17 +576,105 @@ namespace Geomatica.Desktop.ViewModels
             }
 
             string extNorm = extension.StartsWith('.') ? extension.ToLowerInvariant() : "." + extension.ToLowerInvariant();
-            var match = ExtensionesDisponibles.ToList().FirstOrDefault(e => e.Extension.Equals(extNorm, StringComparison.OrdinalIgnoreCase));
-            if (match != null)
+            var opcionesSnapshot = ExtensionesDisponibles.ToList();
+            var match = opcionesSnapshot.FirstOrDefault(e => e.Extension.Equals(extNorm, StringComparison.OrdinalIgnoreCase));
+
+            _isUpdatingExtensionSelection = true;
+            try
             {
-                FiltroExtensionSeleccionado = match;
+                if (match != null)
+                {
+                    foreach (var opt in opcionesSnapshot)
+                    {
+                        opt.IsSelected = (opt == match);
+                    }
+                    FiltroExtensionSeleccionado = match;
+                }
+                else
+                {
+                    foreach (var opt in opcionesSnapshot)
+                    {
+                        opt.IsSelected = false;
+                    }
+                    var nuevaOpcion = new FiltroExtensionOption(extNorm, extNorm.ToUpperInvariant(), "📄", 0, isSelected: true);
+                    nuevaOpcion.PropertyChanged += (s, e) =>
+                    {
+                        if (e.PropertyName == nameof(FiltroExtensionOption.IsSelected))
+                        {
+                            OnOpcionExtensionSelectionChanged(nuevaOpcion);
+                        }
+                    };
+                    ExtensionesDisponibles.Add(nuevaOpcion);
+                    FiltroExtensionSeleccionado = nuevaOpcion;
+                }
+            }
+            finally
+            {
+                _isUpdatingExtensionSelection = false;
+            }
+
+            OnPropertyChanged(nameof(TextoBotonFiltroExtension));
+            OnPropertyChanged(nameof(HayExtensionesSeleccionadas));
+            OnPropertyChanged(nameof(ExtensionesSeleccionadas));
+            RefrescarSegunFiltros();
+        }
+
+        [RelayCommand]
+        public void IrAUbicacionEnApp()
+        {
+            if (Seleccionado == null) return;
+            var targetNodo = Seleccionado;
+            string targetFolder = "";
+            if (targetNodo is ArchivoVirtual av && !string.IsNullOrWhiteSpace(av.UbicacionRelativa) && av.UbicacionRelativa != "(raíz)")
+            {
+                targetFolder = av.UbicacionRelativa;
             }
             else
             {
-                var nuevaOpcion = new FiltroExtensionOption(extNorm, extNorm.ToUpperInvariant(), "📄", 0);
-                ExtensionesDisponibles.Add(nuevaOpcion);
-                FiltroExtensionSeleccionado = nuevaOpcion;
+                var dir = Path.GetDirectoryName(targetNodo.RutaRelativaVirtual.Replace('\\', '/'))?.Replace('\\', '/');
+                targetFolder = string.IsNullOrWhiteSpace(dir) || dir == "." ? "" : dir;
             }
+
+            // Quitar filtros de extensión si están activos
+            if (IsFiltradoPorExtension)
+            {
+                var opcionesSnapshot = ExtensionesDisponibles.ToList();
+                _isUpdatingExtensionSelection = true;
+                try
+                {
+                    foreach (var opt in opcionesSnapshot)
+                    {
+                        opt.IsSelected = string.IsNullOrEmpty(opt.Extension);
+                    }
+                    var opcionTodos = ExtensionesDisponibles.FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
+                    FiltroExtensionSeleccionado = opcionTodos;
+                }
+                finally
+                {
+                    _isUpdatingExtensionSelection = false;
+                }
+                OnPropertyChanged(nameof(TextoBotonFiltroExtension));
+                OnPropertyChanged(nameof(HayExtensionesSeleccionadas));
+                OnPropertyChanged(nameof(ExtensionesSeleccionadas));
+            }
+
+            // Limpiar texto de búsqueda si está activo
+            if (HasBusquedaTexto)
+            {
+                BusquedaTexto = "";
+            }
+
+            // Navegar a la carpeta contenedora en la app
+            if (string.Equals(RutaActual, targetFolder, StringComparison.OrdinalIgnoreCase))
+            {
+                RefrescarSegunFiltros();
+            }
+            else
+            {
+                RutaActual = targetFolder;
+            }
+
+            SelectedEntry = Items.OfType<NodoArchivoVirtual>().FirstOrDefault(n => n.Nombre.Equals(targetNodo.Nombre, StringComparison.OrdinalIgnoreCase));
         }
 
         [ObservableProperty] private FichaProyectoViewModel? proyectoDetalle;
@@ -277,6 +717,8 @@ namespace Geomatica.Desktop.ViewModels
                 if (!string.IsNullOrWhiteSpace(newValue.RutaArchivos))
                 {
                     _rutaRaizProyecto = newValue.RutaArchivos;
+                    _rutaPermisosCacheada = newValue.RutaArchivos;
+                    _permisosCacheados = newValue.PermisosCarpeta;
                     if (RutaActual == "") RefrescarSegunFiltros();
                     else RutaActual = ""; // raíz virtual
                 }
@@ -307,46 +749,91 @@ namespace Geomatica.Desktop.ViewModels
 
         public void ActualizarExtensionesDisponibles(FichaProyectoViewModel ficha)
         {
-            var seleccionadoActual = FiltroExtensionSeleccionado?.Extension;
-
-            ExtensionesDisponibles.Clear();
-            ExtensionesDisponibles.Add(new FiltroExtensionOption("", "Todos los archivos", "📁", 0));
-
-            var extensionesSnapshot = ficha.ExtensionesDetectadas.ToList();
-            foreach (var ext in extensionesSnapshot)
+            _isUpdatingExtensionSelection = true;
+            try
             {
-                ExtensionesDisponibles.Add(new FiltroExtensionOption(
-                    Extension: ext.Extension,
-                    Etiqueta: ext.TextoBadge,
-                    Icono: ext.Icono,
-                    Cantidad: ext.CantidadArchivos
-                ));
-            }
+                var seleccionadoActual = FiltroExtensionSeleccionado?.Extension;
+                var seleccionadasAnteriores = ExtensionesDisponibles
+                    .Where(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected)
+                    .Select(e => e.Extension)
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-            if (!string.IsNullOrEmpty(seleccionadoActual))
-            {
-                var match = ExtensionesDisponibles.ToList().FirstOrDefault(e => e.Extension.Equals(seleccionadoActual, StringComparison.OrdinalIgnoreCase));
-                if (match != null)
+                ExtensionesDisponibles.Clear();
+                var opcionTodos = new FiltroExtensionOption("", "Todos los archivos", "📁", 0, isSelected: true);
+                opcionTodos.PropertyChanged += (s, e) =>
                 {
-                    FiltroExtensionSeleccionado = match;
+                    if (e.PropertyName == nameof(FiltroExtensionOption.IsSelected))
+                    {
+                        OnOpcionExtensionSelectionChanged(opcionTodos);
+                    }
+                };
+                ExtensionesDisponibles.Add(opcionTodos);
+
+                var extensionesSnapshot = ficha.ExtensionesDetectadas.ToList();
+                foreach (var ext in extensionesSnapshot)
+                {
+                    bool wasSelected = seleccionadasAnteriores.Contains(ext.Extension) ||
+                                       (!string.IsNullOrEmpty(seleccionadoActual) && ext.Extension.Equals(seleccionadoActual, StringComparison.OrdinalIgnoreCase));
+
+                    var opt = new FiltroExtensionOption(
+                        extension: ext.Extension,
+                        etiqueta: ext.TextoBadge,
+                        icono: ext.Icono,
+                        cantidad: ext.CantidadArchivos,
+                        categoria: ext.Categoria,
+                        isSelected: wasSelected
+                    );
+                    opt.PropertyChanged += (s, e) =>
+                    {
+                        if (e.PropertyName == nameof(FiltroExtensionOption.IsSelected))
+                        {
+                            OnOpcionExtensionSelectionChanged(opt);
+                        }
+                    };
+                    ExtensionesDisponibles.Add(opt);
                 }
-                else if (FiltroExtensionSeleccionado != null)
+
+                bool hayAlgunaSeleccionada = ExtensionesDisponibles.Any(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected);
+                opcionTodos.IsSelected = !hayAlgunaSeleccionada;
+
+                if (!string.IsNullOrEmpty(seleccionadoActual))
                 {
-                    ExtensionesDisponibles.Add(FiltroExtensionSeleccionado);
+                    var match = ExtensionesDisponibles.FirstOrDefault(e => e.Extension.Equals(seleccionadoActual, StringComparison.OrdinalIgnoreCase));
+                    if (match != null)
+                    {
+                        FiltroExtensionSeleccionado = match;
+                    }
+                    else if (FiltroExtensionSeleccionado != null)
+                    {
+                        ExtensionesDisponibles.Add(FiltroExtensionSeleccionado);
+                    }
+                    else
+                    {
+                        FiltroExtensionSeleccionado = ExtensionesDisponibles[0];
+                    }
                 }
                 else
                 {
                     FiltroExtensionSeleccionado = ExtensionesDisponibles[0];
                 }
             }
-            else
+            finally
             {
-                FiltroExtensionSeleccionado = ExtensionesDisponibles[0];
+                _isUpdatingExtensionSelection = false;
             }
+
+            OnPropertyChanged(nameof(ExtensionesFiltrables));
+            OnPropertyChanged(nameof(HasExtensionesFiltrables));
+            OnPropertyChanged(nameof(TextoBotonFiltroExtension));
+            OnPropertyChanged(nameof(HayExtensionesSeleccionadas));
+            OnPropertyChanged(nameof(ExtensionesSeleccionadas));
         }
 
         public event EventHandler<string>? AbrirEnMapaSolicitado;
         public event EventHandler<(string RutaGdb, string? NombreCapa)>? AbrirCapaEnMapaSolicitado;
+
+        private string? _rutaPermisosCacheada;
+        private EvaluacionPermisos? _permisosCacheados;
 
         public ArchivosViewModel(
             FiltrosViewModel filtros,
@@ -361,7 +848,7 @@ namespace Geomatica.Desktop.ViewModels
             _notifications = notifications;
             _gdbImporter = gdbImporter ?? new FileGdbImporterService();
 
-            _filtros.BuscarSolicitado += async (_, __) => { RefrescarSegunFiltros(); await LoadProyectosIntoFiltrosAsync(); };
+            _filtros.BuscarSolicitado += (_, __) => RefrescarSegunFiltros();
             _filtros.PropertyChanged += Filtros_PropertyChanged;
 
             RefrescarSegunFiltros();
@@ -377,6 +864,11 @@ namespace Geomatica.Desktop.ViewModels
                 {
                     if (_filtros?.SelectedProyecto is FiltrosViewModel.ProyectoItem p && !string.IsNullOrWhiteSpace(p.Ruta))
                     {
+                        if (!string.Equals(_rutaRaizProyecto, p.Ruta, StringComparison.OrdinalIgnoreCase))
+                        {
+                            _permisosCacheados = null;
+                            _rutaPermisosCacheada = null;
+                        }
                         _rutaRaizProyecto = p.Ruta;
                         if (RutaActual == "") RefrescarSegunFiltros();
                         else RutaActual = "";
@@ -384,6 +876,8 @@ namespace Geomatica.Desktop.ViewModels
                     else if (_filtros?.SelectedProyecto == null)
                     {
                         _rutaRaizProyecto = "";
+                        _permisosCacheados = null;
+                        _rutaPermisosCacheada = null;
                         ProyectoDetalle = null;
                         if (RutaActual == "") RefrescarSegunFiltros();
                         else RutaActual = "";
@@ -417,7 +911,12 @@ namespace Geomatica.Desktop.ViewModels
         }
 
         [RelayCommand]
-        private void Refrescar() => RefrescarSegunFiltros();
+        private void Refrescar()
+        {
+            _permisosCacheados = null;
+            _rutaPermisosCacheada = null;
+            RefrescarSegunFiltros();
+        }
 
         private readonly object _refreshLock = new();
 
@@ -441,7 +940,17 @@ namespace Geomatica.Desktop.ViewModels
                     return;
                 }
 
-                var eval = _archivosService.EvaluarPermisosCarpeta(_rutaRaizProyecto);
+                EvaluacionPermisos eval;
+                if (_permisosCacheados != null && string.Equals(_rutaPermisosCacheada, _rutaRaizProyecto, StringComparison.OrdinalIgnoreCase))
+                {
+                    eval = _permisosCacheados;
+                }
+                else
+                {
+                    eval = _archivosService.EvaluarPermisosCarpeta(_rutaRaizProyecto);
+                    _rutaPermisosCacheada = _rutaRaizProyecto;
+                    _permisosCacheados = eval;
+                }
                 PermisosCarpeta = eval;
                 PuedeEscribir = eval.PuedeEscribir;
                 PuedeLeerArchivos = eval.PuedeLeer;
@@ -456,16 +965,34 @@ namespace Geomatica.Desktop.ViewModels
                     return;
                 }
 
-                bool hayFiltroExtension = FiltroExtensionSeleccionado != null && !string.IsNullOrEmpty(FiltroExtensionSeleccionado.Extension);
+                var seleccionadas = ExtensionesDisponibles
+                    .Where(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected)
+                    .Select(e => e.Extension)
+                    .ToList();
+
+                if (seleccionadas.Count == 0 && FiltroExtensionSeleccionado != null && !string.IsNullOrEmpty(FiltroExtensionSeleccionado.Extension))
+                {
+                    seleccionadas.Add(FiltroExtensionSeleccionado.Extension);
+                }
+
+                bool hayFiltroExtension = seleccionadas.Count > 0;
                 IsFiltradoPorExtension = hayFiltroExtension;
 
                 List<NodoArchivoVirtual> nodos;
                 if (hayFiltroExtension)
                 {
-                    var archivosFiltrados = _archivosService.ListarArchivosPorExtension(_rutaRaizProyecto, FiltroExtensionSeleccionado!.Extension);
+                    var archivosFiltrados = _archivosService.ListarArchivosPorExtensiones(_rutaRaizProyecto, seleccionadas);
                     nodos = archivosFiltrados.Cast<NodoArchivoVirtual>().ToList();
-                    string extMayus = FiltroExtensionSeleccionado.Extension.TrimStart('.').ToUpperInvariant();
-                    BannerFiltroTexto = $"Mostrando {nodos.Count} archivo(s) con formato .{extMayus} encontrados en todo el proyecto.";
+                    if (seleccionadas.Count == 1)
+                    {
+                        string extMayus = seleccionadas[0].TrimStart('.').ToUpperInvariant();
+                        BannerFiltroTexto = $"Mostrando {nodos.Count} archivo(s) con formato .{extMayus} encontrados en todo el proyecto.";
+                    }
+                    else
+                    {
+                        string listaExts = string.Join(", ", seleccionadas.Select(e => "." + e.TrimStart('.').ToUpperInvariant()));
+                        BannerFiltroTexto = $"Mostrando {nodos.Count} archivo(s) con formatos ({listaExts}) encontrados en todo el proyecto.";
+                    }
                 }
                 else
                 {
@@ -485,6 +1012,8 @@ namespace Geomatica.Desktop.ViewModels
                     nodos = nodos.Where(n => n.Nombre.Contains(BusquedaTexto, StringComparison.OrdinalIgnoreCase) || n.RutaRelativaVirtual.Contains(BusquedaTexto, StringComparison.OrdinalIgnoreCase)).ToList();
                 }
 
+                nodos = OrdenarNodos(nodos).ToList();
+
                 foreach (var nodo in nodos)
                 {
                     Items.Add(nodo);
@@ -492,8 +1021,16 @@ namespace Geomatica.Desktop.ViewModels
 
                 if (hayFiltroExtension)
                 {
-                    string extMayus = FiltroExtensionSeleccionado!.Extension.TrimStart('.').ToUpperInvariant();
-                    Estado = $"Filtro .{extMayus}: {Items.Count} archivo(s) listado(s)";
+                    if (seleccionadas.Count == 1)
+                    {
+                        string extMayus = seleccionadas[0].TrimStart('.').ToUpperInvariant();
+                        Estado = $"Filtro .{extMayus}: {Items.Count} archivo(s) listado(s)";
+                    }
+                    else
+                    {
+                        string listaExts = string.Join(", ", seleccionadas.Select(e => "." + e.TrimStart('.').ToUpperInvariant()));
+                        Estado = $"Filtro ({listaExts}): {Items.Count} archivo(s) listado(s)";
+                    }
                 }
                 else
                 {

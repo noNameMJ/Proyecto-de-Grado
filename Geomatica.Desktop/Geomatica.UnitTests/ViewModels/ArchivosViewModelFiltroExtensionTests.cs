@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -138,5 +138,108 @@ public class ArchivosViewModelFiltroExtensionTests : IDisposable
         // Assert final
         vm.BusquedaTexto.Should().BeEmpty();
         vm.HasBusquedaTexto.Should().BeFalse();
+    }
+
+    [Fact]
+    public void RefrescarSegunFiltros_ConMultiplesExtensiones_ListaArchivosDeAmbosTipos()
+    {
+        // Arrange
+        var subDir = Path.Combine(_tempDir, "Capas_Vectoriales");
+        Directory.CreateDirectory(subDir);
+
+        File.WriteAllText(Path.Combine(subDir, "predios.shp"), "shp");
+        File.WriteAllText(Path.Combine(subDir, "vias.gpkg"), "gpkg");
+        File.WriteAllText(Path.Combine(_tempDir, "ortofoto.tif"), "tif");
+        File.WriteAllText(Path.Combine(_tempDir, "informe.pdf"), "pdf");
+
+        var dto = new ProyectoDetalleDto(1, "Proyecto 1", null, null, null, _tempDir, -73.1, 7.1, "68001", "Bucaramanga");
+        var ficha = new FichaProyectoViewModel(dto, () => { });
+        ficha.ExtensionesDetectadas.Add(new FormatoExtensionItem(".shp", "Vectorial", "🗺️", "#E8F4EC", "#B2DFBF", "#1A5C34", 1, 100));
+        ficha.ExtensionesDetectadas.Add(new FormatoExtensionItem(".gpkg", "Vectorial", "🗺️", "#E8F4EC", "#B2DFBF", "#1A5C34", 1, 100));
+        ficha.ExtensionesDetectadas.Add(new FormatoExtensionItem(".tif", "Raster", "🛰️", "#E3F2FD", "#BBDEFB", "#1565C0", 1, 100));
+
+        var vm = new ArchivosViewModel(_filtros, _service, _repoMock.Object);
+        vm.ProyectoDetalle = ficha;
+
+        // Act: Seleccionar simultáneamente .shp y .gpkg
+        var optShp = vm.ExtensionesDisponibles.First(e => e.Extension == ".shp");
+        var optGpkg = vm.ExtensionesDisponibles.First(e => e.Extension == ".gpkg");
+        optShp.IsSelected = true;
+        optGpkg.IsSelected = true;
+
+        // Assert
+        vm.IsFiltradoPorExtension.Should().BeTrue();
+        vm.HayExtensionesSeleccionadas.Should().BeTrue();
+        vm.BannerFiltroTexto.Should().Contain("formatos");
+        vm.BannerFiltroTexto.Should().Contain(".SHP");
+        vm.BannerFiltroTexto.Should().Contain(".GPKG");
+
+        var itemsArchivos = vm.Items.OfType<Geomatica.Desktop.Models.ArchivoVirtual>().ToList();
+        itemsArchivos.Should().HaveCount(2);
+        itemsArchivos.Should().Contain(a => a.Nombre == "predios.shp");
+        itemsArchivos.Should().Contain(a => a.Nombre == "vias.gpkg");
+        itemsArchivos.Should().NotContain(a => a.Nombre == "ortofoto.tif");
+    }
+
+    [Fact]
+    public void FiltrarPorCategoria_Vectorial_SeleccionaFormatosVectoriales()
+    {
+        // Arrange
+        var dto = new ProyectoDetalleDto(1, "Proyecto 1", null, null, null, _tempDir, -73.1, 7.1, "68001", "Bucaramanga");
+        var ficha = new FichaProyectoViewModel(dto, () => { });
+        ficha.ExtensionesDetectadas.Add(new FormatoExtensionItem(".shp", "Vectorial", "🗺️", "#E8F4EC", "#B2DFBF", "#1A5C34", 1, 100));
+        ficha.ExtensionesDetectadas.Add(new FormatoExtensionItem(".gpkg", "Vectorial", "🗺️", "#E8F4EC", "#B2DFBF", "#1A5C34", 1, 100));
+        ficha.ExtensionesDetectadas.Add(new FormatoExtensionItem(".tif", "Raster", "🛰️", "#E3F2FD", "#BBDEFB", "#1565C0", 1, 100));
+
+        var vm = new ArchivosViewModel(_filtros, _service, _repoMock.Object);
+        vm.ProyectoDetalle = ficha;
+
+        // Act
+        vm.FiltrarPorCategoriaCommand.Execute("Vectorial");
+
+        // Assert
+        var optShp = vm.ExtensionesDisponibles.First(e => e.Extension == ".shp");
+        var optGpkg = vm.ExtensionesDisponibles.First(e => e.Extension == ".gpkg");
+        var optTif = vm.ExtensionesDisponibles.First(e => e.Extension == ".tif");
+
+        optShp.IsSelected.Should().BeTrue();
+        optGpkg.IsSelected.Should().BeTrue();
+        optTif.IsSelected.Should().BeFalse();
+        vm.IsFiltradoPorExtension.Should().BeTrue();
+    }
+
+    [Fact]
+    public void IrAUbicacionEnAppCommand_DesdeArchivoFiltrado_NavegaACarpetaYSeleccionaElemento()
+    {
+        // Arrange
+        var subDir = Path.Combine(_tempDir, "Datos_Espaciales", "Ortofotos");
+        Directory.CreateDirectory(subDir);
+
+        File.WriteAllText(Path.Combine(subDir, "mosaico1.tif"), "tif1");
+        File.WriteAllText(Path.Combine(_tempDir, "base.tif"), "tif2");
+
+        var dto = new ProyectoDetalleDto(1, "Proyecto 1", null, null, null, _tempDir, -73.1, 7.1, "68001", "Bucaramanga");
+        var ficha = new FichaProyectoViewModel(dto, () => { });
+        var vm = new ArchivosViewModel(_filtros, _service, _repoMock.Object);
+        vm.ProyectoDetalle = ficha;
+
+        // Filtrar por .tif
+        vm.FiltrarPorExtension(".tif");
+        vm.IsFiltradoPorExtension.Should().BeTrue();
+
+        var archivoTarget = vm.Items.OfType<Geomatica.Desktop.Models.ArchivoVirtual>().First(a => a.Nombre == "mosaico1.tif");
+        vm.SelectedEntry = archivoTarget;
+
+        // Assert inicial
+        vm.CanIrAUbicacion.Should().BeTrue();
+
+        // Act: Navegar a la ubicación dentro de la app
+        vm.IrAUbicacionEnAppCommand.Execute(null);
+
+        // Assert final
+        vm.IsFiltradoPorExtension.Should().BeFalse();
+        vm.RutaActual.Should().Be("Datos_Espaciales/Ortofotos");
+        vm.SelectedEntry.Should().NotBeNull();
+        ((Geomatica.Desktop.Models.ArchivoVirtual)vm.SelectedEntry!).Nombre.Should().Be("mosaico1.tif");
     }
 }

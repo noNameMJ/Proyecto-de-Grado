@@ -217,6 +217,28 @@ namespace Geomatica.Desktop.Services
         }
 
         /// <summary>
+        /// Comprueba si la ruta especificada existe físicamente y contiene al menos un archivo (ignorando sondas temporales .probe_).
+        /// </summary>
+        public virtual bool TieneArchivos(string? rutaRaizProyecto)
+        {
+            if (string.IsNullOrWhiteSpace(rutaRaizProyecto))
+                return false;
+
+            try
+            {
+                if (!Directory.Exists(rutaRaizProyecto))
+                    return false;
+
+                return Directory.EnumerateFiles(rutaRaizProyecto)
+                    .Any(f => !Path.GetFileName(f).StartsWith(".probe_", StringComparison.OrdinalIgnoreCase));
+            }
+            catch
+            {
+                return false;
+            }
+        }
+
+        /// <summary>
         /// Asegura que el directorio raíz del proyecto exista físicamente en disco o servidor,
         /// sin crear subcarpetas automáticas.
         /// </summary>
@@ -273,22 +295,22 @@ namespace Geomatica.Desktop.Services
 
         /// <summary>
         /// Gestiona la estructura de carpetas según las reglas de negocio:
-        /// - En caso de existir subcarpetas en la ruta seleccionada, NO crearlas.
-        /// - En caso de no existir subcarpetas, consulta mediante el delegado si se desean crear o no.
+        /// - En caso de existir subcarpetas o archivos en la ruta seleccionada, NO crearlas.
+        /// - En caso de no existir ni subcarpetas ni archivos, consulta mediante el delegado si se desean crear o no.
         /// </summary>
-        /// <returns>True si se crearon las subcarpetas estándar; False si no se crearon (o si ya existían).</returns>
+        /// <returns>True si se crearon las subcarpetas estándar; False si no se crearon (o si ya existían archivos/carpetas).</returns>
         public virtual bool GestionarEstructuraCarpetas(string rutaRaizProyecto, Func<bool> solicitarConfirmacion)
         {
             if (string.IsNullOrWhiteSpace(rutaRaizProyecto))
                 return false;
 
-            // 1. En caso de existir carpetas en la ruta seleccionada, NO crearlas
-            if (TieneCarpetas(rutaRaizProyecto))
+            // 1. En caso de existir carpetas o archivos en la ruta seleccionada, NO crear la estructura predeterminada
+            if (TieneCarpetas(rutaRaizProyecto) || TieneArchivos(rutaRaizProyecto))
             {
                 return false;
             }
 
-            // 2. En caso de no existir carpetas, preguntar si se desean o no
+            // 2. En caso de no existir carpetas ni archivos, preguntar si se desean o no
             bool deseaCrear = solicitarConfirmacion != null && solicitarConfirmacion();
             if (deseaCrear)
             {
@@ -355,7 +377,8 @@ namespace Geomatica.Desktop.Services
                     {
                         Nombre = dir.Name,
                         RutaRelativaVirtual = Path.Combine(rutaRelativa, dir.Name).Replace('\\', '/'),
-                        UbicacionRelativa = ubicacionActual
+                        UbicacionRelativa = ubicacionActual,
+                        FechaModificacion = dir.LastWriteTime
                     });
                 }
 
@@ -591,16 +614,24 @@ namespace Geomatica.Desktop.Services
         }
 
         /// <summary>
-        /// Lista recursivamente todos los archivos en el proyecto que coinciden con una extensión específica.
+        /// Lista recursivamente todos los archivos en el proyecto que coinciden con una o varias extensiones especificadas.
         /// Asigna a cada uno su subcarpeta relativa (UbicacionRelativa) para máxima transparencia al usuario.
         /// </summary>
-        public virtual List<ArchivoVirtual> ListarArchivosPorExtension(string rutaRaizProyecto, string extension, CancellationToken ct = default)
+        public virtual List<ArchivoVirtual> ListarArchivosPorExtensiones(string rutaRaizProyecto, IEnumerable<string> extensiones, CancellationToken ct = default)
         {
             var resultados = new List<ArchivoVirtual>();
-            if (string.IsNullOrWhiteSpace(rutaRaizProyecto) || !Directory.Exists(rutaRaizProyecto))
+            if (string.IsNullOrWhiteSpace(rutaRaizProyecto) || !Directory.Exists(rutaRaizProyecto) || extensiones == null)
                 return resultados;
 
-            string extFiltro = extension.StartsWith('.') ? extension : "." + extension;
+            var extSet = new HashSet<string>(
+                extensiones
+                    .Where(e => !string.IsNullOrWhiteSpace(e))
+                    .Select(e => e.StartsWith('.') ? e.ToLowerInvariant() : "." + e.ToLowerInvariant()),
+                StringComparer.OrdinalIgnoreCase
+            );
+
+            if (extSet.Count == 0)
+                return resultados;
 
             try
             {
@@ -614,11 +645,11 @@ namespace Geomatica.Desktop.Services
 
                 string raizNormalizada = dir.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
 
-                foreach (var file in dir.EnumerateFiles("*" + extFiltro, enumOptions))
+                foreach (var file in dir.EnumerateFiles("*.*", enumOptions))
                 {
                     if (ct.IsCancellationRequested) break;
 
-                    if (!file.Extension.Equals(extFiltro, StringComparison.OrdinalIgnoreCase))
+                    if (!extSet.Contains(file.Extension))
                         continue;
 
                     string fileDir = file.DirectoryName ?? "";
@@ -647,10 +678,20 @@ namespace Geomatica.Desktop.Services
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[ProyectoArchivosService] Error listando archivos por extensión {extension}: {ex.Message}");
+                Debug.WriteLine($"[ProyectoArchivosService] Error listando archivos por múltiples extensiones: {ex.Message}");
             }
 
             return resultados;
+        }
+
+        /// <summary>
+        /// Lista recursivamente todos los archivos en el proyecto que coinciden con una extensión específica.
+        /// Asigna a cada uno su subcarpeta relativa (UbicacionRelativa) para máxima transparencia al usuario.
+        /// </summary>
+        public virtual List<ArchivoVirtual> ListarArchivosPorExtension(string rutaRaizProyecto, string extension, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(extension)) return new List<ArchivoVirtual>();
+            return ListarArchivosPorExtensiones(rutaRaizProyecto, new[] { extension }, ct);
         }
 
         /// <summary>

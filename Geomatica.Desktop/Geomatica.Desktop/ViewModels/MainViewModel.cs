@@ -36,6 +36,7 @@ namespace Geomatica.Desktop.ViewModels
         private readonly ProyectoArchivosService _archivosService;
         private readonly IProyectoRepository _proyectoRepository;
         private readonly ObtenerHistorialProyectoUseCase? _historialUseCase;
+        private readonly ISeguridadService? _seguridadService;
         private readonly Func<MapaViewModel> _mapFactory;
         private readonly Func<ArchivosViewModel> _filesFactory;
         private readonly Func<Action, Action?, CrearProyectoViewModel> _createFactory;
@@ -55,7 +56,8 @@ namespace Geomatica.Desktop.ViewModels
             Func<Action, Action?, CrearProyectoViewModel> createFactory,
             Func<ProyectoDetalleDto, Action, Action?, EditarProyectoViewModel> editFactory,
             IProyectoRepository proyectoRepository,
-            ObtenerHistorialProyectoUseCase? historialUseCase = null)
+            ObtenerHistorialProyectoUseCase? historialUseCase = null,
+            ISeguridadService? seguridadService = null)
         {
             Filtros = filtros;
             Notifications = notifications;
@@ -63,6 +65,7 @@ namespace Geomatica.Desktop.ViewModels
             _archivosService = archivosService;
             _proyectoRepository = proyectoRepository;
             _historialUseCase = historialUseCase ?? new ObtenerHistorialProyectoUseCase(proyectoRepository);
+            _seguridadService = seguridadService;
             _mapFactory = mapFactory;
             _filesFactory = filesFactory;
             _createFactory = createFactory;
@@ -77,6 +80,8 @@ namespace Geomatica.Desktop.ViewModels
             {
                 _mapVM = _mapFactory();
                 _mapVM.FichaProyectoSolicitada += OnFichaProyectoSolicitada;
+                _mapVM.ArchivosVM.PropertyChanged -= FilesVM_PropertyChanged;
+                _mapVM.ArchivosVM.PropertyChanged += FilesVM_PropertyChanged;
             }
             CurrentView = _mapVM;
             OnPropertyChanged(nameof(CurrentViewName));
@@ -85,7 +90,12 @@ namespace Geomatica.Desktop.ViewModels
         [RelayCommand]
         private void ShowArchivos()
         {
-            _filesVM ??= _filesFactory();
+            if (_filesVM == null)
+            {
+                _filesVM = _filesFactory();
+                _filesVM.PropertyChanged -= FilesVM_PropertyChanged;
+                _filesVM.PropertyChanged += FilesVM_PropertyChanged;
+            }
             _filesVM.ProyectoDetalle = null;
             CurrentView = _filesVM;
             OnPropertyChanged(nameof(CurrentViewName));
@@ -107,6 +117,10 @@ namespace Geomatica.Desktop.ViewModels
             if (_mapVM == null) return;
 
             var archivosVm = _mapVM.ArchivosVM;
+            if (archivosVm.ProyectoDetalle != null)
+            {
+                archivosVm.ProyectoDetalle.EditarSolicitado -= OnEditarSolicitado;
+            }
 
             var fichaVm = new FichaProyectoViewModel(
                 detalle,
@@ -129,7 +143,8 @@ namespace Geomatica.Desktop.ViewModels
                 _archivosService,
                 Notifications,
                 _proyectoRepository,
-                _historialUseCase);
+                _historialUseCase,
+                _seguridadService);
             fichaVm.EditarSolicitado += OnEditarSolicitado;
 
             archivosVm.ProyectoDetalle = fichaVm;

@@ -23,8 +23,9 @@ namespace Geomatica.Desktop.ViewModels
             Action? onProyectoEditado = null,
             EliminarProyectoUseCase? eliminarProyectoUseCase = null,
             INotificationService? notifications = null,
-            ProyectoArchivosService? archivosService = null)
-            : base(actualizarProyectoUseCase, municipioRepository, proyecto, navigateBack, onProyectoEditado, eliminarProyectoUseCase, notifications, archivosService)
+            ProyectoArchivosService? archivosService = null,
+            ISeguridadService? seguridadService = null)
+            : base(actualizarProyectoUseCase, municipioRepository, proyecto, navigateBack, onProyectoEditado, eliminarProyectoUseCase, notifications, archivosService, seguridadService)
         {
         }
 
@@ -36,8 +37,9 @@ namespace Geomatica.Desktop.ViewModels
             Action? onProyectoEditado = null,
             EliminarProyectoUseCase? eliminarProyectoUseCase = null,
             INotificationService? notifications = null,
-            ProyectoArchivosService? archivosService = null)
-            : this(new ActualizarProyectoUseCase(proyectoRepository), municipioRepository, proyecto, navigateBack, onProyectoEditado, eliminarProyectoUseCase, notifications, archivosService)
+            ProyectoArchivosService? archivosService = null,
+            ISeguridadService? seguridadService = null)
+            : this(new ActualizarProyectoUseCase(proyectoRepository), municipioRepository, proyecto, navigateBack, onProyectoEditado, eliminarProyectoUseCase, notifications, archivosService, seguridadService)
         {
         }
     }

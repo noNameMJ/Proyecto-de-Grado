@@ -47,7 +47,7 @@ namespace Geomatica.Desktop.Views
             if (e.NewValue is FormularioProyectoViewModel vm)
             {
                 _currentVm = vm;
-                vm.MunicipioGeoJsonChanged += OnMunicipioGeoJsonChanged;
+                vm.MunicipiosGeoJsonListChanged += OnMunicipiosGeoJsonListChanged;
                 vm.CoordenadasPinChanged += OnCoordenadasPinChanged;
 
                 // Mostrar pin inicial si el ViewModel ya cuenta con coordenadas válidas (ej. modo edición)
@@ -68,7 +68,7 @@ namespace Geomatica.Desktop.Views
         {
             if (_currentVm != null)
             {
-                _currentVm.MunicipioGeoJsonChanged -= OnMunicipioGeoJsonChanged;
+                _currentVm.MunicipiosGeoJsonListChanged -= OnMunicipiosGeoJsonListChanged;
                 _currentVm.CoordenadasPinChanged -= OnCoordenadasPinChanged;
                 _currentVm = null;
             }
@@ -89,26 +89,40 @@ namespace Geomatica.Desktop.Views
             });
         }
 
-        private void OnMunicipioGeoJsonChanged(string? geoJson)
+        private void OnMunicipiosGeoJsonListChanged(System.Collections.Generic.IReadOnlyList<string> geoJsons)
         {
             Dispatcher.InvokeAsync(async () =>
             {
                 _municipioOverlay.Graphics.Clear();
-                if (string.IsNullOrEmpty(geoJson)) return;
-
-                var geom = MapaViewModel.ParseGeoJson(geoJson);
-                if (geom == null) return;
+                if (geoJsons == null || geoJsons.Count == 0) return;
 
                 var fill = new SimpleFillSymbol(SimpleFillSymbolStyle.Solid,
                     System.Drawing.Color.FromArgb(40, 0, 102, 51),
                     new SimpleLineSymbol(SimpleLineSymbolStyle.Solid,
                         System.Drawing.Color.FromArgb(180, 0, 102, 51), 1.5f));
 
-                _municipioOverlay.Graphics.Add(new Graphic(geom, fill));
+                var extents = new System.Collections.Generic.List<Envelope>();
 
-                if (geom.Extent != null)
+                foreach (var geoJson in geoJsons)
                 {
-                    await pickerMapView.SetViewpointGeometryAsync(geom.Extent, 40);
+                    if (string.IsNullOrWhiteSpace(geoJson)) continue;
+                    var geom = MapaViewModel.ParseGeoJson(geoJson);
+                    if (geom == null) continue;
+
+                    _municipioOverlay.Graphics.Add(new Graphic(geom, fill));
+                    if (geom.Extent != null)
+                    {
+                        extents.Add(geom.Extent);
+                    }
+                }
+
+                if (extents.Count > 0)
+                {
+                    var combinedExtent = GeometryEngine.CombineExtents(extents);
+                    if (combinedExtent != null)
+                    {
+                        await pickerMapView.SetViewpointGeometryAsync(combinedExtent, 40);
+                    }
                 }
             });
         }

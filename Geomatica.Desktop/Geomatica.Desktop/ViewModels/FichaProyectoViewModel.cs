@@ -12,6 +12,19 @@ using System.Windows;
 
 namespace Geomatica.Desktop.ViewModels
 {
+    public sealed record MunicipioFichaItem(string Codigo, string Nombre, string Departamento, string DisplayCompleto)
+    {
+        public bool HasDepartamento => !string.IsNullOrWhiteSpace(Departamento);
+        public string DepartamentoEtiqueta => HasDepartamento ? $" · {Departamento}" : string.Empty;
+        public bool HasCodigo => !string.IsNullOrWhiteSpace(Codigo);
+    }
+
+    public sealed record DepartamentoFiltroItem(string Nombre, int Cantidad, bool EsTodos = false)
+    {
+        public string DisplayTexto => $"{Nombre} ({Cantidad})";
+        public override string ToString() => DisplayTexto;
+    }
+
     public partial class FichaProyectoViewModel : ObservableObject
     {
         private readonly INotificationService? _notifications;
@@ -20,6 +33,7 @@ namespace Geomatica.Desktop.ViewModels
         private readonly ProyectoArchivosService _archivosService;
         private readonly IProyectoRepository? _proyectoRepository;
         private readonly ObtenerHistorialProyectoUseCase? _historialUseCase;
+        private readonly ISeguridadService _seguridadService;
         private readonly SemaphoreSlim _formatosLock = new(1, 1);
 
         public ProyectoDetalleDto Proyecto { get; }
@@ -39,12 +53,38 @@ namespace Geomatica.Desktop.ViewModels
         public string? MunicipioNombre => Proyecto.MunicipioNombre;
         public string? MunicipioCodigo => Proyecto.MunicipioCodigo;
 
+        public IReadOnlyList<MunicipioFichaItem> MunicipiosTodos { get; private set; } = Array.Empty<MunicipioFichaItem>();
+        public IReadOnlyList<DepartamentoFiltroItem> DepartamentosFiltro { get; private set; } = Array.Empty<DepartamentoFiltroItem>();
+
+        [ObservableProperty]
+        private ObservableCollection<MunicipioFichaItem> _municipiosFiltrados = new();
+
+        [ObservableProperty]
+        private string _filtroMunicipioTexto = string.Empty;
+
+        [ObservableProperty]
+        private DepartamentoFiltroItem? _filtroDepartamentoSeleccionado;
+
+        public int TotalMunicipios => MunicipiosTodos.Count;
+        public int TotalDepartamentos { get; private set; }
+        public bool EsPlurimunicipal => TotalMunicipios > 3;
+        public bool HasPocosMunicipios => TotalMunicipios > 0 && TotalMunicipios <= 3;
+        public bool HasMultiplesDepartamentos => TotalDepartamentos > 1;
+        public string MunicipioChipTexto { get; private set; } = string.Empty;
+        public string MunicipioChipTooltip { get; private set; } = string.Empty;
+
+        public bool HasFiltroMunicipioTexto => !string.IsNullOrWhiteSpace(FiltroMunicipioTexto);
+        public bool HasNoFiltroMunicipioTexto => string.IsNullOrWhiteSpace(FiltroMunicipioTexto);
+        public string TextoConteoMunicipiosFiltrados => $"Mostrando {MunicipiosFiltrados.Count} de {TotalMunicipios} municipios";
+        public bool TieneFiltroActivo => !string.IsNullOrWhiteSpace(FiltroMunicipioTexto) || (FiltroDepartamentoSeleccionado != null && !FiltroDepartamentoSeleccionado.EsTodos);
+        public bool HasNoMunicipiosFiltrados => MunicipiosFiltrados.Count == 0 && TotalMunicipios > 0;
+
         public bool HasDescripcion => !string.IsNullOrWhiteSpace(Proyecto.Descripcion);
-        public bool HasMunicipio => !string.IsNullOrWhiteSpace(Proyecto.MunicipioNombre);
+        public bool HasMunicipio => TotalMunicipios > 0 || !string.IsNullOrWhiteSpace(Proyecto.MunicipioNombre);
         public bool HasRutaArchivos => !string.IsNullOrWhiteSpace(Proyecto.RutaArchivos);
         public bool RutaExiste => PermisosCarpeta.PuedeLeer;
         public bool PuedeEditar => PermisosCarpeta.PuedeEscribir;
-        public bool PuedeEliminar => PermisosCarpeta.PuedeEscribir;
+        public bool PuedeEliminar => _seguridadService.PuedeEliminarProyectos();
         public bool PuedeLeerArchivos => PermisosCarpeta.PuedeLeer;
         public bool EsAccesoRestringido => PermisosCarpeta.Estado == EstadoPermisoCarpeta.AccesoRestringido;
         public bool EsSoloLectura => PermisosCarpeta.Estado == EstadoPermisoCarpeta.SoloLectura;
@@ -60,7 +100,7 @@ namespace Geomatica.Desktop.ViewModels
 
         public string TooltipEliminacion => PuedeEliminar
             ? "Eliminar este proyecto del sistema"
-            : "Acceso restringido: Se requieren permisos de escritura en la carpeta del servidor para eliminar este proyecto (geomaticaad@uis.edu.co).";
+            : "Acceso restringido: Solo los miembros del rol Administrador (grupo AD 'G4_GEOMATICA_ADM') pueden eliminar proyectos.";
 
         public string TooltipAbrirCarpeta => PuedeLeerArchivos
             ? "Abrir carpeta en el Explorador de Windows"
@@ -221,6 +261,8 @@ namespace Geomatica.Desktop.ViewModels
         public IAsyncRelayCommand DescargarZipCommand { get; }
         public IRelayCommand CopiarCoordenadasCommand { get; }
         public IRelayCommand CopiarRutaCommand { get; }
+        public IRelayCommand CopiarMunicipiosCommand { get; }
+        public IRelayCommand LimpiarFiltrosMunicipioCommand { get; }
 
         public event EventHandler<ProyectoDetalleDto>? EditarSolicitado;
 
@@ -232,7 +274,8 @@ namespace Geomatica.Desktop.ViewModels
             ProyectoArchivosService? archivosService = null,
             INotificationService? notifications = null,
             IProyectoRepository? proyectoRepository = null,
-            ObtenerHistorialProyectoUseCase? historialUseCase = null)
+            ObtenerHistorialProyectoUseCase? historialUseCase = null,
+            ISeguridadService? seguridadService = null)
         {
             Proyecto = proyecto;
             _eliminarProyectoUseCase = eliminarProyectoUseCase;
@@ -241,6 +284,7 @@ namespace Geomatica.Desktop.ViewModels
             _notifications = notifications;
             _proyectoRepository = proyectoRepository;
             _historialUseCase = historialUseCase ?? (proyectoRepository != null ? new ObtenerHistorialProyectoUseCase(proyectoRepository) : null);
+            _seguridadService = seguridadService ?? new WindowsSeguridadService();
 
             PermisosCarpeta = _archivosService.EvaluarPermisosCarpeta(proyecto.RutaArchivos);
 
@@ -251,6 +295,10 @@ namespace Geomatica.Desktop.ViewModels
             DescargarZipCommand = new AsyncRelayCommand(DescargarZipAsync, () => PuedeDescargarZip);
             CopiarCoordenadasCommand = new RelayCommand(CopiarCoordenadas);
             CopiarRutaCommand = new RelayCommand(CopiarRuta, () => !string.IsNullOrWhiteSpace(RutaArchivos));
+            CopiarMunicipiosCommand = new RelayCommand(CopiarMunicipios);
+            LimpiarFiltrosMunicipioCommand = new RelayCommand(LimpiarFiltrosMunicipio);
+
+            InicializarMunicipios(proyecto.MunicipioNombre, proyecto.MunicipioCodigo);
 
             if (!string.IsNullOrWhiteSpace(proyecto.PalabraClave))
             {
@@ -558,6 +606,198 @@ namespace Geomatica.Desktop.ViewModels
             {
                 CargandoFormatos = false;
                 _formatosLock.Release();
+            }
+        }
+
+        partial void OnFiltroMunicipioTextoChanged(string value)
+        {
+            OnPropertyChanged(nameof(HasFiltroMunicipioTexto));
+            OnPropertyChanged(nameof(HasNoFiltroMunicipioTexto));
+            AplicarFiltroMunicipios();
+        }
+
+        partial void OnFiltroDepartamentoSeleccionadoChanged(DepartamentoFiltroItem? value)
+        {
+            AplicarFiltroMunicipios();
+        }
+
+        private void AplicarFiltroMunicipios()
+        {
+            if (MunicipiosTodos == null || MunicipiosTodos.Count == 0)
+            {
+                MunicipiosFiltrados.Clear();
+                NotificarPropiedadesFiltro();
+                return;
+            }
+
+            var query = MunicipiosTodos.AsEnumerable();
+
+            if (FiltroDepartamentoSeleccionado != null && !FiltroDepartamentoSeleccionado.EsTodos)
+            {
+                query = query.Where(m => string.Equals(m.Departamento, FiltroDepartamentoSeleccionado.Nombre, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!string.IsNullOrWhiteSpace(FiltroMunicipioTexto))
+            {
+                var busqueda = FiltroMunicipioTexto.Trim();
+                query = query.Where(m =>
+                    m.Nombre.Contains(busqueda, StringComparison.OrdinalIgnoreCase) ||
+                    m.Departamento.Contains(busqueda, StringComparison.OrdinalIgnoreCase) ||
+                    m.Codigo.Contains(busqueda, StringComparison.OrdinalIgnoreCase));
+            }
+
+            var resultados = query.ToList();
+            MunicipiosFiltrados.Clear();
+            foreach (var item in resultados)
+            {
+                MunicipiosFiltrados.Add(item);
+            }
+
+            NotificarPropiedadesFiltro();
+        }
+
+        private void NotificarPropiedadesFiltro()
+        {
+            OnPropertyChanged(nameof(TextoConteoMunicipiosFiltrados));
+            OnPropertyChanged(nameof(TieneFiltroActivo));
+            OnPropertyChanged(nameof(HasNoMunicipiosFiltrados));
+        }
+
+        private void LimpiarFiltrosMunicipio()
+        {
+            FiltroMunicipioTexto = string.Empty;
+            FiltroDepartamentoSeleccionado = DepartamentosFiltro.FirstOrDefault(d => d.EsTodos) ?? DepartamentosFiltro.FirstOrDefault();
+        }
+
+        private void CopiarMunicipios()
+        {
+            var itemsACopiar = TieneFiltroActivo ? (IReadOnlyCollection<MunicipioFichaItem>)MunicipiosFiltrados : MunicipiosTodos;
+            if (itemsACopiar.Count == 0) return;
+            try
+            {
+                var sb = new System.Text.StringBuilder();
+                sb.AppendLine("Código DIVIPOLA\tMunicipio\tDepartamento");
+                foreach (var m in itemsACopiar)
+                {
+                    sb.AppendLine($"{m.Codigo}\t{m.Nombre}\t{m.Departamento}");
+                }
+                Clipboard.SetText(sb.ToString());
+                string mensaje = TieneFiltroActivo
+                    ? $"Se copiaron {itemsACopiar.Count} municipios filtrados al portapapeles."
+                    : $"Se copiaron {itemsACopiar.Count} municipios al portapapeles.";
+                _notifications?.ShowSuccess(mensaje, "Copiado");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[FichaProyecto] Error copiando listado de municipios: {ex}");
+            }
+        }
+
+        private void InicializarMunicipios(string? nombresRaw, string? codigosRaw)
+        {
+            if (string.IsNullOrWhiteSpace(nombresRaw))
+            {
+                MunicipiosTodos = Array.Empty<MunicipioFichaItem>();
+                DepartamentosFiltro = Array.Empty<DepartamentoFiltroItem>();
+                MunicipiosFiltrados.Clear();
+                TotalDepartamentos = 0;
+                MunicipioChipTexto = string.Empty;
+                MunicipioChipTooltip = string.Empty;
+                return;
+            }
+
+            var codigos = string.IsNullOrWhiteSpace(codigosRaw)
+                ? Array.Empty<string>()
+                : codigosRaw.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            List<string> partes;
+            if (nombresRaw.Contains(')'))
+            {
+                partes = System.Text.RegularExpressions.Regex.Split(nombresRaw.Trim(), @"(?<=\))\s*,\s*")
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .Select(p => p.Trim())
+                    .ToList();
+            }
+            else
+            {
+                partes = nombresRaw.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(p => !string.IsNullOrWhiteSpace(p))
+                    .ToList();
+            }
+
+            var items = new List<MunicipioFichaItem>(partes.Count);
+            for (int i = 0; i < partes.Count; i++)
+            {
+                var parte = partes[i];
+                var match = System.Text.RegularExpressions.Regex.Match(parte, @"^(?<nombre>.+?)\s*\((?<dpto>[^)]+)\)$");
+                string nombre;
+                string departamento;
+                if (match.Success)
+                {
+                    nombre = match.Groups["nombre"].Value.Trim();
+                    departamento = match.Groups["dpto"].Value.Trim();
+                }
+                else
+                {
+                    nombre = parte.Trim();
+                    departamento = string.Empty;
+                }
+
+                string codigo = (i < codigos.Length) ? codigos[i].Trim() : string.Empty;
+                string display = !string.IsNullOrEmpty(departamento) ? $"{nombre} ({departamento})" : nombre;
+                items.Add(new MunicipioFichaItem(codigo, nombre, departamento, display));
+            }
+
+            MunicipiosTodos = items;
+
+            var dptosConteo = items
+                .Where(m => !string.IsNullOrWhiteSpace(m.Departamento))
+                .GroupBy(m => m.Departamento, StringComparer.OrdinalIgnoreCase)
+                .OrderByDescending(g => g.Count())
+                .ThenBy(g => g.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(g => new DepartamentoFiltroItem(g.Key, g.Count()))
+                .ToList();
+
+            TotalDepartamentos = dptosConteo.Count;
+
+            var listaCombo = new List<DepartamentoFiltroItem>();
+            if (dptosConteo.Count > 1)
+            {
+                listaCombo.Add(new DepartamentoFiltroItem("Todos los departamentos", items.Count, EsTodos: true));
+            }
+            listaCombo.AddRange(dptosConteo);
+            DepartamentosFiltro = listaCombo;
+            FiltroDepartamentoSeleccionado = listaCombo.FirstOrDefault();
+
+            if (items.Count == 1)
+            {
+                MunicipioChipTexto = items[0].DisplayCompleto;
+                MunicipioChipTooltip = items[0].DisplayCompleto;
+            }
+            else if (items.Count <= 3)
+            {
+                MunicipioChipTexto = string.Join(", ", items.Select(m => m.Nombre));
+                MunicipioChipTooltip = string.Join(", ", items.Select(m => m.DisplayCompleto));
+            }
+            else
+            {
+                MunicipioChipTexto = TotalDepartamentos > 0
+                    ? $"{items.Count} municipios ({TotalDepartamentos} dptos.)"
+                    : $"{items.Count} municipios";
+
+                var dptosPrincipales = dptosConteo.Take(3).Select(d => $"{d.Nombre} ({d.Cantidad})");
+                string resumenDptos = string.Join(", ", dptosPrincipales);
+                if (dptosConteo.Count > 3) resumenDptos += "...";
+
+                MunicipioChipTooltip = $"{items.Count} municipios en {TotalDepartamentos} departamento(s).\n" +
+                                       $"Principales: {resumenDptos}\n" +
+                                       "Consulte la Sección 2 para explorar o filtrar la lista completa.";
+            }
+
+            MunicipiosFiltrados.Clear();
+            foreach (var item in items)
+            {
+                MunicipiosFiltrados.Add(item);
             }
         }
     }

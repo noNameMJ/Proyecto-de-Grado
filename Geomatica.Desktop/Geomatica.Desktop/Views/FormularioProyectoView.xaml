@@ -193,24 +193,81 @@
                              SECCIÓN 3: LOCALIZACIÓN GEOGRÁFICA Y TERRITORIAL
                              ═══════════════════════════════════════════════════════════ -->
                         <TextBlock Text="3. Localización Geográfica y Territorial" Style="{StaticResource SectionTitle}" Margin="0,0,0,12"/>
-                        <WrapPanel Orientation="Horizontal">
-                            <StackPanel Margin="0,0,20,0">
+                        <WrapPanel Orientation="Horizontal" VerticalAlignment="Bottom">
+                            <StackPanel Margin="0,0,16,0">
                                 <TextBlock Text="Departamento" Style="{StaticResource FieldLabel}"/>
                                 <ComboBox ItemsSource="{Binding Departamentos}"
                                           SelectedItem="{Binding SelectedDepartamento}"
                                           IsEnabled="{Binding PuedeEscribir}"
                                           DisplayMemberPath="Nombre" MinWidth="200"
-                                          Style="{StaticResource ModernComboBox}" Margin="0,0,0,14"/>
+                                          Style="{StaticResource ModernComboBox}" Margin="0,0,0,10"/>
                             </StackPanel>
-                            <StackPanel>
+                            <StackPanel Margin="0,0,16,0">
                                 <TextBlock Text="Municipio" Style="{StaticResource FieldLabel}"/>
                                 <ComboBox ItemsSource="{Binding Municipios}"
                                           SelectedItem="{Binding SelectedMunicipio}"
                                           IsEnabled="{Binding PuedeEscribir}"
                                           DisplayMemberPath="Nombre" MinWidth="200"
-                                          Style="{StaticResource ModernComboBox}" Margin="0,0,0,14"/>
+                                          Style="{StaticResource ModernComboBox}" Margin="0,0,0,10"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Bottom" Margin="0,0,0,10">
+                                <Button Content="➕ Agregar Municipio"
+                                        Command="{Binding AgregarMunicipioCommand}"
+                                        IsEnabled="{Binding PuedeEscribir}"
+                                        Style="{StaticResource SecondaryButton}"
+                                        Padding="12,7" FontSize="12" Margin="0,0,8,0"
+                                        ToolTip="Asociar este municipio al proyecto (permite proyectos multimunicipales o multidepartamentales)"/>
+                                <Button Content="🗺️ + Todo el Dpto."
+                                        Command="{Binding AgregarTodoDepartamentoCommand}"
+                                        IsEnabled="{Binding PuedeEscribir}"
+                                        Style="{StaticResource OutlineButton}"
+                                        Padding="10,7" FontSize="12"
+                                        ToolTip="Asociar todos los municipios del departamento seleccionado al proyecto"/>
                             </StackPanel>
                         </WrapPanel>
+
+                        <!-- Lista de chips de municipios asociados (soporte multidepartamental / multimunicipal) -->
+                        <Border Background="#F9FBFA" BorderBrush="#D1E7DD" BorderThickness="1" CornerRadius="6"
+                                Padding="12,10" Margin="0,0,0,14">
+                            <StackPanel>
+                                <DockPanel Margin="0,0,0,6">
+                                    <TextBlock Text="📍 Municipios / Departamentos Asociados al Proyecto:" FontSize="11.5" FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{Binding ResumenMunicipiosSeleccionados}" FontSize="11"
+                                               Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Right"
+                                               TextWrapping="Wrap" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                                </DockPanel>
+
+                                <ItemsControl x:Name="icMunicipiosSeleccionados"
+                                              ItemsSource="{Binding MunicipiosSeleccionados}"
+                                              Visibility="{Binding HasMunicipiosSeleccionados, Converter={StaticResource BoolToVis}}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel Orientation="Horizontal"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Border Background="#E8F4EC" BorderBrush="#B2DFBF" BorderThickness="1"
+                                                    CornerRadius="12" Padding="10,4" Margin="0,0,6,6">
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding EtiquetaCompleta}" FontSize="11.5" FontWeight="SemiBold"
+                                                               Foreground="#1A5C34" VerticalAlignment="Center"/>
+                                                    <Button Content="✕"
+                                                            Command="{Binding DataContext.QuitarMunicipioCommand, ElementName=icMunicipiosSeleccionados}"
+                                                            CommandParameter="{Binding}"
+                                                            IsEnabled="{Binding DataContext.PuedeEscribir, ElementName=icMunicipiosSeleccionados}"
+                                                            Style="{StaticResource GhostButton}"
+                                                            FontSize="10" FontWeight="Bold" Foreground="#1A5C34"
+                                                            Padding="4,0" Margin="6,0,0,0" VerticalAlignment="Center"
+                                                            ToolTip="Quitar este municipio del proyecto"/>
+                                                </StackPanel>
+                                            </Border>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Border>
 
                         <TextBlock Text="Coordenadas Geográficas (Opcional — WGS84)" Style="{StaticResource FieldLabel}" Margin="0,4,0,4"/>
                         <StackPanel Orientation="Horizontal">
@@ -251,10 +308,11 @@
 
                             <!-- Botón de eliminación visible únicamente en modo edición -->
                             <Button Content="🗑️ Eliminar Proyecto" Command="{Binding EliminarCommand}"
-                                    IsEnabled="{Binding PuedeEscribir}"
+                                    IsEnabled="{Binding PuedeEliminar}"
+                                    ToolTip="{Binding TooltipEliminar}"
                                     Visibility="{Binding EsModoEdicion, Converter={StaticResource BoolToVis}}"
                                     Style="{StaticResource DangerButton}" DockPanel.Dock="Right"
-                                    HorizontalAlignment="Right" ToolTip="Eliminar este proyecto del sistema"/>
+                                    HorizontalAlignment="Right"/>
                         </DockPanel>
 
                     </StackPanel>

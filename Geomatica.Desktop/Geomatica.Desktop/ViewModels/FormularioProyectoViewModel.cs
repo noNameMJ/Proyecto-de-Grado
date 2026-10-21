@@ -30,6 +30,7 @@ namespace Geomatica.Desktop.ViewModels
         private readonly EliminarProyectoUseCase? _eliminarProyectoUseCase;
         private readonly ProyectoArchivosService? _archivosService;
         private readonly ProyectoDetalleDto? _proyectoOriginal;
+        private readonly ISeguridadService? _seguridadService;
         private bool _isUpdatingProgrammatically;
 
         public bool EsModoEdicion { get; }
@@ -43,6 +44,10 @@ namespace Geomatica.Desktop.ViewModels
         public bool PuedeEscribir => PermisosCarpeta?.PuedeEscribir ?? true;
         public bool EsSoloLecturaOAccesoRestringido => EsModoEdicion && PermisosCarpeta != null && !PermisosCarpeta.PuedeEscribir;
         public string MensajeRestriccion => PermisosCarpeta?.Mensaje ?? string.Empty;
+        public bool PuedeEliminar => EsModoEdicion && (_seguridadService?.PuedeEliminarProyectos() ?? false);
+        public string TooltipEliminar => PuedeEliminar
+            ? "Eliminar este proyecto del sistema"
+            : "Acceso restringido: Solo los miembros del rol Administrador (grupo AD 'G4_GEOMATICA_ADM') pueden eliminar proyectos.";
 
         // ═══════════════════════════════════════════════════════════════
         // PROPIEDADES OBSERVABLES DEL FORMULARIO
@@ -78,10 +83,20 @@ namespace Geomatica.Desktop.ViewModels
 
         // Eventos para el control MapView en la vista
         public event Action<string?>? MunicipioGeoJsonChanged;
+        public event Action<System.Collections.Generic.IReadOnlyList<string>>? MunicipiosGeoJsonListChanged;
         public event Action<double?, double?>? CoordenadasPinChanged;
 
         public ObservableCollection<DepartamentoItem> Departamentos { get; } = new();
         public ObservableCollection<MunicipioItem> Municipios { get; } = new();
+        public ObservableCollection<MunicipioSeleccionadoItem> MunicipiosSeleccionados { get; } = new();
+
+        public bool HasMunicipiosSeleccionados => MunicipiosSeleccionados.Count > 0;
+        public string ResumenMunicipiosSeleccionados => MunicipiosSeleccionados.Count switch
+        {
+            0 => "Ningún municipio agregado aún (se usará el seleccionado en la lista o agregue varios para extensión multidepartamental).",
+            1 => $"1 municipio asociado: {MunicipiosSeleccionados[0].EtiquetaCompleta}",
+            _ => $"{MunicipiosSeleccionados.Count} municipios asociados ({MunicipiosSeleccionados.Select(m => m.DepartamentoCodigo).Distinct().Count()} departamento(s))"
+        };
 
         // Comandos del formulario
         public IAsyncRelayCommand GuardarCommand { get; }
@@ -90,6 +105,9 @@ namespace Geomatica.Desktop.ViewModels
         public IRelayCommand SeleccionarCarpetaCommand { get; }
         public IRelayCommand LimpiarFechaFinCommand { get; }
         public IAsyncRelayCommand ExtraerMetadatosCommand { get; }
+        public IAsyncRelayCommand AgregarMunicipioCommand { get; }
+        public IAsyncRelayCommand<MunicipioSeleccionadoItem> QuitarMunicipioCommand { get; }
+        public IAsyncRelayCommand AgregarTodoDepartamentoCommand { get; }
 
         /// <summary>
         /// Constructor para MODO CREACIÓN de nuevo proyecto.
@@ -110,12 +128,21 @@ namespace Geomatica.Desktop.ViewModels
             _onGuardadoExitoso = onProyectoCreado;
             _notifications = notifications;
 
+            MunicipiosSeleccionados.CollectionChanged += (_, _) =>
+            {
+                OnPropertyChanged(nameof(HasMunicipiosSeleccionados));
+                OnPropertyChanged(nameof(ResumenMunicipiosSeleccionados));
+            };
+
             GuardarCommand = new AsyncRelayCommand(GuardarAsync);
             CancelarCommand = new RelayCommand(_navigateBack);
             EliminarCommand = new AsyncRelayCommand(() => Task.CompletedTask);
             SeleccionarCarpetaCommand = new RelayCommand(SeleccionarCarpeta);
             LimpiarFechaFinCommand = new RelayCommand(() => FechaFin = null);
             ExtraerMetadatosCommand = new AsyncRelayCommand(ExtraerMetadatosAsync);
+            AgregarMunicipioCommand = new AsyncRelayCommand(AgregarMunicipioSeleccionadoAsync);
+            QuitarMunicipioCommand = new AsyncRelayCommand<MunicipioSeleccionadoItem>(QuitarMunicipioSeleccionadoAsync);
+            AgregarTodoDepartamentoCommand = new AsyncRelayCommand(AgregarTodoDepartamentoSeleccionadoAsync);
 
             _ = CargarDatosInicialesAsync(null);
         }
@@ -131,7 +158,8 @@ namespace Geomatica.Desktop.ViewModels
             Action? onProyectoEditado = null,
             EliminarProyectoUseCase? eliminarProyectoUseCase = null,
             INotificationService? notifications = null,
-            ProyectoArchivosService? archivosService = null)
+            ProyectoArchivosService? archivosService = null,
+            ISeguridadService? seguridadService = null)
         {
             EsModoEdicion = true;
             _actualizarProyectoUseCase = actualizarProyectoUseCase;
@@ -142,6 +170,13 @@ namespace Geomatica.Desktop.ViewModels
             _eliminarProyectoUseCase = eliminarProyectoUseCase;
             _notifications = notifications;
             _archivosService = archivosService;
+            _seguridadService = seguridadService ?? new WindowsSeguridadService();
+
+            MunicipiosSeleccionados.CollectionChanged += (_, _) =>
+            {
+                OnPropertyChanged(nameof(HasMunicipiosSeleccionados));
+                OnPropertyChanged(nameof(ResumenMunicipiosSeleccionados));
+            };
 
             if (_archivosService != null && !string.IsNullOrWhiteSpace(proyecto.RutaArchivos))
             {
@@ -173,12 +208,15 @@ namespace Geomatica.Desktop.ViewModels
             SeleccionarCarpetaCommand = new RelayCommand(SeleccionarCarpeta);
             LimpiarFechaFinCommand = new RelayCommand(() => FechaFin = null);
             ExtraerMetadatosCommand = new AsyncRelayCommand(ExtraerMetadatosAsync);
+            AgregarMunicipioCommand = new AsyncRelayCommand(AgregarMunicipioSeleccionadoAsync);
+            QuitarMunicipioCommand = new AsyncRelayCommand<MunicipioSeleccionadoItem>(QuitarMunicipioSeleccionadoAsync);
+            AgregarTodoDepartamentoCommand = new AsyncRelayCommand(AgregarTodoDepartamentoSeleccionadoAsync);
 
             _ = CargarDatosInicialesAsync(proyecto.MunicipioCodigo);
         }
 
         // ═══════════════════════════════════════════════════════════════
-        // CARGA Y CASCADA DE MUNICIPIOS (DIVIPOLA)
+        // CARGA Y CASCADA DE MUNICIPIOS (DIVIPOLA + MULTIDEPARTAMENTAL)
         // ═══════════════════════════════════════════════════════════════
 
         private async Task CargarDatosInicialesAsync(string? municipioCodigo)
@@ -195,20 +233,41 @@ namespace Geomatica.Desktop.ViewModels
 
                 if (!string.IsNullOrWhiteSpace(municipioCodigo))
                 {
-                    var dptoCodigo = municipioCodigo.Length >= 2 ? municipioCodigo.Substring(0, 2) : "";
-                    var dep = Departamentos.FirstOrDefault(d => d.Codigo == dptoCodigo);
-                    if (dep != null)
+                    var codigos = municipioCodigo
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    if (codigos.Count > 0)
                     {
-                        SelectedDepartamento = dep;
-                        var muns = await _municipioRepository.ListarMunicipiosPorDepartamentoAsync(dep.Codigo);
-                        Municipios.Clear();
-                        foreach (var m in muns)
+                        var todosMuns = await _municipioRepository.ListarTodosMunicipiosAsync();
+                        var mapaMuns = todosMuns.ToDictionary(m => m.Codigo, m => m.Nombre, StringComparer.OrdinalIgnoreCase);
+
+                        MunicipiosSeleccionados.Clear();
+                        foreach (var cod in codigos)
                         {
-                            var item = new MunicipioItem(m.Codigo, m.Nombre);
-                            Municipios.Add(item);
-                            if (m.Codigo == municipioCodigo)
+                            var dptoCod = cod.Length >= 2 ? cod.Substring(0, 2) : "";
+                            var dptoNombre = Departamentos.FirstOrDefault(d => d.Codigo == dptoCod)?.Nombre ?? dptoCod;
+                            var mpioNombre = mapaMuns.TryGetValue(cod, out var n) ? n : cod;
+                            MunicipiosSeleccionados.Add(new MunicipioSeleccionadoItem(cod, mpioNombre, dptoCod, dptoNombre));
+                        }
+
+                        var primerCodigo = codigos[0];
+                        var primerDpto = primerCodigo.Length >= 2 ? primerCodigo.Substring(0, 2) : "";
+                        var dep = Departamentos.FirstOrDefault(d => d.Codigo == primerDpto);
+                        if (dep != null)
+                        {
+                            SelectedDepartamento = dep;
+                            var muns = await _municipioRepository.ListarMunicipiosPorDepartamentoAsync(dep.Codigo);
+                            Municipios.Clear();
+                            foreach (var m in muns)
                             {
-                                SelectedMunicipio = item;
+                                var item = new MunicipioItem(m.Codigo, m.Nombre);
+                                Municipios.Add(item);
+                                if (m.Codigo == primerCodigo)
+                                {
+                                    SelectedMunicipio = item;
+                                }
                             }
                         }
                     }
@@ -223,15 +282,128 @@ namespace Geomatica.Desktop.ViewModels
                 _isUpdatingProgrammatically = false;
             }
 
-            if (SelectedMunicipio != null)
+            await ActualizarGeometriasMapaAsync();
+        }
+
+        private System.Collections.Generic.IReadOnlyList<string> ObtenerCodigosMunicipiosEfectivos()
+        {
+            if (MunicipiosSeleccionados.Count > 0)
             {
-                try
-                {
-                    var results = await _municipioRepository.PorCodigosGeoJsonAsync(new[] { SelectedMunicipio.Codigo });
-                    MunicipioGeoJsonChanged?.Invoke(results.FirstOrDefault()?.GeoJson);
-                }
-                catch { }
+                return MunicipiosSeleccionados.Select(m => m.Codigo).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
             }
+
+            if (SelectedMunicipio != null && !string.IsNullOrWhiteSpace(SelectedMunicipio.Codigo))
+            {
+                return new[] { SelectedMunicipio.Codigo };
+            }
+
+            return Array.Empty<string>();
+        }
+
+        private async Task ActualizarGeometriasMapaAsync()
+        {
+            var codigos = ObtenerCodigosMunicipiosEfectivos();
+            if (codigos.Count == 0)
+            {
+                MunicipioGeoJsonChanged?.Invoke(null);
+                MunicipiosGeoJsonListChanged?.Invoke(Array.Empty<string>());
+                return;
+            }
+
+            try
+            {
+                var results = await _municipioRepository.PorCodigosGeoJsonAsync(codigos);
+                var geoJsons = results
+                    .Where(r => !string.IsNullOrWhiteSpace(r.GeoJson))
+                    .Select(r => r.GeoJson!)
+                    .ToList();
+
+                MunicipioGeoJsonChanged?.Invoke(geoJsons.FirstOrDefault());
+                MunicipiosGeoJsonListChanged?.Invoke(geoJsons);
+            }
+            catch
+            {
+                MunicipioGeoJsonChanged?.Invoke(null);
+                MunicipiosGeoJsonListChanged?.Invoke(Array.Empty<string>());
+            }
+        }
+
+        private async Task AgregarMunicipioSeleccionadoAsync()
+        {
+            if (SelectedMunicipio == null || string.IsNullOrWhiteSpace(SelectedMunicipio.Codigo))
+            {
+                _notifications?.ShowWarning("Seleccione primero un departamento y un municipio para agregarlo a la lista.", "Agregar Municipio");
+                return;
+            }
+
+            var dptoCod = SelectedDepartamento?.Codigo ?? (SelectedMunicipio.Codigo.Length >= 2 ? SelectedMunicipio.Codigo.Substring(0, 2) : "");
+            var dptoNombre = SelectedDepartamento?.Nombre ?? Departamentos.FirstOrDefault(d => d.Codigo == dptoCod)?.Nombre ?? dptoCod;
+
+            if (MunicipiosSeleccionados.Any(m => string.Equals(m.Codigo, SelectedMunicipio.Codigo, StringComparison.OrdinalIgnoreCase)))
+            {
+                _notifications?.ShowInfo($"El municipio {SelectedMunicipio.Nombre} ({dptoNombre}) ya está en la lista del proyecto.", "Municipio ya agregado");
+                return;
+            }
+
+            MunicipiosSeleccionados.Add(new MunicipioSeleccionadoItem(
+                SelectedMunicipio.Codigo,
+                SelectedMunicipio.Nombre,
+                dptoCod,
+                dptoNombre));
+
+            await ActualizarGeometriasMapaAsync();
+        }
+
+        private async Task AgregarTodoDepartamentoSeleccionadoAsync()
+        {
+            if (SelectedDepartamento == null || string.IsNullOrWhiteSpace(SelectedDepartamento.Codigo))
+            {
+                _notifications?.ShowWarning("Seleccione primero un departamento para agregar todos sus municipios.", "Agregar Departamento");
+                return;
+            }
+
+            try
+            {
+                var muns = Municipios.Count > 0
+                    ? Municipios.Select(m => (m.Codigo, m.Nombre)).ToList()
+                    : (await _municipioRepository.ListarMunicipiosPorDepartamentoAsync(SelectedDepartamento.Codigo))
+                        .Select(m => (m.Codigo, m.Nombre)).ToList();
+
+                int agregados = 0;
+                foreach (var m in muns)
+                {
+                    if (!MunicipiosSeleccionados.Any(existing => string.Equals(existing.Codigo, m.Codigo, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        MunicipiosSeleccionados.Add(new MunicipioSeleccionadoItem(
+                            m.Codigo,
+                            m.Nombre,
+                            SelectedDepartamento.Codigo,
+                            SelectedDepartamento.Nombre));
+                        agregados++;
+                    }
+                }
+
+                if (agregados > 0)
+                {
+                    _notifications?.ShowSuccess($"Se agregaron {agregados} municipios del departamento de {SelectedDepartamento.Nombre}.", "Departamento Agregado");
+                    await ActualizarGeometriasMapaAsync();
+                }
+                else
+                {
+                    _notifications?.ShowInfo($"Todos los municipios de {SelectedDepartamento.Nombre} ya estaban agregados.", "Sin cambios");
+                }
+            }
+            catch (Exception ex)
+            {
+                _notifications?.ShowError($"Error al agregar municipios del departamento: {ex.Message}", "Error");
+            }
+        }
+
+        private async Task QuitarMunicipioSeleccionadoAsync(MunicipioSeleccionadoItem? item)
+        {
+            if (item == null) return;
+            MunicipiosSeleccionados.Remove(item);
+            await ActualizarGeometriasMapaAsync();
         }
 
         async partial void OnSelectedDepartamentoChanged(DepartamentoItem? value)
@@ -240,10 +412,15 @@ namespace Geomatica.Desktop.ViewModels
 
             Municipios.Clear();
             SelectedMunicipio = null;
-            MunicipioGeoJsonChanged?.Invoke(null);
-            LatStr = null;
-            LonStr = null;
-            CoordenadasPinChanged?.Invoke(null, null);
+
+            if (MunicipiosSeleccionados.Count == 0)
+            {
+                MunicipioGeoJsonChanged?.Invoke(null);
+                MunicipiosGeoJsonListChanged?.Invoke(Array.Empty<string>());
+                LatStr = null;
+                LonStr = null;
+                CoordenadasPinChanged?.Invoke(null, null);
+            }
 
             if (value == null || string.IsNullOrEmpty(value.Codigo)) return;
 
@@ -267,30 +444,41 @@ namespace Geomatica.Desktop.ViewModels
 
             if (value == null || string.IsNullOrEmpty(value.Codigo))
             {
-                MunicipioGeoJsonChanged?.Invoke(null);
+                if (MunicipiosSeleccionados.Count == 0)
+                {
+                    MunicipioGeoJsonChanged?.Invoke(null);
+                    MunicipiosGeoJsonListChanged?.Invoke(Array.Empty<string>());
+                }
                 return;
             }
 
             try
             {
-                var results = await _municipioRepository.PorCodigosGeoJsonAsync(new[] { value.Codigo });
-                MunicipioGeoJsonChanged?.Invoke(results.FirstOrDefault()?.GeoJson);
-
-                if (ObtenerCoordenadasActuales(out var lat, out var lon))
+                // Si el usuario aún no usa la lista multidepartamental, mantener el comportamiento clásico de 1 municipio
+                if (MunicipiosSeleccionados.Count == 0)
                 {
-                    var adentro = await _municipioRepository.PuntoEstaEnMunicipioAsync(value.Codigo, lon, lat);
-                    if (!adentro)
+                    await ActualizarGeometriasMapaAsync();
+
+                    if (ObtenerCoordenadasActuales(out var lat, out var lon))
                     {
-                        LatStr = null;
-                        LonStr = null;
-                        CoordenadasPinChanged?.Invoke(null, null);
-                        _notifications?.ShowWarning($"El punto marcado previamente no pertenece a {value.Nombre} y ha sido removido.", "Ubicación");
+                        var adentro = await _municipioRepository.PuntoEstaEnMunicipioAsync(value.Codigo, lon, lat);
+                        if (!adentro)
+                        {
+                            LatStr = null;
+                            LonStr = null;
+                            CoordenadasPinChanged?.Invoke(null, null);
+                            _notifications?.ShowWarning($"El punto marcado previamente no pertenece a {value.Nombre} y ha sido removido.", "Ubicación");
+                        }
                     }
                 }
             }
             catch
             {
-                MunicipioGeoJsonChanged?.Invoke(null);
+                if (MunicipiosSeleccionados.Count == 0)
+                {
+                    MunicipioGeoJsonChanged?.Invoke(null);
+                    MunicipiosGeoJsonListChanged?.Invoke(Array.Empty<string>());
+                }
             }
         }
 
@@ -323,7 +511,14 @@ namespace Geomatica.Desktop.ViewModels
                     return false;
                 }
 
-                if (SelectedMunicipio == null)
+                // Si ya pertenece a alguno de los municipios seleccionados en un proyecto multidepartamental/multimunicipal
+                if (MunicipiosSeleccionados.Any(m => string.Equals(m.Codigo, ubicacion.MunicipioCodigo, StringComparison.OrdinalIgnoreCase)))
+                {
+                    SetCoordenadas(lat, lon);
+                    return true;
+                }
+
+                if (SelectedMunicipio == null && MunicipiosSeleccionados.Count == 0)
                 {
                     await AsignarUbicacionDetectadaAsync(ubicacion);
                     SetCoordenadas(lat, lon);
@@ -331,13 +526,32 @@ namespace Geomatica.Desktop.ViewModels
                     return true;
                 }
 
-                if (SelectedMunicipio.Codigo == ubicacion.MunicipioCodigo)
+                if (MunicipiosSeleccionados.Count == 0 && SelectedMunicipio?.Codigo == ubicacion.MunicipioCodigo)
                 {
                     SetCoordenadas(lat, lon);
                     return true;
                 }
 
-                var msg = $"El punto seleccionado pertenece a {ubicacion.MunicipioNombre} ({ubicacion.DepartamentoNombre}), pero actualmente tiene seleccionado {SelectedMunicipio.Nombre}.\n\n¿Desea cambiar el municipio del proyecto a {ubicacion.MunicipioNombre}?";
+                if (MunicipiosSeleccionados.Count > 0)
+                {
+                    var msgMulti = $"El punto seleccionado pertenece a {ubicacion.MunicipioNombre} ({ubicacion.DepartamentoNombre}), que aún no está en la lista de municipios del proyecto.\n\n¿Desea agregar {ubicacion.MunicipioNombre} ({ubicacion.DepartamentoNombre}) al proyecto y ubicar allí el punto?";
+                    var resMulti = MessageBox.Show(msgMulti, "Agregar municipio al proyecto", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                    if (resMulti == MessageBoxResult.Yes)
+                    {
+                        MunicipiosSeleccionados.Add(new MunicipioSeleccionadoItem(
+                            ubicacion.MunicipioCodigo,
+                            ubicacion.MunicipioNombre,
+                            ubicacion.DepartamentoCodigo,
+                            ubicacion.DepartamentoNombre));
+                        await AsignarUbicacionDetectadaAsync(ubicacion);
+                        await ActualizarGeometriasMapaAsync();
+                        SetCoordenadas(lat, lon);
+                        return true;
+                    }
+                    return false;
+                }
+
+                var msg = $"El punto seleccionado pertenece a {ubicacion.MunicipioNombre} ({ubicacion.DepartamentoNombre}), pero actualmente tiene seleccionado {SelectedMunicipio!.Nombre}.\n\n¿Desea cambiar el municipio del proyecto a {ubicacion.MunicipioNombre}?";
                 var res = MessageBox.Show(msg, "Punto fuera del municipio", MessageBoxButton.YesNo, MessageBoxImage.Question);
                 if (res == MessageBoxResult.Yes)
                 {
@@ -394,10 +608,12 @@ namespace Geomatica.Desktop.ViewModels
                 }
 
                 SelectedMunicipio = Municipios.FirstOrDefault(m => m.Codigo == ubicacion.MunicipioCodigo);
-                if (SelectedMunicipio != null)
+                if (SelectedMunicipio != null && MunicipiosSeleccionados.Count == 0)
                 {
                     var results = await _municipioRepository.PorCodigosGeoJsonAsync(new[] { SelectedMunicipio.Codigo });
-                    MunicipioGeoJsonChanged?.Invoke(results.FirstOrDefault()?.GeoJson);
+                    var firstGeo = results.FirstOrDefault()?.GeoJson;
+                    MunicipioGeoJsonChanged?.Invoke(firstGeo);
+                    MunicipiosGeoJsonListChanged?.Invoke(firstGeo != null ? new[] { firstGeo } : Array.Empty<string>());
                 }
             }
             finally
@@ -541,11 +757,14 @@ namespace Geomatica.Desktop.ViewModels
                 return;
             }
 
-            if (SelectedMunicipio == null)
+            var codigosMunicipios = ObtenerCodigosMunicipiosEfectivos();
+            if (codigosMunicipios.Count == 0)
             {
-                _notifications?.ShowWarning("Debe seleccionar un municipio.", "Validación");
+                _notifications?.ShowWarning("Debe seleccionar al menos un municipio.", "Validación");
                 return;
             }
+
+            string codigosConcatenados = string.Join(",", codigosMunicipios);
 
             double? lat = null;
             double? lon = null;
@@ -564,10 +783,22 @@ namespace Geomatica.Desktop.ViewModels
             string? geom = null;
             if (lon.HasValue && lat.HasValue)
             {
-                var estaEnMunicipio = await _municipioRepository.PuntoEstaEnMunicipioAsync(SelectedMunicipio.Codigo, lon.Value, lat.Value);
-                if (!estaEnMunicipio)
+                bool estaEnAlgunMunicipio = false;
+                foreach (var cod in codigosMunicipios)
                 {
-                    _notifications?.ShowError($"Las coordenadas indicadas ({lat.Value:F6}, {lon.Value:F6}) no pertenecen al municipio seleccionado ({SelectedMunicipio.Nombre}). Corrija la ubicación antes de guardar.", "Error de Validación Espacial");
+                    if (await _municipioRepository.PuntoEstaEnMunicipioAsync(cod, lon.Value, lat.Value))
+                    {
+                        estaEnAlgunMunicipio = true;
+                        break;
+                    }
+                }
+
+                if (!estaEnAlgunMunicipio)
+                {
+                    var nombres = MunicipiosSeleccionados.Count > 0
+                        ? string.Join(", ", MunicipiosSeleccionados.Select(m => m.EtiquetaCompleta))
+                        : SelectedMunicipio?.Nombre ?? codigosConcatenados;
+                    _notifications?.ShowError($"Las coordenadas indicadas ({lat.Value:F6}, {lon.Value:F6}) no pertenecen a ninguno de los municipios asociados al proyecto ({nombres}). Corrija la ubicación o agregue el municipio correspondiente antes de guardar.", "Error de Validación Espacial");
                     return;
                 }
 
@@ -615,7 +846,7 @@ namespace Geomatica.Desktop.ViewModels
                         PalabraClave,
                         Ruta,
                         geom,
-                        SelectedMunicipio.Codigo,
+                        codigosConcatenados,
                         usuarioActual,
                         equipoActual,
                         FechaFin,
@@ -643,7 +874,7 @@ namespace Geomatica.Desktop.ViewModels
                         PalabraClave,
                         Ruta,
                         geom,
-                        SelectedMunicipio.Codigo,
+                        codigosConcatenados,
                         usuarioActual,
                         equipoActual,
                         FechaFin,
@@ -674,14 +905,10 @@ namespace Geomatica.Desktop.ViewModels
                 return;
             }
 
-            if (_archivosService != null && !string.IsNullOrWhiteSpace(_proyectoOriginal?.RutaArchivos))
+            if (!PuedeEliminar)
             {
-                var eval = _archivosService.EvaluarPermisosCarpeta(_proyectoOriginal.RutaArchivos);
-                if (!eval.PuedeEscribir)
-                {
-                    _notifications?.ShowError("No tiene permisos de escritura en la carpeta del servidor para eliminar este proyecto (geomaticaad@uis.edu.co).", "Acceso Restringido");
-                    return;
-                }
+                _notifications?.ShowError(TooltipEliminar, "Acceso Restringido");
+                return;
             }
 
             var confirmResult = MessageBox.Show(
@@ -711,5 +938,11 @@ namespace Geomatica.Desktop.ViewModels
 
         public record DepartamentoItem(string Codigo, string Nombre);
         public record MunicipioItem(string Codigo, string Nombre);
+        public record MunicipioSeleccionadoItem(string Codigo, string Nombre, string DepartamentoCodigo, string DepartamentoNombre)
+        {
+            public string EtiquetaCompleta => string.IsNullOrWhiteSpace(DepartamentoNombre)
+                ? Nombre
+                : $"{Nombre} ({DepartamentoNombre})";
+        }
     }
 }

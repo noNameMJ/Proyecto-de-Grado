@@ -70,14 +70,20 @@ namespace Geomatica.Data.Repositories
                 WHERE p.geom IS NOT NULL
                   AND (@desde IS NULL OR p.fecha_inicio >= @desde)
                   AND (@hasta IS NULL OR p.fecha_inicio <= @hasta)
-                  AND (@texto IS NULL OR p.palabra_clave ILIKE '%' || @texto || '%')
-                  AND (@dpto IS NULL OR m.dpto_ccdgo = @dpto)
+                  AND (@texto IS NULL OR (p.palabra_clave ILIKE '%' || @texto || '%' OR p.titulo ILIKE '%' || @texto || '%' OR p.formato_datos ILIKE '%' || @texto || '%'))
+                  AND (@dpto IS NULL OR m.dpto_ccdgo = @dpto OR pm.mpio_cdpmp LIKE @dpto || '%' OR m.mpio_cdpmp LIKE @dpto || '%')
                   AND (@mpio IS NULL OR pm.mpio_cdpmp = @mpio)
                   AND (
                       @area IS NULL
                       OR ST_Intersects(
                           ST_Transform(p.geom, 4326),
                           ST_SetSRID(ST_GeomFromGeoJSON(CAST(@area AS text)), 4326)
+                      )
+                      OR (
+                          m.geom IS NOT NULL AND ST_Intersects(
+                              ST_Transform(m.geom, 4326),
+                              ST_SetSRID(ST_GeomFromGeoJSON(CAST(@area AS text)), 4326)
+                          )
                       )
                   )
                 GROUP BY p.id_proyecto, p.titulo, p.fecha_inicio, p.palabra_clave, p.ruta_archivos, p.geom
@@ -138,7 +144,7 @@ namespace Geomatica.Data.Repositories
                 WHERE p.geom IS NOT NULL
                   AND (@desde IS NULL OR p.fecha_inicio >= @desde)
                   AND (@hasta IS NULL OR p.fecha_inicio <= @hasta)
-                  AND (@kw IS NULL OR p.palabra_clave ILIKE '%'||@kw||'%')
+                  AND (@kw IS NULL OR (p.palabra_clave ILIKE '%'||@kw||'%' OR p.titulo ILIKE '%'||@kw||'%' OR p.formato_datos ILIKE '%'||@kw||'%'))
                   AND (
                       @area IS NULL
                       OR ST_Intersects(
@@ -210,12 +216,14 @@ namespace Geomatica.Data.Repositories
                        ST_Y(ST_Centroid(ST_Transform(p.geom, 4326))) AS lat,
                        p.ruta_archivos
                 FROM geovisor.proyecto p
-                JOIN geovisor.vw_proyecto_departamento vpd ON vpd.id_proyecto = p.id_proyecto
+                JOIN geovisor.proyecto_municipio pm ON pm.id_proyecto = p.id_proyecto
+                JOIN geovisor.municipio m ON m.mpio_cdpmp = pm.mpio_cdpmp
                 WHERE p.geom IS NOT NULL
-                  AND vpd.dpto_ccdgo = @dpto
+                  AND (m.dpto_ccdgo = @dpto OR pm.mpio_cdpmp LIKE @dpto || '%' OR m.mpio_cdpmp LIKE @dpto || '%')
                   AND (@desde IS NULL OR p.fecha_inicio >= @desde)
                   AND (@hasta IS NULL OR p.fecha_inicio <= @hasta)
-                  AND (@kw IS NULL OR p.palabra_clave ILIKE '%'||@kw||'%')
+                  AND (@kw IS NULL OR (p.palabra_clave ILIKE '%'||@kw||'%' OR p.titulo ILIKE '%'||@kw||'%' OR p.formato_datos ILIKE '%'||@kw||'%'))
+                GROUP BY p.id_proyecto, p.titulo, p.geom, p.ruta_archivos, p.fecha_inicio
                 ORDER BY p.fecha_inicio NULLS LAST, p.id_proyecto;";
 
             Debug.WriteLine($"[ProyectoRepository] Conectando a Postgres {_debugInfo} (ListarPorDepartamento)");
@@ -284,7 +292,8 @@ namespace Geomatica.Data.Repositories
                   AND pm.mpio_cdpmp = @mpio
                   AND (@desde IS NULL OR p.fecha_inicio >= @desde)
                   AND (@hasta IS NULL OR p.fecha_inicio <= @hasta)
-                  AND (@kw IS NULL OR p.palabra_clave ILIKE '%'||@kw||'%')
+                  AND (@kw IS NULL OR (p.palabra_clave ILIKE '%'||@kw||'%' OR p.titulo ILIKE '%'||@kw||'%' OR p.formato_datos ILIKE '%'||@kw||'%'))
+                GROUP BY p.id_proyecto, p.titulo, p.geom, p.ruta_archivos, p.fecha_inicio
                 ORDER BY p.fecha_inicio NULLS LAST, p.id_proyecto;";
 
             using var con = new NpgsqlConnection(_cn);
@@ -361,16 +370,26 @@ namespace Geomatica.Data.Repositories
                     Debug.WriteLine($"[ProyectoRepository] Proyecto insertado con ID: {newId}");
                 }
 
-                // 2. Insertar relación con municipio
-                if (!string.IsNullOrEmpty(municipioCodigo))
+                // 2. Insertar relación con municipio(s) (soporta un código o múltiples códigos separados por coma)
+                if (!string.IsNullOrWhiteSpace(municipioCodigo))
                 {
-                     var sqlRel = @"
+                    var codigosMpio = municipioCodigo
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
+                    const string sqlRel = @"
                         INSERT INTO geovisor.proyecto_municipio (id_proyecto, mpio_cdpmp)
-                        VALUES (@id, @mun);";
-                     using var cmdRel = new NpgsqlCommand(sqlRel, con, tran);
-                     cmdRel.Parameters.AddWithValue("@id", newId);
-                     cmdRel.Parameters.AddWithValue("@mun", municipioCodigo);
-                     await cmdRel.ExecuteNonQueryAsync();
+                        VALUES (@id, @mun)
+                        ON CONFLICT DO NOTHING;";
+
+                    foreach (var cod in codigosMpio)
+                    {
+                        using var cmdRel = new NpgsqlCommand(sqlRel, con, tran);
+                        cmdRel.Parameters.AddWithValue("@id", newId);
+                        cmdRel.Parameters.AddWithValue("@mun", cod);
+                        await cmdRel.ExecuteNonQueryAsync();
+                    }
                 }
 
                 // 3. Registrar auditoría de creación
@@ -384,6 +403,7 @@ namespace Geomatica.Data.Repositories
 
                 try
                 {
+                    await tran.SaveAsync("audit_sp");
                     using var cmdAudit = new NpgsqlCommand(sqlAudit, con, tran);
                     cmdAudit.Parameters.AddWithValue("@id", newId);
                     cmdAudit.Parameters.AddWithValue("@titulo", titulo);
@@ -391,9 +411,11 @@ namespace Geomatica.Data.Repositories
                     cmdAudit.Parameters.AddWithValue("@machine", machineAudit);
                     cmdAudit.Parameters.AddWithValue("@detalles", (object?)detallesAudit ?? DBNull.Value);
                     await cmdAudit.ExecuteNonQueryAsync();
+                    await tran.ReleaseAsync("audit_sp");
                 }
                 catch (Exception exAudit)
                 {
+                    try { await tran.RollbackAsync("audit_sp"); } catch { }
                     Debug.WriteLine($"[ProyectoRepository] Advertencia al registrar auditoría en inserción: {exAudit.Message}");
                 }
 
@@ -469,8 +491,14 @@ namespace Geomatica.Data.Repositories
                 SELECT p.id_proyecto, p.titulo, p.descripcion, p.fecha_inicio, p.palabra_clave, p.ruta_archivos,
                        ST_X(ST_Centroid(ST_Transform(p.geom, 4326))) AS lon,
                        ST_Y(ST_Centroid(ST_Transform(p.geom, 4326))) AS lat,
-                       pm.mpio_cdpmp,
-                       m.mpio_cnmbr,
+                       STRING_AGG(m.mpio_cdpmp, ', ' ORDER BY d.dpto_cnmbr, m.mpio_cnmbr) AS mpio_codigos,
+                       STRING_AGG(
+                           CASE WHEN d.dpto_cnmbr IS NOT NULL
+                                THEN m.mpio_cnmbr || ' (' || d.dpto_cnmbr || ')'
+                                ELSE m.mpio_cnmbr
+                           END,
+                           ', ' ORDER BY d.dpto_cnmbr, m.mpio_cnmbr
+                       ) AS mpio_nombres,
                        p.fecha_fin,
                        p.entidades,
                        p.representante,
@@ -481,8 +509,9 @@ namespace Geomatica.Data.Repositories
                 FROM geovisor.proyecto p
                 LEFT JOIN geovisor.proyecto_municipio pm ON pm.id_proyecto = p.id_proyecto
                 LEFT JOIN geovisor.municipio m ON m.mpio_cdpmp = pm.mpio_cdpmp
+                LEFT JOIN geovisor.departamento d ON d.dpto_ccdgo = m.dpto_ccdgo
                 WHERE p.id_proyecto = @id
-                LIMIT 1;";
+                GROUP BY p.id_proyecto;";
 
             using var con = new NpgsqlConnection(_cn);
             await con.OpenAsync();
@@ -561,8 +590,13 @@ namespace Geomatica.Data.Repositories
                     await cmd.ExecuteNonQueryAsync();
                 }
 
-                if (!string.IsNullOrEmpty(municipioCodigo))
+                if (!string.IsNullOrWhiteSpace(municipioCodigo))
                 {
+                    var codigosMpio = municipioCodigo
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Distinct(StringComparer.OrdinalIgnoreCase)
+                        .ToList();
+
                     const string sqlDeleteRel = "DELETE FROM geovisor.proyecto_municipio WHERE id_proyecto = @id;";
                     using (var cmdDel = new NpgsqlCommand(sqlDeleteRel, con, tran))
                     {
@@ -570,11 +604,16 @@ namespace Geomatica.Data.Repositories
                         await cmdDel.ExecuteNonQueryAsync();
                     }
 
-                    const string sqlInsertRel = "INSERT INTO geovisor.proyecto_municipio (id_proyecto, mpio_cdpmp) VALUES (@id, @mun);";
-                    using (var cmdIns = new NpgsqlCommand(sqlInsertRel, con, tran))
+                    const string sqlInsertRel = @"
+                        INSERT INTO geovisor.proyecto_municipio (id_proyecto, mpio_cdpmp)
+                        VALUES (@id, @mun)
+                        ON CONFLICT DO NOTHING;";
+
+                    foreach (var cod in codigosMpio)
                     {
+                        using var cmdIns = new NpgsqlCommand(sqlInsertRel, con, tran);
                         cmdIns.Parameters.AddWithValue("@id", idProyecto);
-                        cmdIns.Parameters.AddWithValue("@mun", municipioCodigo);
+                        cmdIns.Parameters.AddWithValue("@mun", cod);
                         await cmdIns.ExecuteNonQueryAsync();
                     }
                 }
@@ -590,6 +629,7 @@ namespace Geomatica.Data.Repositories
 
                 try
                 {
+                    await tran.SaveAsync("audit_sp");
                     using var cmdAudit = new NpgsqlCommand(sqlAudit, con, tran);
                     cmdAudit.Parameters.AddWithValue("@id", idProyecto);
                     cmdAudit.Parameters.AddWithValue("@titulo", titulo);
@@ -597,9 +637,11 @@ namespace Geomatica.Data.Repositories
                     cmdAudit.Parameters.AddWithValue("@machine", machineAudit);
                     cmdAudit.Parameters.AddWithValue("@detalles", (object?)detallesAudit ?? DBNull.Value);
                     await cmdAudit.ExecuteNonQueryAsync();
+                    await tran.ReleaseAsync("audit_sp");
                 }
                 catch (Exception exAudit)
                 {
+                    try { await tran.RollbackAsync("audit_sp"); } catch { }
                     Debug.WriteLine($"[ProyectoRepository] Advertencia al registrar auditoría en actualización: {exAudit.Message}");
                 }
 
@@ -651,15 +693,18 @@ namespace Geomatica.Data.Repositories
 
                 try
                 {
+                    await tran.SaveAsync("audit_sp", ct);
                     using var cmdAudit = new NpgsqlCommand(sqlAudit, con, tran);
                     cmdAudit.Parameters.AddWithValue("@id", idProyecto);
                     cmdAudit.Parameters.AddWithValue("@titulo", tituloProyecto);
                     cmdAudit.Parameters.AddWithValue("@user", userAudit);
                     cmdAudit.Parameters.AddWithValue("@machine", machineAudit);
                     await cmdAudit.ExecuteNonQueryAsync(ct);
+                    await tran.ReleaseAsync("audit_sp", ct);
                 }
                 catch (Exception exAudit)
                 {
+                    try { await tran.RollbackAsync("audit_sp", ct); } catch { }
                     Debug.WriteLine($"[ProyectoRepository] Advertencia al registrar auditoría en eliminación: {exAudit.Message}");
                 }
 

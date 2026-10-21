@@ -46,12 +46,80 @@
                     <TextBlock Text="Tipo:" VerticalAlignment="Center" FontWeight="SemiBold"
                                Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
                                FontFamily="{StaticResource AppFont}" Margin="0,0,6,0"/>
-                    <ComboBox ItemsSource="{Binding ExtensionesDisponibles}"
-                              SelectedItem="{Binding FiltroExtensionSeleccionado, Mode=TwoWay}"
-                              DisplayMemberPath="DisplayTexto"
-                              Width="140" VerticalAlignment="Center"
-                              ToolTip="Filtrar y listar archivos por extensión en todo el proyecto"
-                              Margin="0,0,8,0" Padding="4,2"/>
+                    <Grid VerticalAlignment="Center" Margin="0,0,8,0">
+                        <Button x:Name="btnFiltroTipos"
+                                Content="{Binding TextoBotonFiltroExtension}"
+                                Command="{Binding ToggleMenuFiltroTiposCommand}"
+                                Style="{StaticResource ToolbarButton}"
+                                Padding="8,3" FontSize="11.5"
+                                ToolTip="Filtrar archivos por uno o varios formatos en todo el proyecto"/>
+                        <Popup IsOpen="{Binding IsMenuFiltroTiposAbierto, Mode=TwoWay}"
+                               PlacementTarget="{Binding ElementName=btnFiltroTipos}"
+                               Placement="Bottom" StaysOpen="False" AllowsTransparency="True">
+                            <Border Background="White" BorderBrush="{StaticResource BorderSubtleBrush}"
+                                    BorderThickness="1" CornerRadius="6" Padding="10"
+                                    Width="290" MaxHeight="380" Margin="0,4,0,0">
+                                <Border.Effect>
+                                    <DropShadowEffect BlurRadius="12" Direction="270" ShadowDepth="3" Opacity="0.18"/>
+                                </Border.Effect>
+                                <Grid>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="Auto"/>
+                                        <RowDefinition Height="*"/>
+                                        <RowDefinition Height="Auto"/>
+                                    </Grid.RowDefinitions>
+
+                                    <!-- Chips de categorías SIG -->
+                                    <StackPanel Grid.Row="0" Margin="0,0,0,8">
+                                        <TextBlock Text="Filtros rápidos por categoría:" FontSize="11" FontWeight="SemiBold"
+                                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,6"/>
+                                        <WrapPanel>
+                                            <Button Content="Todos" Command="{Binding LimpiarFiltroExtensionCommand}"
+                                                    Style="{StaticResource OutlineButton}" Padding="6,2" FontSize="10.5" Margin="0,0,4,4"/>
+                                            <Button Content="🗺️ Vectorial" Command="{Binding FiltrarPorCategoriaCommand}" CommandParameter="Vectorial"
+                                                    Style="{StaticResource OutlineButton}" Padding="6,2" FontSize="10.5" Margin="0,0,4,4"/>
+                                            <Button Content="🛰️ Ráster" Command="{Binding FiltrarPorCategoriaCommand}" CommandParameter="Raster"
+                                                    Style="{StaticResource OutlineButton}" Padding="6,2" FontSize="10.5" Margin="0,0,4,4"/>
+                                            <Button Content="☁️ LiDAR" Command="{Binding FiltrarPorCategoriaCommand}" CommandParameter="LiDAR"
+                                                    Style="{StaticResource OutlineButton}" Padding="6,2" FontSize="10.5" Margin="0,0,4,4"/>
+                                            <Button Content="📐 CAD" Command="{Binding FiltrarPorCategoriaCommand}" CommandParameter="CAD"
+                                                    Style="{StaticResource OutlineButton}" Padding="6,2" FontSize="10.5" Margin="0,0,4,4"/>
+                                            <Button Content="📄 Docs" Command="{Binding FiltrarPorCategoriaCommand}" CommandParameter="Docs"
+                                                    Style="{StaticResource OutlineButton}" Padding="6,2" FontSize="10.5" Margin="0,0,4,4"/>
+                                        </WrapPanel>
+                                    </StackPanel>
+
+                                    <Separator Grid.Row="1" Style="{StaticResource ModernSeparator}" Margin="0,0,0,6"/>
+
+                                    <!-- Lista de extensiones detectadas -->
+                                    <ScrollViewer Grid.Row="2" MaxHeight="190" VerticalScrollBarVisibility="Auto">
+                                        <ItemsControl ItemsSource="{Binding ExtensionesFiltrables}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}"
+                                                              Margin="0,3" VerticalAlignment="Center">
+                                                        <TextBlock Text="{Binding DisplayTexto}" FontSize="11.5"
+                                                                   FontFamily="{StaticResource AppFont}"/>
+                                                    </CheckBox>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+
+                                    <!-- Footer -->
+                                    <DockPanel Grid.Row="3" Margin="0,8,0,0">
+                                        <Button Content="Quitar filtros" Command="{Binding LimpiarFiltroExtensionCommand}"
+                                                Style="{StaticResource GhostButton}" FontSize="11"
+                                                DockPanel.Dock="Left"/>
+                                        <Button Content="Listo" Command="{Binding CerrarMenuFiltroTiposCommand}"
+                                                Style="{StaticResource PrimaryButton}" FontSize="11" Padding="12,3"
+                                                DockPanel.Dock="Right" HorizontalAlignment="Right"/>
+                                    </DockPanel>
+                                </Grid>
+                            </Border>
+                        </Popup>
+                    </Grid>
                     <TextBlock Text="Buscar:" VerticalAlignment="Center" FontWeight="SemiBold"
                                Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"
                                FontFamily="{StaticResource AppFont}" Margin="0,0,6,0"/>
@@ -108,6 +176,7 @@
                       ItemsSource="{Binding Items}"
                       MouseDoubleClick="ListView_MouseDoubleClick"
                       ContextMenuOpening="ListView_ContextMenuOpening"
+                      GridViewColumnHeader.Click="ListView_HeaderClicked"
                       PreviewMouseLeftButtonDown="ListView_PreviewMouseLeftButtonDown"
                       PreviewMouseMove="ListView_PreviewMouseMove"
                       SelectedItem="{Binding SelectedEntry, Mode=TwoWay}"
@@ -140,6 +209,10 @@
                         <MenuItem Header="🗺️  Cargar en Mapa / Visor" Command="{Binding AbrirEnMapaCommand}"
                                   Visibility="{Binding IsFormatoMapaSeleccionado, Converter={StaticResource BoolToVis}}"
                                   FontWeight="SemiBold"/>
+                        <MenuItem Header="📂  Ir a la carpeta contenedora (en la app)" Command="{Binding IrAUbicacionEnAppCommand}"
+                                  Visibility="{Binding CanIrAUbicacion, Converter={StaticResource BoolToVis}}"
+                                  FontWeight="SemiBold"
+                                  ToolTip="Navega directamente a la subcarpeta de este archivo dentro de la aplicación"/>
                         <MenuItem Header="👁️  Abrir con app externa" Command="{Binding AbrirCommand}"
                                   Visibility="{Binding IsArchivoSeleccionado, Converter={StaticResource BoolToVis}}"/>
                         <MenuItem Header="📂  Abrir carpeta" Command="{Binding AbrirCommand}"
@@ -190,7 +263,17 @@
 
                 <ListView.View>
                     <GridView>
-                        <GridViewColumn Header="Nombre" Width="230">
+                        <GridView.ColumnHeaderContainerStyle>
+                            <Style TargetType="GridViewColumnHeader">
+                                <Setter Property="Cursor" Value="Hand"/>
+                                <Setter Property="FontFamily" Value="{StaticResource AppFont}"/>
+                                <Setter Property="FontWeight" Value="SemiBold"/>
+                                <Setter Property="FontSize" Value="12"/>
+                                <Setter Property="Padding" Value="6,4"/>
+                                <Setter Property="ToolTip" Value="Haga clic para ordenar de forma ascendente o descendente"/>
+                            </Style>
+                        </GridView.ColumnHeaderContainerStyle>
+                        <GridViewColumn x:Name="colNombre" Header="{Binding DataContext.HeaderNombre, RelativeSource={RelativeSource AncestorType=ListView}}" Width="230">
                             <GridViewColumn.CellTemplate>
                                 <DataTemplate>
                                     <StackPanel Orientation="Horizontal">
@@ -200,10 +283,10 @@
                                 </DataTemplate>
                             </GridViewColumn.CellTemplate>
                         </GridViewColumn>
-                        <GridViewColumn Header="Ubicación" Width="170" DisplayMemberBinding="{Binding UbicacionRelativa}"/>
-                        <GridViewColumn Header="Tamaño" Width="85" DisplayMemberBinding="{Binding TamanoTexto}"/>
-                        <GridViewColumn Header="Modificado" Width="125" DisplayMemberBinding="{Binding FechaTexto}"/>
-                        <GridViewColumn Header="Tipo" Width="70" DisplayMemberBinding="{Binding Extension}"/>
+                        <GridViewColumn x:Name="colUbicacion" Header="{Binding DataContext.HeaderUbicacion, RelativeSource={RelativeSource AncestorType=ListView}}" Width="170" DisplayMemberBinding="{Binding UbicacionRelativa}"/>
+                        <GridViewColumn x:Name="colTamano" Header="{Binding DataContext.HeaderTamano, RelativeSource={RelativeSource AncestorType=ListView}}" Width="95" DisplayMemberBinding="{Binding TamanoTexto}"/>
+                        <GridViewColumn x:Name="colModificado" Header="{Binding DataContext.HeaderModificado, RelativeSource={RelativeSource AncestorType=ListView}}" Width="135" DisplayMemberBinding="{Binding FechaTexto}"/>
+                        <GridViewColumn x:Name="colTipo" Header="{Binding DataContext.HeaderTipo, RelativeSource={RelativeSource AncestorType=ListView}}" Width="80" DisplayMemberBinding="{Binding Extension}"/>
                     </GridView>
                 </ListView.View>
                 <ListView.ItemContainerStyle>

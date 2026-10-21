@@ -100,6 +100,44 @@ public class CrearProyectoEstructuraCarpetasTests : IDisposable
     }
 
     [Fact]
+    public async Task GuardarAsync_SiExistenArchivosEnRuta_NoCreaEstructuraNiPregunta()
+    {
+        // Arrange: carpeta sin subcarpetas pero con archivos ya existentes
+        string dirConArchivos = Path.Combine(_tempDir, "ProyectoExistenteConArchivos");
+        Directory.CreateDirectory(dirConArchivos);
+        File.WriteAllText(Path.Combine(dirConArchivos, "levantamiento.shp"), "datos");
+
+        var vm = new CrearProyectoViewModel(
+            _useCase,
+            _mockMunicipioRepo.Object,
+            _archivosService,
+            () => { },
+            null,
+            _mockNotifications.Object);
+
+        vm.Titulo = "Proyecto con archivos existentes";
+        vm.SelectedMunicipio = new CrearProyectoViewModel.MunicipioItem("68001", "Bucaramanga");
+        vm.Ruta = dirConArchivos;
+
+        bool handlerInvocado = false;
+        vm.ConfirmarCreacionEstructuraHandler = ruta =>
+        {
+            handlerInvocado = true;
+            return true;
+        };
+
+        // Act
+        await vm.GuardarCommand.ExecuteAsync(null);
+
+        // Assert
+        handlerInvocado.Should().BeFalse("no debe preguntarse al usuario si la ruta ya contiene archivos");
+        Directory.Exists(Path.Combine(dirConArchivos, "Datos_Espaciales")).Should().BeFalse();
+        Directory.Exists(Path.Combine(dirConArchivos, "Documentos")).Should().BeFalse();
+        Directory.Exists(Path.Combine(dirConArchivos, "Entregables")).Should().BeFalse();
+        Directory.Exists(Path.Combine(dirConArchivos, "Otros")).Should().BeFalse();
+    }
+
+    [Fact]
     public async Task GuardarAsync_SiNoExistenCarpetasYUsuarioAcepta_PreguntaYCreaEstructuraEstandar()
     {
         // Arrange: carpeta sin subcarpetas
@@ -171,5 +209,55 @@ public class CrearProyectoEstructuraCarpetasTests : IDisposable
         Directory.Exists(Path.Combine(dirVacio, "Documentos")).Should().BeFalse();
         Directory.Exists(Path.Combine(dirVacio, "Entregables")).Should().BeFalse();
         Directory.Exists(Path.Combine(dirVacio, "Otros")).Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task GuardarAsync_ProyectoMultidepartamental_GuardaCodigosDeTodosLosMunicipiosSeleccionados()
+    {
+        // Arrange: seleccionamos municipios de Santander (68001) y Norte de Santander (54001)
+        var vm = new CrearProyectoViewModel(
+            _useCase,
+            _mockMunicipioRepo.Object,
+            _archivosService,
+            () => { },
+            null,
+            _mockNotifications.Object);
+
+        vm.Titulo = "Corredor Vial Bucaramanga - Cúcuta";
+        vm.SelectedDepartamento = new FormularioProyectoViewModel.DepartamentoItem("68", "Santander");
+        vm.SelectedMunicipio = new FormularioProyectoViewModel.MunicipioItem("68001", "Bucaramanga");
+        await vm.AgregarMunicipioCommand.ExecuteAsync(null);
+
+        vm.SelectedDepartamento = new FormularioProyectoViewModel.DepartamentoItem("54", "Norte de Santander");
+        vm.SelectedMunicipio = new FormularioProyectoViewModel.MunicipioItem("54001", "Cúcuta");
+        await vm.AgregarMunicipioCommand.ExecuteAsync(null);
+
+        // Simulamos que el punto cae en el segundo municipio (Cúcuta - 54001)
+        _mockMunicipioRepo.Setup(r => r.PuntoEstaEnMunicipioAsync("68001", -72.5078, 7.8939)).ReturnsAsync(false);
+        _mockMunicipioRepo.Setup(r => r.PuntoEstaEnMunicipioAsync("54001", -72.5078, 7.8939)).ReturnsAsync(true);
+        vm.SetCoordenadas(7.8939, -72.5078);
+
+        // Act
+        await vm.GuardarCommand.ExecuteAsync(null);
+
+        // Assert
+        vm.MunicipiosSeleccionados.Should().HaveCount(2);
+        _mockProyectoRepo.Verify(r => r.InsertarAsync(
+            "Corredor Vial Bucaramanga - Cúcuta",
+            It.IsAny<string?>(),
+            It.IsAny<DateTime?>(),
+            It.IsAny<string?>(),
+            It.IsAny<string?>(),
+            "POINT(-72.5078 7.8939)",
+            "68001,54001",
+            It.IsAny<string>(),
+            It.IsAny<string>(),
+            It.IsAny<DateTime?>(),
+            It.IsAny<string?>(),
+            It.IsAny<string?>(),
+            It.IsAny<string?>(),
+            It.IsAny<string?>(),
+            It.IsAny<string?>()
+        ), Times.Once);
     }
 }

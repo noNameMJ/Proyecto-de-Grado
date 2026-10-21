@@ -261,6 +261,8 @@ namespace Geomatica.Desktop
                 }
             }
 
+            services.AddSingleton<IConfiguration>(config);
+            services.AddSingleton<Geomatica.Desktop.Services.ISeguridadService, Geomatica.Desktop.Services.WindowsSeguridadService>();
             services.AddSingleton<INotificationService, NotificationService>();
             services.AddSingleton<IProyectoRepository>(sp => new ProyectoRepository(cs));
             services.AddSingleton<IMunicipioRepository>(sp => new MunicipioRepository(cs));
@@ -277,6 +279,12 @@ namespace Geomatica.Desktop
 
             // ViewModels
             services.AddSingleton<FiltrosViewModel>();
+            services.AddSingleton<ArchivosViewModel>(sp => new ArchivosViewModel(
+                sp.GetRequiredService<FiltrosViewModel>(),
+                sp.GetRequiredService<Geomatica.Desktop.Services.ProyectoArchivosService>(),
+                sp.GetRequiredService<IProyectoRepository>(),
+                sp.GetRequiredService<INotificationService>()));
+
             services.AddSingleton<MapaViewModel>(sp => new MapaViewModel(
                 sp.GetRequiredService<BuscarProyectosUseCase>(),
                 sp.GetRequiredService<IProyectoRepository>(),
@@ -286,12 +294,6 @@ namespace Geomatica.Desktop
                 sp.GetRequiredService<INotificationService>(),
                 sp.GetRequiredService<Geomatica.Desktop.Services.IFileGdbImporterService>(),
                 sp.GetRequiredService<Geomatica.Desktop.Services.ICadImporterService>()));
-
-            services.AddTransient<ArchivosViewModel>(sp => new ArchivosViewModel(
-                sp.GetRequiredService<FiltrosViewModel>(),
-                sp.GetRequiredService<Geomatica.Desktop.Services.ProyectoArchivosService>(),
-                sp.GetRequiredService<IProyectoRepository>(),
-                sp.GetRequiredService<INotificationService>()));
 
             services.AddSingleton<Func<Action, Action?, CrearProyectoViewModel>>(sp => (navigateBack, onCreado) =>
                 new CrearProyectoViewModel(
@@ -311,7 +313,8 @@ namespace Geomatica.Desktop
                     onEditado,
                     sp.GetRequiredService<EliminarProyectoUseCase>(),
                     sp.GetRequiredService<INotificationService>(),
-                    sp.GetRequiredService<Geomatica.Desktop.Services.ProyectoArchivosService>()));
+                    sp.GetRequiredService<Geomatica.Desktop.Services.ProyectoArchivosService>(),
+                    sp.GetRequiredService<Geomatica.Desktop.Services.ISeguridadService>()));
 
             services.AddSingleton<MainViewModel>(sp => new MainViewModel(
                 sp.GetRequiredService<FiltrosViewModel>(),
@@ -323,7 +326,8 @@ namespace Geomatica.Desktop
                 sp.GetRequiredService<Func<Action, Action?, CrearProyectoViewModel>>(),
                 sp.GetRequiredService<Func<ProyectoDetalleDto, Action, Action?, EditarProyectoViewModel>>(),
                 sp.GetRequiredService<IProyectoRepository>(),
-                sp.GetRequiredService<ObtenerHistorialProyectoUseCase>()
+                sp.GetRequiredService<ObtenerHistorialProyectoUseCase>(),
+                sp.GetRequiredService<Geomatica.Desktop.Services.ISeguridadService>()
                 ));
 
             services.AddSingleton<MainWindow>();

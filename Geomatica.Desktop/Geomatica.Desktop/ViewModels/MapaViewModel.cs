@@ -621,6 +621,10 @@ namespace Geomatica.Desktop.ViewModels
                 {
                     Map.OperationalLayers.Remove(featureLayer);
                     CapasAdicionales.Remove(itemCapa);
+                    if (CapasAdicionales.Any(c => ReferenceEquals(c.ContenedorGeoPackage, gpkg)))
+                    {
+                        itemCapa.ContenedorGeoPackage = null;
+                    }
                     itemCapa.Dispose();
                     if (CapasAdicionales.Count == 0)
                     {
@@ -673,6 +677,10 @@ namespace Geomatica.Desktop.ViewModels
                     {
                         Map.OperationalLayers.Remove(rasterLayer);
                         CapasAdicionales.Remove(itemCapa);
+                        if (CapasAdicionales.Any(c => ReferenceEquals(c.ContenedorGeoPackage, gpkg)))
+                        {
+                            itemCapa.ContenedorGeoPackage = null;
+                        }
                         itemCapa.Dispose();
                         if (CapasAdicionales.Count == 0)
                         {

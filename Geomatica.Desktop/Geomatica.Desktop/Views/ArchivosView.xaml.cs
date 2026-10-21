@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -90,6 +90,30 @@ namespace Geomatica.Desktop.Views
                 }
 
                 vm.ActualizarCanPaste();
+            }
+        }
+
+        private void ListView_HeaderClicked(object sender, RoutedEventArgs e)
+        {
+            DependencyObject? dep = e.OriginalSource as DependencyObject;
+            while (dep != null && dep is not GridViewColumnHeader)
+            {
+                dep = VisualTreeHelper.GetParent(dep);
+            }
+
+            if (dep is GridViewColumnHeader header && header.Column != null && header.Role != GridViewColumnHeaderRole.Padding)
+            {
+                string? columna = null;
+                if (header.Column == colNombre) columna = "Nombre";
+                else if (header.Column == colUbicacion) columna = "Ubicacion";
+                else if (header.Column == colTamano) columna = "Tamano";
+                else if (header.Column == colModificado) columna = "Modificado";
+                else if (header.Column == colTipo) columna = "Tipo";
+
+                if (columna != null && DataContext is ArchivosViewModel vm)
+                {
+                    vm.OrdenarPorCommand.Execute(columna);
+                }
             }
         }
 

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
 namespace Geomatica.Desktop.Models
@@ -21,7 +21,8 @@ namespace Geomatica.Desktop.Models
         public List<NodoArchivoVirtual> Hijos { get; set; } = new();
 
         public string TamanoTexto => "";
-        public string FechaTexto => "";
+        public DateTime? FechaModificacion { get; set; }
+        public string FechaTexto => FechaModificacion.HasValue ? FechaModificacion.Value.ToString("dd/MM/yyyy HH:mm") : "";
         public string Extension => "Carpeta";
         public override string Icono => "📁";
     }

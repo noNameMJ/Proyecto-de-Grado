@@ -31,6 +31,19 @@ public partial class MapaViewModel
     public int? BuscarIdProyectoPorOid(long oid)
         => _oidToProjectId.TryGetValue(oid, out var id) ? id : null;
 
+    private void RemoverCapasBaseSistema()
+    {
+        if (Map == null) return;
+        if (_layerMunicipios != null)
+        {
+            Map.OperationalLayers.Remove(_layerMunicipios);
+        }
+        if (_layerProyectos != null)
+        {
+            Map.OperationalLayers.Remove(_layerProyectos);
+        }
+    }
+
     /// <summary>
     /// Invalida el caché de municipios y la capa de proyectos para reflejar datos nuevos.
     /// Llamar después de crear/eliminar un proyecto.
@@ -40,12 +53,12 @@ public partial class MapaViewModel
         _cachedMunicipios = null;
         _cachedGeometries = null;
         _oidToProjectId.Clear();
+        RemoverCapasBaseSistema();
         _layerProyectos = null;
         _layerMunicipios = null;
         _updateGeneration++;
         OverlayProyectosEtiquetas.Graphics.Clear();
         OverlayResaltadoProyecto.Graphics.Clear();
-        Map?.OperationalLayers.Clear();
     }
 
     /// <summary>
@@ -55,34 +68,14 @@ public partial class MapaViewModel
     {
         string? dptoCodigo = null;
         string? mpioCodigo = null;
-        double? minX = null;
-        double? minY = null;
-        double? maxX = null;
-        double? maxY = null;
 
         if (Filtros.AreaInteres is FiltrosViewModel.MunicipioItem muni && !string.IsNullOrEmpty(muni.Codigo))
         {
             mpioCodigo = muni.Codigo;
-            var extent = await _municipios.ExtentPorMunicipiosAsync(new[] { muni.Codigo });
-            if (extent != null)
-            {
-                minX = extent.West;
-                minY = extent.South;
-                maxX = extent.East;
-                maxY = extent.North;
-            }
         }
         else if (Filtros.SelectedDepartamento is FiltrosViewModel.DepartamentoItem dept && !string.IsNullOrEmpty(dept.Codigo))
         {
             dptoCodigo = dept.Codigo;
-            var extent = await _municipios.ExtentPorDepartamentoAsync(dept.Codigo);
-            if (extent != null)
-            {
-                minX = extent.West;
-                minY = extent.South;
-                maxX = extent.East;
-                maxY = extent.North;
-            }
         }
 
         return await BuscarYActualizarCapasAsync(
@@ -91,10 +84,10 @@ public partial class MapaViewModel
             Filtros.Hasta,
             dptoCodigo,
             mpioCodigo,
-            minX,
-            minY,
-            maxX,
-            maxY,
+            minX: null,
+            minY: null,
+            maxX: null,
+            maxY: null,
             ct);
     }
 
@@ -127,8 +120,8 @@ public partial class MapaViewModel
 
         try
         {
-            // Limpiar todas las capas operacionales para evitar capas huérfanas
-            Map.OperationalLayers.Clear();
+            // Limpiar únicamente las capas base del sistema preservando las capas cargadas por el usuario
+            RemoverCapasBaseSistema();
             _layerProyectos = null;
             _layerMunicipios = null;
 
@@ -154,23 +147,41 @@ public partial class MapaViewModel
             }
             if (gen != _updateGeneration) return;
 
+            // Asegurar que si hay municipios en codigosMuni que no estaban en el caché inicial, se carguen dinámicamente
+            var codigosFaltantes = codigosMuni
+                .Where(c => _cachedMunicipios.All(m => !string.Equals(m.Codigo, c, StringComparison.OrdinalIgnoreCase)))
+                .ToList();
+
+            if (codigosFaltantes.Count > 0)
+            {
+                var nuevosMunis = await _municipios.PorCodigosGeoJsonAsync(codigosFaltantes);
+                if (nuevosMunis.Count > 0)
+                {
+                    _cachedMunicipios = _cachedMunicipios.Concat(nuevosMunis).ToList();
+                }
+            }
+            if (gen != _updateGeneration) return;
+
             if (_cachedGeometries == null)
             {
-                var munis = _cachedMunicipios;
-                _cachedGeometries = await Task.Run(() =>
+                _cachedGeometries = new Dictionary<string, Geometry>();
+            }
+
+            var munisParaGeometrias = _cachedMunicipios.Where(m => !_cachedGeometries.ContainsKey(m.Codigo)).ToList();
+            if (munisParaGeometrias.Count > 0)
+            {
+                await Task.Run(() =>
                 {
-                    var dict = new Dictionary<string, Geometry>(munis.Count);
-                    foreach (var m in munis)
+                    foreach (var m in munisParaGeometrias)
                     {
                         if (string.IsNullOrEmpty(m.GeoJson)) continue;
                         try
                         {
                             var geom = ParseGeoJson(m.GeoJson);
-                            if (geom != null) dict[m.Codigo] = geom;
+                            if (geom != null) _cachedGeometries[m.Codigo] = geom;
                         }
                         catch { }
                     }
-                    return dict;
                 });
             }
             if (gen != _updateGeneration) return;
@@ -180,17 +191,19 @@ public partial class MapaViewModel
             var layerMuni = await CrearCapaMunicipiosFiltradaAsync(filteredMuni);
             if (gen != _updateGeneration) return;
 
-            // 5. Agregar capas al mapa (municipios abajo, proyectos arriba)
-            Map.OperationalLayers.Clear();
+            // 5. Agregar capas del sistema en el fondo del mapa (municipios abajo, proyectos arriba, capas de usuario encima)
+            RemoverCapasBaseSistema();
+            int insertIndex = 0;
             if (layerMuni != null)
             {
-                Map.OperationalLayers.Add(layerMuni);
+                Map.OperationalLayers.Insert(insertIndex++, layerMuni);
                 await layerMuni.LoadAsync();
             }
             if (gen != _updateGeneration) return;
             if (layerProy != null)
             {
-                Map.OperationalLayers.Add(layerProy);
+                int idx = Math.Min(insertIndex, Map.OperationalLayers.Count);
+                Map.OperationalLayers.Insert(idx, layerProy);
                 await layerProy.LoadAsync();
             }
 
@@ -205,6 +218,7 @@ public partial class MapaViewModel
 
     /// <summary>
     /// Devuelve el extent (Envelope) de los municipios que contienen proyectos del último filtro aplicado.
+    /// Prioriza los municipios correspondientes al departamento o municipio seleccionado en el filtro geográfico activo.
     /// </summary>
     public Envelope? ObtenerExtentMunicipiosFiltrados()
     {
@@ -214,21 +228,59 @@ public partial class MapaViewModel
         double xmin = double.MaxValue, ymin = double.MaxValue;
         double xmax = double.MinValue, ymax = double.MinValue;
         bool any = false;
-        foreach (var codigo in _ultimosCodigosMunicipio)
+
+        string? dptoFiltro = Filtros?.SelectedDepartamento?.Codigo;
+        bool tieneFiltroDpto = !string.IsNullOrWhiteSpace(dptoFiltro);
+
+        string? mpioFiltro = (Filtros?.AreaInteres as FiltrosViewModel.MunicipioItem)?.Codigo;
+        bool tieneFiltroMpio = !string.IsNullOrWhiteSpace(mpioFiltro);
+
+        // 1. Si hay filtro geográfico activo (departamento o municipio), priorizar los municipios que coinciden con dicho filtro
+        if (tieneFiltroMpio || tieneFiltroDpto)
         {
-            if (_cachedGeometries.TryGetValue(codigo, out var geom))
+            foreach (var codigo in _ultimosCodigosMunicipio)
             {
-                var ext = geom.Extent;
-                if (ext != null)
+                if (tieneFiltroMpio && !string.Equals(codigo, mpioFiltro, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (tieneFiltroDpto && !codigo.StartsWith(dptoFiltro!, StringComparison.OrdinalIgnoreCase))
+                    continue;
+
+                if (_cachedGeometries.TryGetValue(codigo, out var geom))
                 {
-                    xmin = Math.Min(xmin, ext.XMin);
-                    ymin = Math.Min(ymin, ext.YMin);
-                    xmax = Math.Max(xmax, ext.XMax);
-                    ymax = Math.Max(ymax, ext.YMax);
-                    any = true;
+                    var ext = geom.Extent;
+                    if (ext != null)
+                    {
+                        xmin = Math.Min(xmin, ext.XMin);
+                        ymin = Math.Min(ymin, ext.YMin);
+                        xmax = Math.Max(xmax, ext.XMax);
+                        ymax = Math.Max(ymax, ext.YMax);
+                        any = true;
+                    }
                 }
             }
         }
+
+        // 2. Si no hay filtro específico o ninguna geometría coincidió, calcular la envolvente con todos los municipios de los proyectos
+        if (!any)
+        {
+            foreach (var codigo in _ultimosCodigosMunicipio)
+            {
+                if (_cachedGeometries.TryGetValue(codigo, out var geom))
+                {
+                    var ext = geom.Extent;
+                    if (ext != null)
+                    {
+                        xmin = Math.Min(xmin, ext.XMin);
+                        ymin = Math.Min(ymin, ext.YMin);
+                        xmax = Math.Max(xmax, ext.XMax);
+                        ymax = Math.Max(ymax, ext.YMax);
+                        any = true;
+                    }
+                }
+            }
+        }
+
         return any ? new Envelope(xmin, ymin, xmax, ymax, SpatialReferences.Wgs84) : null;
     }
 

@@ -41,11 +41,15 @@ namespace Geomatica.Infrastructure.Gis.Services
                 {
                     IgnoreInaccessible = true,
                     RecurseSubdirectories = true,
+                    MaxRecursionDepth = 6,
                     AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System
                 };
 
-                // 1. Recolección recursiva de archivos sin riesgo de excepciones por permisos
-                var todosLosArchivos = dirInfo.EnumerateFiles("*.*", enumOptions).ToList();
+                // 1. Recolección recursiva de archivos sin riesgo de excepciones por permisos (omitiendo binarios internos de .gdb)
+                var todosLosArchivos = dirInfo.EnumerateFiles("*.*", enumOptions)
+                    .Where(f => !f.FullName.Contains(".gdb" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
+                                !f.FullName.Contains(".gdb" + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                    .ToList();
 
                 var shapefiles = todosLosArchivos
                     .Where(f => f.Extension.Equals(".shp", StringComparison.OrdinalIgnoreCase))
@@ -151,9 +155,10 @@ namespace Geomatica.Infrastructure.Gis.Services
                             // Si no se obtuvo del PRJ, cargar con ArcGIS Runtime
                             if (srEncontrado == null || extentEncontrado == null)
                             {
+                                ShapefileFeatureTable? shpTable = null;
                                 try
                                 {
-                                    var shpTable = new ShapefileFeatureTable(fi.FullName);
+                                    shpTable = new ShapefileFeatureTable(fi.FullName);
                                     await shpTable.LoadAsync();
                                     if (srEncontrado == null && shpTable.SpatialReference != null)
                                         srEncontrado = shpTable.SpatialReference;
@@ -161,6 +166,10 @@ namespace Geomatica.Infrastructure.Gis.Services
                                         extentEncontrado = shpTable.Extent;
                                 }
                                 catch { }
+                                finally
+                                {
+                                    try { shpTable?.Close(); } catch { }
+                                }
                             }
 
                             if (srEncontrado != null)
@@ -194,9 +203,10 @@ namespace Geomatica.Infrastructure.Gis.Services
                         // C. GEOPACKAGES
                         else if (ext == ".gpkg")
                         {
+                            GeoPackage? gpkg = null;
                             try
                             {
-                                var gpkg = await GeoPackage.OpenAsync(fi.FullName);
+                                gpkg = await GeoPackage.OpenAsync(fi.FullName);
                                 var featTable = gpkg.GeoPackageFeatureTables.FirstOrDefault();
                                 if (featTable != null)
                                 {
@@ -206,6 +216,10 @@ namespace Geomatica.Infrastructure.Gis.Services
                                 }
                             }
                             catch { }
+                            finally
+                            {
+                                try { gpkg?.Close(); } catch { }
+                            }
 
                             if (srEncontrado != null)
                             {
