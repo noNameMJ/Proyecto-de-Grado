@@ -1,3 +1,4 @@
+using System;
 using FluentAssertions;
 using Geomatica.Domain.Entities;
 using Xunit;
@@ -10,6 +11,13 @@ public class AuditoriaProyectoDtoTests
     [InlineData("CREACION", "#1A5C34", "#E8F4EC", "#B2DFBF", "✨")]
     [InlineData("MODIFICACION", "#8A6707", "#FFF8E1", "#EBDCA8", "✏️")]
     [InlineData("ELIMINACION", "#C62828", "#FFEBEE", "#FFCDD2", "🗑️")]
+    [InlineData("ELIMINAR", "#C62828", "#FFEBEE", "#FFCDD2", "🗑️")]
+    [InlineData("MOVER", "#1565C0", "#E3F2FD", "#BBDEFB", "🔄")]
+    [InlineData("RENOMBRAR", "#E65100", "#FFF3E0", "#FFE0B2", "🏷️")]
+    [InlineData("CREAR_CARPETA", "#2E7D32", "#E8F5E9", "#C8E6C9", "📁")]
+    [InlineData("SUBIR_ARCHIVO", "#00838F", "#E0F7FA", "#B2EBF2", "⬆️")]
+    [InlineData("SUBIR", "#00838F", "#E0F7FA", "#B2EBF2", "⬆️")]
+    [InlineData("COPIAR", "#6A1B9A", "#F3E5F5", "#E1BEE7", "📋")]
     [InlineData("OTRO", "#4B5563", "#F3F4F6", "#E5E7EB", "📝")]
     public void AuditoriaProyectoDto_Acciones_DebenTenerEstilosEIconosApropiados(
         string accion,

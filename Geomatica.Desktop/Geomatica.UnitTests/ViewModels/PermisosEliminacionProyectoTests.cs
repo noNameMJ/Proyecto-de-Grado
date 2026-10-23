@@ -144,6 +144,53 @@ public class PermisosEliminacionProyectoTests
     }
 
     [Fact]
+    public void FichaProyectoViewModel_CuandoUsuarioEsAdministrador_PermiteEditarInclusoSinPermisoCarpeta()
+    {
+        // Arrange
+        _seguridadMock.Setup(s => s.PuedeEditarProyectos()).Returns(true);
+
+        // Act
+        var vm = new FichaProyectoViewModel(
+            _proyectoDto,
+            volverAction: () => { },
+            eliminarProyectoUseCase: new EliminarProyectoUseCase(_proyectoRepoMock.Object),
+            notifications: _notificationsMock.Object,
+            seguridadService: _seguridadMock.Object);
+
+        // Assert
+        vm.PuedeEditar.Should().BeTrue();
+        vm.TooltipEdicion.Should().Be("Editar detalles del proyecto");
+        vm.EditarCommand.CanExecute(null).Should().BeTrue();
+    }
+
+    [Fact]
+    public void EditarProyectoViewModel_CuandoUsuarioEsAdministrador_HabilitaPuedeEscribirYDeshabilitaModoSoloLectura()
+    {
+        // Arrange
+        _seguridadMock.Setup(s => s.PuedeEditarProyectos()).Returns(true);
+        _seguridadMock.Setup(s => s.PuedeEliminarProyectos()).Returns(true);
+        var useCase = new ActualizarProyectoUseCase(_proyectoRepoMock.Object);
+        var eliminarUseCase = new EliminarProyectoUseCase(_proyectoRepoMock.Object);
+
+        // Act
+        var vm = new EditarProyectoViewModel(
+            useCase,
+            _municipioRepoMock.Object,
+            _proyectoDto,
+            navigateBack: () => { },
+            onProyectoEditado: null,
+            eliminarProyectoUseCase: eliminarUseCase,
+            notifications: _notificationsMock.Object,
+            archivosService: null,
+            seguridadService: _seguridadMock.Object);
+
+        // Assert
+        vm.EsModoEdicion.Should().BeTrue();
+        vm.PuedeEscribir.Should().BeTrue();
+        vm.EsSoloLecturaOAccesoRestringido.Should().BeFalse();
+    }
+
+    [Fact]
     public void CrearProyectoViewModel_EnModoCreacion_PuedeEliminarSiempreEsFalse()
     {
         // Arrange

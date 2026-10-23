@@ -83,7 +83,7 @@ namespace Geomatica.Desktop.ViewModels
         public bool HasMunicipio => TotalMunicipios > 0 || !string.IsNullOrWhiteSpace(Proyecto.MunicipioNombre);
         public bool HasRutaArchivos => !string.IsNullOrWhiteSpace(Proyecto.RutaArchivos);
         public bool RutaExiste => PermisosCarpeta.PuedeLeer;
-        public bool PuedeEditar => PermisosCarpeta.PuedeEscribir;
+        public bool PuedeEditar => PermisosCarpeta.PuedeEscribir || _seguridadService.PuedeEditarProyectos();
         public bool PuedeEliminar => _seguridadService.PuedeEliminarProyectos();
         public bool PuedeLeerArchivos => PermisosCarpeta.PuedeLeer;
         public bool EsAccesoRestringido => PermisosCarpeta.Estado == EstadoPermisoCarpeta.AccesoRestringido;
@@ -96,7 +96,7 @@ namespace Geomatica.Desktop.ViewModels
 
         public string TooltipEdicion => PuedeEditar
             ? "Editar detalles del proyecto"
-            : "Acceso restringido: Se requieren permisos de escritura en la carpeta del servidor para editar este proyecto (geomaticaad@uis.edu.co).";
+            : "Acceso restringido: Se requieren permisos de escritura en la carpeta del servidor o rol de Administrador para editar este proyecto (geomaticaad@uis.edu.co).";
 
         public string TooltipEliminacion => PuedeEliminar
             ? "Eliminar este proyecto del sistema"

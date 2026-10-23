@@ -19,6 +19,7 @@ public class WindowsSeguridadServiceTests
 
         service.EsAdministrador().Should().BeTrue();
         service.PuedeEliminarProyectos().Should().BeTrue();
+        service.PuedeEditarProyectos().Should().BeTrue();
         service.ObtenerUsuarioActual().Should().Be(@"GEOMATICAAD\marbin.arevalo");
         service.ObtenerRolesAdministradorUsuario().Should().Contain("G4_GEOMATICA_ADM");
     }
@@ -34,6 +35,7 @@ public class WindowsSeguridadServiceTests
 
         service.EsAdministrador().Should().BeFalse();
         service.PuedeEliminarProyectos().Should().BeFalse();
+        service.PuedeEditarProyectos().Should().BeFalse();
         service.ObtenerRolesAdministradorUsuario().Should().BeEmpty();
     }
 
@@ -54,6 +56,7 @@ public class WindowsSeguridadServiceTests
 
         service.EsAdministrador().Should().BeTrue();
         service.PuedeEliminarProyectos().Should().BeTrue();
+        service.PuedeEditarProyectos().Should().BeTrue();
         service.ObtenerRolesAdministradorUsuario().Should().Contain("BUILTIN\\Administrators");
     }
 
@@ -74,6 +77,7 @@ public class WindowsSeguridadServiceTests
 
         service.EsAdministrador().Should().BeFalse();
         service.PuedeEliminarProyectos().Should().BeFalse();
+        service.PuedeEditarProyectos().Should().BeFalse();
     }
 
     [Fact]
@@ -95,6 +99,7 @@ public class WindowsSeguridadServiceTests
         service.ObtenerGruposAdministradoresConfigurados().Should().Contain(new[] { "GRUPO_ESPECIAL_ADMIN", "SUPERVISORES_GEOMATICA" });
         service.EsAdministrador().Should().BeTrue();
         service.PuedeEliminarProyectos().Should().BeTrue();
+        service.PuedeEditarProyectos().Should().BeTrue();
     }
 }
 

@@ -133,6 +133,11 @@ public class WindowsSeguridadService : ISeguridadService
         return EsAdministrador();
     }
 
+    public bool PuedeEditarProyectos()
+    {
+        return EsAdministrador();
+    }
+
     public IReadOnlyList<string> ObtenerRolesAdministradorUsuario()
     {
         var rolesActivos = new List<string>();

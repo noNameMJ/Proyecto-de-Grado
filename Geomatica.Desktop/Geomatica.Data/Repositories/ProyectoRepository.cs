@@ -770,6 +770,41 @@ namespace Geomatica.Data.Repositories
             return lista;
         }
 
+        public async Task RegistrarAuditoriaAsync(
+            int idProyecto,
+            string tituloProyecto,
+            string accion,
+            string detalles,
+            string? usuario = null,
+            string? equipo = null,
+            CancellationToken ct = default)
+        {
+            string userAudit = !string.IsNullOrWhiteSpace(usuario) ? usuario : ObtenerUsuarioActual();
+            string machineAudit = !string.IsNullOrWhiteSpace(equipo) ? equipo : Environment.MachineName;
+
+            const string sql = @"
+                INSERT INTO geovisor.auditoria_proyecto (id_proyecto, titulo_proyecto, accion, usuario, equipo, fecha_hora, detalles)
+                VALUES (@id, @titulo, @accion, @user, @machine, NOW(), @detalles);";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("@id", idProyecto);
+                cmd.Parameters.AddWithValue("@titulo", tituloProyecto);
+                cmd.Parameters.AddWithValue("@accion", accion);
+                cmd.Parameters.AddWithValue("@user", userAudit);
+                cmd.Parameters.AddWithValue("@machine", machineAudit);
+                cmd.Parameters.AddWithValue("@detalles", (object?)detalles ?? DBNull.Value);
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error al registrar auditoría ({accion}): {ex.Message}");
+            }
+        }
+
         public async Task AsegurarTablaAuditoriaAsync(CancellationToken ct = default)
         {
             const string sql = @"

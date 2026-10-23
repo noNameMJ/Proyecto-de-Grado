@@ -8,6 +8,7 @@ using Geomatica.Domain.Interfaces.Repositories;
 using System.Windows;
 using Geomatica.Desktop.Services;
 using Geomatica.Desktop.Models;
+using Geomatica.Desktop.Views;
 
 namespace Geomatica.Desktop.ViewModels
 {
@@ -1149,6 +1150,71 @@ namespace Geomatica.Desktop.ViewModels
             }
         }
 
+        #region Métodos de Auditoría y Trazabilidad de Archivos
+
+        public (int Id, string Titulo)? ObtenerProyectoActual()
+        {
+            if (ProyectoDetalle != null && ProyectoDetalle.Id > 0)
+                return (ProyectoDetalle.Id, ProyectoDetalle.Titulo);
+
+            if (_filtros?.SelectedProyecto is FiltrosViewModel.ProyectoItem p && p.Id > 0)
+                return (p.Id, p.Titulo);
+
+            if (!string.IsNullOrWhiteSpace(_rutaRaizProyecto) && _filtros?.ResultadosLista != null)
+            {
+                var match = _filtros.ResultadosLista.OfType<FiltrosViewModel.ProyectoItem>().FirstOrDefault(x => string.Equals(x.Ruta, _rutaRaizProyecto, StringComparison.OrdinalIgnoreCase));
+                if (match != null && match.Id > 0)
+                    return (match.Id, match.Titulo);
+            }
+
+            return null;
+        }
+
+        public async Task RegistrarAuditoriaArchivoAsync(string accion, string detalles)
+        {
+            try
+            {
+                var proyecto = ObtenerProyectoActual();
+                if (proyecto == null || _proyectoRepository == null)
+                    return;
+
+                await _proyectoRepository.RegistrarAuditoriaAsync(
+                    idProyecto: proyecto.Value.Id,
+                    tituloProyecto: proyecto.Value.Titulo,
+                    accion: accion,
+                    detalles: detalles
+                );
+
+                // Si la ficha de detalles está cargada para este proyecto, refrescar su historial en tiempo real
+                if (ProyectoDetalle != null && ProyectoDetalle.Id == proyecto.Value.Id)
+                {
+                    _ = ProyectoDetalle.CargarHistorialAuditoriaAsync();
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[ArchivosViewModel] Error registrando auditoría ({accion}): {ex.Message}");
+            }
+        }
+
+        public static string FormatearRutaRelativa(string? ruta)
+        {
+            if (string.IsNullOrWhiteSpace(ruta) || ruta == "/" || ruta == "\\")
+                return "(raíz)";
+            return ruta.Trim('/', '\\').Replace('\\', '/');
+        }
+
+        public string ObtenerRutaRelativaVirtualDesdeFisica(string rutaFisica)
+        {
+            if (string.IsNullOrWhiteSpace(_rutaRaizProyecto) || !rutaFisica.StartsWith(_rutaRaizProyecto, StringComparison.OrdinalIgnoreCase))
+                return Path.GetFileName(rutaFisica);
+
+            string relativa = rutaFisica.Substring(_rutaRaizProyecto.Length).TrimStart('/', '\\').Replace('\\', '/');
+            return string.IsNullOrEmpty(relativa) ? "(raíz)" : relativa;
+        }
+
+        #endregion
+
         public bool MoverElementoAFolder(NodoArchivoVirtual nodoAMover, string rutaRelativaDestino)
         {
             if (nodoAMover == null || string.IsNullOrWhiteSpace(_rutaRaizProyecto))
@@ -1183,6 +1249,12 @@ namespace Geomatica.Desktop.ViewModels
                     return false;
                 }
 
+                string rutaOrigenVisual = FormatearRutaRelativa(nodoAMover.RutaRelativaVirtual);
+                string destinoDirVisual = FormatearRutaRelativa(rutaRelativaDestino);
+                string rutaDestinoVisual = destinoDirVisual == "(raíz)"
+                    ? nodoAMover.Nombre
+                    : $"{destinoDirVisual}/{nodoAMover.Nombre}";
+
                 // Mover archivo
                 if (File.Exists(rutaFisicaOrigen))
                 {
@@ -1198,13 +1270,11 @@ namespace Geomatica.Desktop.ViewModels
                     }
 
                     File.Move(rutaFisicaOrigen, rutaFisicaDestinoItem);
-                    string nombreCarpeta = string.IsNullOrWhiteSpace(rutaRelativaDestino) || rutaRelativaDestino == "/" || rutaRelativaDestino == "\\"
-                        ? "la raíz"
-                        : $"'{Path.GetFileName(rutaRelativaDestino.TrimEnd('/', '\\'))}'";
 
-                    _notifications?.ShowSuccess($"Archivo '{nodoAMover.Nombre}' movido a {nombreCarpeta}.", "Mover Archivo");
-                    Estado = $"Movido: {nodoAMover.Nombre}";
+                    _notifications?.ShowSuccess($"Archivo '{nodoAMover.Nombre}' movido a '{rutaDestinoVisual}'.", "Mover Archivo");
                     RefrescarSegunFiltros();
+                    Estado = $"Movido: {nodoAMover.Nombre} ➔ {rutaDestinoVisual}";
+                    _ = RegistrarAuditoriaArchivoAsync("MOVER", $"Archivo '{nodoAMover.Nombre}' movido desde '{rutaOrigenVisual}' hacia '{rutaDestinoVisual}'.");
                     return true;
                 }
                 // Mover carpeta
@@ -1230,13 +1300,11 @@ namespace Geomatica.Desktop.ViewModels
                     }
 
                     Directory.Move(rutaFisicaOrigen, rutaFisicaDestinoItem);
-                    string nombreCarpeta = string.IsNullOrWhiteSpace(rutaRelativaDestino) || rutaRelativaDestino == "/" || rutaRelativaDestino == "\\"
-                        ? "la raíz"
-                        : $"'{Path.GetFileName(rutaRelativaDestino.TrimEnd('/', '\\'))}'";
 
-                    _notifications?.ShowSuccess($"Carpeta '{nodoAMover.Nombre}' movida a {nombreCarpeta}.", "Mover Carpeta");
-                    Estado = $"Movida: {nodoAMover.Nombre}";
+                    _notifications?.ShowSuccess($"Carpeta '{nodoAMover.Nombre}' movida a '{rutaDestinoVisual}'.", "Mover Carpeta");
                     RefrescarSegunFiltros();
+                    Estado = $"Movida: {nodoAMover.Nombre} ➔ {rutaDestinoVisual}";
+                    _ = RegistrarAuditoriaArchivoAsync("MOVER", $"Carpeta '{nodoAMover.Nombre}' movida desde '{rutaOrigenVisual}' hacia '{rutaDestinoVisual}'.");
                     return true;
                 }
             }
@@ -1344,8 +1412,10 @@ namespace Geomatica.Desktop.ViewModels
 
                 if (count > 0)
                 {
+                    string ubicacionVisual = FormatearRutaRelativa(RutaActual);
                     Estado = $"Se subieron {count} archivo(s)";
                     _notifications?.ShowSuccess($"Se subieron {count} archivo(s) correctamente.", "Archivos");
+                    _ = RegistrarAuditoriaArchivoAsync("SUBIR_ARCHIVO", $"{count} archivo(s) subido(s) a '{ubicacionVisual}'.");
                     RefrescarSegunFiltros();
                 }
             }
@@ -1426,6 +1496,9 @@ namespace Geomatica.Desktop.ViewModels
                     Directory.CreateDirectory(nuevaRuta);
                     Estado = $"Carpeta '{nombre}' creada";
                     _notifications?.ShowSuccess($"Carpeta '{nombre}' creada exitosamente.", "Carpeta Creada");
+                    string ubicacionVisual = FormatearRutaRelativa(RutaActual);
+                    string nuevaRutaVisual = ubicacionVisual == "(raíz)" ? nombre : $"{ubicacionVisual}/{nombre}";
+                    _ = RegistrarAuditoriaArchivoAsync("CREAR_CARPETA", $"Carpeta '{nombre}' creada en '{ubicacionVisual}' (Ruta: '{nuevaRutaVisual}').");
                     RefrescarSegunFiltros();
                 }
                 catch (Exception ex)
@@ -1627,6 +1700,7 @@ namespace Geomatica.Desktop.ViewModels
             try
             {
                 string rutaFisica = Path.Combine(_rutaRaizProyecto, Seleccionado.RutaRelativaVirtual.TrimStart('/', '\\'));
+                string rutaVisual = FormatearRutaRelativa(Seleccionado.RutaRelativaVirtual);
                 if (Seleccionado is CarpetaVirtual)
                 {
                     // No permitir eliminar las carpetas base del proyecto
@@ -1640,10 +1714,13 @@ namespace Geomatica.Desktop.ViewModels
                         }
                     }
                     Directory.Delete(rutaFisica, true);
+                    _ = RegistrarAuditoriaArchivoAsync("ELIMINAR", $"Carpeta '{Seleccionado.Nombre}' eliminada (Ubicación previa: '{rutaVisual}').");
                 }
                 else
                 {
+                    string tamano = Seleccionado is ArchivoVirtual av ? $" (Tamaño: {av.TamanoTexto})" : "";
                     File.Delete(rutaFisica);
+                    _ = RegistrarAuditoriaArchivoAsync("ELIMINAR", $"Archivo '{Seleccionado.Nombre}' eliminado (Ubicación previa: '{rutaVisual}'{tamano}).");
                 }
                 RefrescarSegunFiltros();
             }
@@ -1758,8 +1835,10 @@ namespace Geomatica.Desktop.ViewModels
                             }
 
                             File.Copy(_clipboardRutaFisica, destFile, true);
+                            string destRelativo = Path.Combine(targetRelativa, Path.GetFileName(destFile)).Trim('/', '\\').Replace('\\', '/');
                             _notifications?.ShowSuccess($"Archivo '{Path.GetFileName(destFile)}' pegado con éxito.", "Pegar");
                             Estado = $"Pegado: {Path.GetFileName(destFile)}";
+                            _ = RegistrarAuditoriaArchivoAsync("COPIAR", $"Archivo '{Path.GetFileName(_clipboardRutaFisica)}' copiado hacia '{destRelativo}'.");
                         }
                         else if (_clipboardOp == ClipboardOp.Cut)
                         {
@@ -1774,8 +1853,11 @@ namespace Geomatica.Desktop.ViewModels
                             }
 
                             File.Move(_clipboardRutaFisica, destFile);
-                            _notifications?.ShowSuccess($"Archivo '{fileName}' movido con éxito.", "Mover");
-                            Estado = $"Movido: {fileName}";
+                            string origenRelativo = ObtenerRutaRelativaVirtualDesdeFisica(_clipboardRutaFisica);
+                            string destRelativo = Path.Combine(targetRelativa, fileName).Trim('/', '\\').Replace('\\', '/');
+                            _notifications?.ShowSuccess($"Archivo '{fileName}' movido a '{destRelativo}'.", "Mover");
+                            Estado = $"Movido: {fileName} ➔ {destRelativo}";
+                            _ = RegistrarAuditoriaArchivoAsync("MOVER", $"Archivo '{fileName}' movido desde '{origenRelativo}' hacia '{destRelativo}'.");
                             _clipboardOp = ClipboardOp.None;
                             _clipboardNodo = null;
                             _clipboardRutaFisica = "";
@@ -1802,8 +1884,10 @@ namespace Geomatica.Desktop.ViewModels
                                 }
                             }
                             CopiarDirectorioRecursivo(_clipboardRutaFisica, destDir);
+                            string destRelativo = Path.Combine(targetRelativa, Path.GetFileName(destDir)).Trim('/', '\\').Replace('\\', '/');
                             _notifications?.ShowSuccess($"Carpeta '{Path.GetFileName(destDir)}' pegada con éxito.", "Pegar");
                             Estado = $"Pegada: {Path.GetFileName(destDir)}";
+                            _ = RegistrarAuditoriaArchivoAsync("COPIAR", $"Carpeta '{Path.GetFileName(_clipboardRutaFisica)}' copiada hacia '{destRelativo}'.");
                         }
                         else if (_clipboardOp == ClipboardOp.Cut)
                         {
@@ -1817,8 +1901,11 @@ namespace Geomatica.Desktop.ViewModels
                             }
 
                             Directory.Move(_clipboardRutaFisica, destDir);
-                            _notifications?.ShowSuccess($"Carpeta '{dirName}' movida con éxito.", "Mover");
-                            Estado = $"Movida: {dirName}";
+                            string origenRelativo = ObtenerRutaRelativaVirtualDesdeFisica(_clipboardRutaFisica);
+                            string destRelativo = Path.Combine(targetRelativa, dirName).Trim('/', '\\').Replace('\\', '/');
+                            _notifications?.ShowSuccess($"Carpeta '{dirName}' movida a '{destRelativo}'.", "Mover");
+                            Estado = $"Movida: {dirName} ➔ {destRelativo}";
+                            _ = RegistrarAuditoriaArchivoAsync("MOVER", $"Carpeta '{dirName}' movida desde '{origenRelativo}' hacia '{destRelativo}'.");
                             _clipboardOp = ClipboardOp.None;
                             _clipboardNodo = null;
                             _clipboardRutaFisica = "";
@@ -1952,13 +2039,18 @@ namespace Geomatica.Desktop.ViewModels
 
                 try
                 {
+                    string rutaPadreRelativa = Path.GetDirectoryName(Seleccionado.RutaRelativaVirtual.Trim('/', '\\'))?.Replace('\\', '/') ?? "";
+                    string ubicacionVisual = string.IsNullOrEmpty(rutaPadreRelativa) ? "(raíz)" : rutaPadreRelativa;
+
                     if (Seleccionado is CarpetaVirtual)
                     {
                         Directory.Move(rutaFisica, nuevaRutaFisica);
+                        _ = RegistrarAuditoriaArchivoAsync("RENOMBRAR", $"Carpeta renombrada de '{Seleccionado.Nombre}' a '{nuevoNombre}' en '{ubicacionVisual}'.");
                     }
                     else
                     {
                         File.Move(rutaFisica, nuevaRutaFisica);
+                        _ = RegistrarAuditoriaArchivoAsync("RENOMBRAR", $"Archivo renombrado de '{Seleccionado.Nombre}' a '{nuevoNombre}' en '{ubicacionVisual}'.");
                     }
                     _notifications?.ShowSuccess($"Renombrado a '{nuevoNombre}' exitosamente.", "Renombrar");
                     Estado = $"Renombrado: {nuevoNombre}";

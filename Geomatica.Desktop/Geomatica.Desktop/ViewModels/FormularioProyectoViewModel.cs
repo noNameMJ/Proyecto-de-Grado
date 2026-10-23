@@ -38,11 +38,13 @@ namespace Geomatica.Desktop.ViewModels
 
         public string TituloVista => EsModoEdicion ? "Editar Proyecto" : "Crear Nuevo Proyecto";
         public string TextoBotonGuardar => EsModoEdicion ? "Guardar Cambios" : "Guardar Proyecto";
-        public string TooltipGuardar => EsModoEdicion ? "Guardar las modificaciones realizadas al proyecto" : "Registrar y guardar el nuevo proyecto en el sistema";
+        public string TooltipGuardar => EsSoloLecturaOAccesoRestringido
+            ? "Acceso restringido: Se requieren permisos de escritura en la carpeta del servidor o rol de Administrador para editar este proyecto (geomaticaad@uis.edu.co)."
+            : (EsModoEdicion ? "Guardar las modificaciones realizadas al proyecto" : "Registrar y guardar el nuevo proyecto en el sistema");
 
         public EvaluacionPermisos? PermisosCarpeta { get; }
-        public bool PuedeEscribir => PermisosCarpeta?.PuedeEscribir ?? true;
-        public bool EsSoloLecturaOAccesoRestringido => EsModoEdicion && PermisosCarpeta != null && !PermisosCarpeta.PuedeEscribir;
+        public bool PuedeEscribir => (PermisosCarpeta?.PuedeEscribir ?? true) || (_seguridadService?.PuedeEditarProyectos() ?? false);
+        public bool EsSoloLecturaOAccesoRestringido => EsModoEdicion && !PuedeEscribir;
         public string MensajeRestriccion => PermisosCarpeta?.Mensaje ?? string.Empty;
         public bool PuedeEliminar => EsModoEdicion && (_seguridadService?.PuedeEliminarProyectos() ?? false);
         public string TooltipEliminar => PuedeEliminar
@@ -750,6 +752,12 @@ namespace Geomatica.Desktop.ViewModels
 
         private async Task GuardarAsync()
         {
+            if (!PuedeEscribir)
+            {
+                _notifications?.ShowError(TooltipGuardar, "Acceso Restringido");
+                return;
+            }
+
             TituloInvalido = string.IsNullOrWhiteSpace(Titulo);
             if (TituloInvalido)
             {

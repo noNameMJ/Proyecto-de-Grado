@@ -17,6 +17,11 @@ public interface ISeguridadService
     bool PuedeEliminarProyectos();
 
     /// <summary>
+    /// Determina si el usuario actual cuenta con autorización para editar proyectos en el sistema.
+    /// </summary>
+    bool PuedeEditarProyectos();
+
+    /// <summary>
     /// Obtiene el nombre del usuario actual en formato DOMINIO\usuario o usuario.
     /// </summary>
     string ObtenerUsuarioActual();

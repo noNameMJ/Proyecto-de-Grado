@@ -271,6 +271,7 @@ namespace Geomatica.Desktop
             services.AddSingleton<CrearProyectoUseCase>();
             services.AddSingleton<ActualizarProyectoUseCase>();
             services.AddSingleton<ObtenerHistorialProyectoUseCase>();
+
             services.AddSingleton<ObtenerProyectoDetalleUseCase>();
             services.AddSingleton<Geomatica.Desktop.Services.ProyectoArchivosService>();
             services.AddSingleton<Geomatica.Infrastructure.Gis.Services.Iso19115MetadataExtractor>();

@@ -27,6 +27,7 @@ public interface IProyectoRepository
     Task EliminarAsync(int idProyecto, CancellationToken ct = default);
     Task EliminarAsync(int idProyecto, string? usuario, string? equipo = null, CancellationToken ct = default);
     Task<IReadOnlyList<AuditoriaProyectoDto>> ObtenerHistorialProyectoAsync(int idProyecto, CancellationToken ct = default);
+    Task RegistrarAuditoriaAsync(int idProyecto, string tituloProyecto, string accion, string detalles, string? usuario = null, string? equipo = null, CancellationToken ct = default);
     Task AsegurarTablaAuditoriaAsync(CancellationToken ct = default);
     Task AsegurarColumnasProyectoAsync(CancellationToken ct = default);
 }
