@@ -65,6 +65,12 @@ namespace Geomatica.Desktop.Services
         public string TooltipTexto => $"{Icono} Archivos .{ExtensionMayus} ({Categoria}): {CantidadArchivos} archivo(s), {TamanoTexto}.\nHaga clic para listar y explorar estos archivos.";
     }
 
+    public record ProgresoEscaneoFormatos(
+        int TotalArchivos,
+        int TotalCarpetas,
+        IReadOnlyList<FormatoExtensionItem> ExtensionesParciales,
+        IReadOnlyList<CategoriaFormatoItem>? CategoriasParciales = null);
+
     public record ResumenFormatosArchivos(
         int TotalArchivos,
         long TamanoTotalBytes,
@@ -84,11 +90,43 @@ namespace Geomatica.Desktop.Services
             "Otros" 
         };
 
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (EvaluacionPermisos Eval, DateTime ExpiraUtc)> _permisosCache
+            = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>
+        /// Intenta obtener una evaluación de permisos previamente calculada y aún vigente en memoria.
+        /// </summary>
+        public virtual bool TryObtenerPermisosCacheados(string? rutaRaizProyecto, out EvaluacionPermisos? eval)
+        {
+            eval = null;
+            if (string.IsNullOrWhiteSpace(rutaRaizProyecto)) return false;
+            try
+            {
+                string clave = ClaveIndice(rutaRaizProyecto);
+                if (_permisosCache.TryGetValue(clave, out var item) && item.ExpiraUtc > DateTime.UtcNow)
+                {
+                    eval = item.Eval;
+                    return true;
+                }
+            }
+            catch { }
+            return false;
+        }
+
         /// <summary>
         /// Evalúa los permisos efectivos del usuario actual de Windows (Active Directory UIS)
         /// sobre la carpeta del proyecto en el servidor o disco local.
+        /// Reutiliza el resultado en caché si fue calculado recientemente (TTL de 2 minutos).
         /// </summary>
         public virtual EvaluacionPermisos EvaluarPermisosCarpeta(string? rutaRaizProyecto)
+        {
+            return EvaluarPermisosCarpeta(rutaRaizProyecto, forzar: false);
+        }
+
+        /// <summary>
+        /// Evalúa los permisos efectivos con la opción de forzar una nueva prueba física en disco/red.
+        /// </summary>
+        public virtual EvaluacionPermisos EvaluarPermisosCarpeta(string? rutaRaizProyecto, bool forzar)
         {
             if (string.IsNullOrWhiteSpace(rutaRaizProyecto))
             {
@@ -104,6 +142,36 @@ namespace Geomatica.Desktop.Services
                 );
             }
 
+            string clave;
+            try { clave = ClaveIndice(rutaRaizProyecto); }
+            catch { clave = rutaRaizProyecto; }
+
+            if (!forzar && _permisosCache.TryGetValue(clave, out var item) && item.ExpiraUtc > DateTime.UtcNow)
+            {
+                return item.Eval;
+            }
+
+            var eval = EjecutarEvaluacionPermisos(rutaRaizProyecto);
+            _permisosCache[clave] = (eval, DateTime.UtcNow.AddMinutes(2));
+            return eval;
+        }
+
+        /// <summary>
+        /// Evalúa los permisos de forma asíncrona en un hilo de fondo para no bloquear el hilo de interfaz (UI).
+        /// </summary>
+        public virtual Task<EvaluacionPermisos> EvaluarPermisosCarpetaAsync(string? rutaRaizProyecto, bool forzar = false, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(rutaRaizProyecto))
+                return Task.FromResult(EvaluarPermisosCarpeta(rutaRaizProyecto));
+
+            if (!forzar && TryObtenerPermisosCacheados(rutaRaizProyecto, out var cacheado) && cacheado != null)
+                return Task.FromResult(cacheado);
+
+            return Task.Run(() => EvaluarPermisosCarpeta(rutaRaizProyecto, forzar), ct);
+        }
+
+        private EvaluacionPermisos EjecutarEvaluacionPermisos(string rutaRaizProyecto)
+        {
             // 1. Probar existencia y lectura (enumeración)
             try
             {
@@ -409,214 +477,33 @@ namespace Geomatica.Desktop.Services
         /// Escanea recursivamente los formatos y tipos de archivos espaciales y documentales presentes
         /// en la carpeta del proyecto sin bloquear la interfaz.
         /// </summary>
-        public virtual async Task<ResumenFormatosArchivos> EscanearFormatosArchivosAsync(string? rutaRaizProyecto, CancellationToken ct = default)
+        public virtual async Task<ResumenFormatosArchivos> EscanearFormatosArchivosAsync(
+            string? rutaRaizProyecto,
+            IProgress<ProgresoEscaneoFormatos>? progreso = null,
+            CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(rutaRaizProyecto))
-                return new ResumenFormatosArchivos(0, 0, Array.Empty<CategoriaFormatoItem>());
+                return new ResumenFormatosArchivos(0, 0, Array.Empty<CategoriaFormatoItem>(), Array.Empty<FormatoExtensionItem>());
 
-            return await Task.Run(() =>
+            if (!Directory.Exists(rutaRaizProyecto))
+                return new ResumenFormatosArchivos(0, 0, Array.Empty<CategoriaFormatoItem>(), Array.Empty<FormatoExtensionItem>());
+
+            try
             {
-                if (!Directory.Exists(rutaRaizProyecto))
-                    return new ResumenFormatosArchivos(0, 0, Array.Empty<CategoriaFormatoItem>());
-
-                try
-                {
-                    var extensionesConteo = new Dictionary<string, (int Conteo, long Tamano)>(StringComparer.OrdinalIgnoreCase);
-                    var enumOptions = new EnumerationOptions
-                    {
-                        IgnoreInaccessible = true,
-                        RecurseSubdirectories = true,
-                        AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System
-                    };
-
-                    var dir = new DirectoryInfo(rutaRaizProyecto);
-                    int totalArchivos = 0;
-                    long totalTamano = 0;
-
-                    foreach (var file in dir.EnumerateFiles("*.*", enumOptions))
-                    {
-                        if (ct.IsCancellationRequested) break;
-
-                        // Si el archivo reside dentro de una carpeta .gdb, no contar sus archivos binarios internos por separado
-                        if (file.DirectoryName != null && file.DirectoryName.IndexOf(".gdb", StringComparison.OrdinalIgnoreCase) >= 0)
-                            continue;
-
-                        totalArchivos++;
-                        totalTamano += file.Length;
-
-                        var ext = file.Extension.ToLowerInvariant();
-                        if (string.IsNullOrWhiteSpace(ext)) continue;
-
-                        if (extensionesConteo.TryGetValue(ext, out var valor))
-                        {
-                            extensionesConteo[ext] = (valor.Conteo + 1, valor.Tamano + file.Length);
-                        }
-                        else
-                        {
-                            extensionesConteo[ext] = (1, file.Length);
-                        }
-                    }
-
-                    // Contabilizar cada contenedor .gdb como un dataset vectorial único
-                    try
-                    {
-                        foreach (var gdbDir in dir.EnumerateDirectories("*.gdb", enumOptions))
-                        {
-                            if (ct.IsCancellationRequested) break;
-
-                            long tamanoGdb = 0;
-                            try
-                            {
-                                tamanoGdb = gdbDir.EnumerateFiles("*", SearchOption.AllDirectories).Sum(fi => fi.Length);
-                            }
-                            catch { }
-
-                            totalArchivos++;
-                            totalTamano += tamanoGdb;
-
-                            if (extensionesConteo.TryGetValue(".gdb", out var valorGdb))
-                            {
-                                extensionesConteo[".gdb"] = (valorGdb.Conteo + 1, valorGdb.Tamano + tamanoGdb);
-                            }
-                            else
-                            {
-                                extensionesConteo[".gdb"] = (1, tamanoGdb);
-                            }
-                        }
-                    }
-                    catch { }
-
-                    // Definir las categorías reconocidas en Geomática y SIG
-                    var categoriasConfig = new[]
-                    {
-                        new {
-                            Nombre = "Vectorial",
-                            Icono = "🗺️",
-                            Bg = "#E8F4EC",
-                            Border = "#B2DFBF",
-                            Fg = "#1A5C34",
-                            Exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".shp", ".gpkg", ".geojson", ".kml", ".kmz", ".tab", ".mif", ".gml", ".gdb", ".geodatabase" }
-                        },
-                        new {
-                            Nombre = "Raster / Ortofoto",
-                            Icono = "🛰️",
-                            Bg = "#E3F2FD",
-                            Border = "#BBDEFB",
-                            Fg = "#1565C0",
-                            Exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".tif", ".tiff", ".img", ".dem", ".asc", ".dt2", ".ecw", ".jp2", ".sid" }
-                        },
-                        new {
-                            Nombre = "LiDAR / Nubes",
-                            Icono = "☁️",
-                            Bg = "#F3E5F5",
-                            Border = "#E1BEE7",
-                            Fg = "#6A1B9A",
-                            Exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".las", ".laz", ".xyz", ".pts", ".ply" }
-                        },
-                        new {
-                            Nombre = "CAD / Planos",
-                            Icono = "📐",
-                            Bg = "#FFF8E1",
-                            Border = "#FFE082",
-                            Fg = "#B78103",
-                            Exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".dwg", ".dxf", ".dgn" }
-                        },
-                        new {
-                            Nombre = "Documentación",
-                            Icono = "📄",
-                            Bg = "#F5F5F5",
-                            Border = "#E0E0E0",
-                            Fg = "#424242",
-                            Exts = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".txt", ".md" }
-                        }
-                    };
-
-                    // Sidecars o archivos auxiliares espaciales conocidos
-                    var sidecarsConfig = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-                    {
-                        ".dbf", ".shx", ".prj", ".cpg", ".sbn", ".sbx", ".tfw", ".ovr", ".aux.xml", ".rrd", ".aux", ".j2w", ".wld", ".qmd", ".xml"
-                    };
-
-                    var categoriasResultado = new List<CategoriaFormatoItem>();
-
-                    foreach (var cat in categoriasConfig)
-                    {
-                        int sumaArchivos = 0;
-                        var extsEncontradas = new List<string>();
-
-                        foreach (var kvp in extensionesConteo)
-                        {
-                            if (cat.Exts.Contains(kvp.Key))
-                            {
-                                sumaArchivos += kvp.Value.Conteo;
-                                extsEncontradas.Add($"{kvp.Key.ToUpperInvariant()} ({kvp.Value.Conteo})");
-                            }
-                        }
-
-                        if (sumaArchivos > 0)
-                        {
-                            categoriasResultado.Add(new CategoriaFormatoItem(
-                                Categoria: cat.Nombre,
-                                Icono: cat.Icono,
-                                BadgeBgHex: cat.Bg,
-                                BadgeBorderHex: cat.Border,
-                                BadgeFgHex: cat.Fg,
-                                CantidadArchivos: sumaArchivos,
-                                ExtensionesEncontradas: extsEncontradas
-                            ));
-                        }
-                    }
-
-                    // Construir lista detallada de extensiones individuales
-                    var extensionesResultado = new List<FormatoExtensionItem>();
-                    foreach (var kvp in extensionesConteo)
-                    {
-                        string ext = kvp.Key;
-                        int conteo = kvp.Value.Conteo;
-                        long tamano = kvp.Value.Tamano;
-
-                        bool esSidecar = sidecarsConfig.Contains(ext);
-                        var catEncontrada = categoriasConfig.FirstOrDefault(c => c.Exts.Contains(ext));
-
-                        string categoriaNombre = catEncontrada != null ? catEncontrada.Nombre : (esSidecar ? "Auxiliar / Sidecar" : "Otros");
-                        string icono = catEncontrada != null ? catEncontrada.Icono : (esSidecar ? "📎" : "📁");
-                        string bg = catEncontrada != null ? catEncontrada.Bg : (esSidecar ? "#ECEFF1" : "#FAFAFA");
-                        string border = catEncontrada != null ? catEncontrada.Border : (esSidecar ? "#CFD8DC" : "#E0E0E0");
-                        string fg = catEncontrada != null ? catEncontrada.Fg : (esSidecar ? "#546E7A" : "#616161");
-
-                        extensionesResultado.Add(new FormatoExtensionItem(
-                            Extension: ext,
-                            Categoria: categoriaNombre,
-                            Icono: icono,
-                            BadgeBgHex: bg,
-                            BadgeBorderHex: border,
-                            BadgeFgHex: fg,
-                            CantidadArchivos: conteo,
-                            TamanoTotalBytes: tamano,
-                            EsAuxiliar: esSidecar
-                        ));
-                    }
-
-                    var extensionesOrdenadas = extensionesResultado
-                        .OrderBy(e => e.EsAuxiliar)
-                        .ThenByDescending(e => e.CantidadArchivos)
-                        .ThenBy(e => e.Extension)
-                        .ToList();
-
-                    return new ResumenFormatosArchivos(totalArchivos, totalTamano, categoriasResultado, extensionesOrdenadas);
-                }
-                catch (Exception ex)
-                {
-                    Debug.WriteLine($"[ProyectoArchivosService] Error escaneando formatos en {rutaRaizProyecto}: {ex.Message}");
-                    return new ResumenFormatosArchivos(0, 0, Array.Empty<CategoriaFormatoItem>(), Array.Empty<FormatoExtensionItem>());
-                }
-            }, ct);
+                var indice = await ObtenerIndiceAsync(rutaRaizProyecto, progreso, null, ct).ConfigureAwait(false);
+                return indice.GenerarResumenFormatos();
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoArchivosService] Error escaneando formatos en {rutaRaizProyecto}: {ex.Message}");
+                return new ResumenFormatosArchivos(0, 0, Array.Empty<CategoriaFormatoItem>(), Array.Empty<FormatoExtensionItem>());
+            }
         }
 
-        /// <summary>
-        /// Lista recursivamente todos los archivos en el proyecto que coinciden con una o varias extensiones especificadas.
-        /// Asigna a cada uno su subcarpeta relativa (UbicacionRelativa) para máxima transparencia al usuario.
-        /// </summary>
         public virtual List<ArchivoVirtual> ListarArchivosPorExtensiones(string rutaRaizProyecto, IEnumerable<string> extensiones, CancellationToken ct = default)
         {
             var resultados = new List<ArchivoVirtual>();
@@ -635,46 +522,14 @@ namespace Geomatica.Desktop.Services
 
             try
             {
-                var dir = new DirectoryInfo(rutaRaizProyecto);
-                var enumOptions = new EnumerationOptions
-                {
-                    IgnoreInaccessible = true,
-                    RecurseSubdirectories = true,
-                    AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System
-                };
-
-                string raizNormalizada = dir.FullName.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
-
-                foreach (var file in dir.EnumerateFiles("*.*", enumOptions))
-                {
-                    if (ct.IsCancellationRequested) break;
-
-                    if (!extSet.Contains(file.Extension))
-                        continue;
-
-                    string fileDir = file.DirectoryName ?? "";
-                    string ubicacionRelativa = "";
-                    if (fileDir.StartsWith(raizNormalizada, StringComparison.OrdinalIgnoreCase))
-                    {
-                        ubicacionRelativa = fileDir.Substring(raizNormalizada.Length).TrimStart(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).Replace('\\', '/');
-                    }
-                    if (string.IsNullOrWhiteSpace(ubicacionRelativa))
-                    {
-                        ubicacionRelativa = "(raíz)";
-                    }
-
-                    string rutaRelativaVirtual = (ubicacionRelativa == "(raíz)" ? file.Name : $"{ubicacionRelativa}/{file.Name}").Replace('\\', '/');
-
-                    resultados.Add(new ArchivoVirtual
-                    {
-                        Nombre = file.Name,
-                        RutaRelativaVirtual = rutaRelativaVirtual,
-                        UbicacionRelativa = ubicacionRelativa,
-                        TamanoBytes = file.Length,
-                        FechaModificacion = file.LastWriteTime,
-                        Extension = file.Extension
-                    });
-                }
+                // Reutiliza el índice en caché si existe; si no, lo construye (recorrido paralelo que
+                // omite el contenido interno de las .gdb) y lo deja en caché para las siguientes consultas.
+                var indice = ObtenerIndiceSincrono(rutaRaizProyecto, ct);
+                resultados = indice.Filtrar(extSet);
+            }
+            catch (OperationCanceledException)
+            {
+                // Búsqueda cancelada: se devuelve lo que haya.
             }
             catch (Exception ex)
             {
@@ -682,6 +537,117 @@ namespace Geomatica.Desktop.Services
             }
 
             return resultados;
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // Índice de archivos por proyecto (caché en memoria)
+        // ══════════════════════════════════════════════════════════════
+
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, Lazy<Task<IndiceArchivosProyecto>>> _indices
+            = new(StringComparer.OrdinalIgnoreCase);
+
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, System.Collections.Concurrent.ConcurrentBag<IProgress<ProgresoEscaneoFormatos>>> _progresoSubscribers
+            = new(StringComparer.OrdinalIgnoreCase);
+
+        /// <summary>Número de carpetas listadas en paralelo al construir el índice.</summary>
+        public int GradoParalelismoIndice { get; set; } = 8;
+
+        private static string ClaveIndice(string ruta)
+            => Path.GetFullPath(ruta).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+
+        /// <summary>Devuelve el índice ya construido para la ruta, si existe y terminó correctamente.</summary>
+        public virtual bool TryObtenerIndice(string? rutaRaizProyecto, out IndiceArchivosProyecto? indice)
+        {
+            indice = null;
+            if (string.IsNullOrWhiteSpace(rutaRaizProyecto)) return false;
+            if (_indices.TryGetValue(ClaveIndice(rutaRaizProyecto), out var lazy)
+                && lazy.IsValueCreated && lazy.Value.IsCompletedSuccessfully)
+            {
+                indice = lazy.Value.Result;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Obtiene (o construye en segundo plano) el índice de archivos del proyecto.
+        /// Llamadas concurrentes para la misma ruta comparten una única construcción.
+        /// Permite suscribir listeners de progreso en tiempo real para formatos y conteos.
+        /// </summary>
+        public virtual Task<IndiceArchivosProyecto> ObtenerIndiceAsync(
+            string rutaRaizProyecto,
+            IProgress<ProgresoEscaneoFormatos>? progresoFormatos,
+            IProgress<int>? progresoConteo = null,
+            CancellationToken ct = default)
+        {
+            var clave = ClaveIndice(rutaRaizProyecto);
+
+            if (progresoFormatos != null)
+            {
+                var bag = _progresoSubscribers.GetOrAdd(clave, _ => new System.Collections.Concurrent.ConcurrentBag<IProgress<ProgresoEscaneoFormatos>>());
+                bag.Add(progresoFormatos);
+
+                if (TryObtenerIndice(rutaRaizProyecto, out var existente) && existente != null)
+                {
+                    var resumen = existente.GenerarResumenFormatos();
+                    progresoFormatos.Report(new ProgresoEscaneoFormatos(
+                        existente.TotalArchivos,
+                        existente.TotalCarpetas,
+                        resumen.ExtensionesLista,
+                        resumen.Categorias));
+                }
+            }
+
+            var progressBridge = new Progress<ProgresoEscaneoFormatos>(p =>
+            {
+                if (_progresoSubscribers.TryGetValue(clave, out var subBag))
+                {
+                    foreach (var sub in subBag)
+                    {
+                        try { sub.Report(p); } catch { }
+                    }
+                }
+            });
+
+            var lazy = _indices.GetOrAdd(clave, _ => new Lazy<Task<IndiceArchivosProyecto>>(() =>
+                Task.Run(() => IndiceArchivosProyecto.Construir(clave, GradoParalelismoIndice, progressBridge, progresoConteo, CancellationToken.None))));
+
+            var tarea = lazy.Value;
+            tarea.ContinueWith(_ =>
+            {
+                _indices.TryRemove(new KeyValuePair<string, Lazy<Task<IndiceArchivosProyecto>>>(clave, lazy));
+                _progresoSubscribers.TryRemove(clave, out var _);
+            }, CancellationToken.None, TaskContinuationOptions.OnlyOnFaulted, TaskScheduler.Default);
+
+            return ct.CanBeCanceled ? tarea.WaitAsync(ct) : tarea;
+        }
+
+        public virtual Task<IndiceArchivosProyecto> ObtenerIndiceAsync(
+            string rutaRaizProyecto,
+            IProgress<int>? progreso = null,
+            CancellationToken ct = default)
+            => ObtenerIndiceAsync(rutaRaizProyecto, null, progreso, ct);
+
+        private IndiceArchivosProyecto ObtenerIndiceSincrono(string rutaRaizProyecto, CancellationToken ct)
+        {
+            if (TryObtenerIndice(rutaRaizProyecto, out var existente) && existente != null)
+                return existente;
+            return ObtenerIndiceAsync(rutaRaizProyecto, null, ct).GetAwaiter().GetResult();
+        }
+
+        /// <summary>
+        /// Descarta el índice de la ruta (tras Refrescar o tras operaciones de archivos de la propia aplicación).
+        /// </summary>
+        public virtual void InvalidarIndice(string? rutaRaizProyecto)
+        {
+            if (string.IsNullOrWhiteSpace(rutaRaizProyecto)) return;
+            try
+            {
+                string clave = ClaveIndice(rutaRaizProyecto);
+                _indices.TryRemove(clave, out _);
+                _permisosCache.TryRemove(clave, out _);
+            }
+            catch { }
         }
 
         /// <summary>

@@ -23,6 +23,7 @@ namespace Geomatica.Desktop.ViewModels
 
         // La ruta real física donde reside el proyecto completo
         private string _rutaRaizProyecto = "";
+        public string RutaRaizProyecto => _rutaRaizProyecto;
 
         // En la UI mostramos la ruta relativa virtual. Vacio ("") es la raíz del proyecto.
         [ObservableProperty] private string rutaActual = "";
@@ -344,6 +345,7 @@ namespace Geomatica.Desktop.ViewModels
         }
 
         public ObservableCollection<FiltroExtensionOption> ExtensionesDisponibles { get; } = new();
+        private readonly object _extensionesLock = new();
 
         public IEnumerable<FiltroExtensionOption> ExtensionesFiltrables => ExtensionesDisponibles.Where(e => !string.IsNullOrEmpty(e.Extension));
         public bool HasExtensionesFiltrables => ExtensionesDisponibles.Any(e => !string.IsNullOrEmpty(e.Extension));
@@ -550,12 +552,15 @@ namespace Geomatica.Desktop.ViewModels
             _isUpdatingExtensionSelection = true;
             try
             {
-                foreach (var opt in ExtensionesDisponibles.ToList())
+                lock (_extensionesLock)
                 {
-                    opt.IsSelected = string.IsNullOrEmpty(opt.Extension);
+                    foreach (var opt in ExtensionesDisponibles.ToList())
+                    {
+                        opt.IsSelected = string.IsNullOrEmpty(opt.Extension);
+                    }
+                    var opcionTodos = ExtensionesDisponibles.FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
+                    FiltroExtensionSeleccionado = opcionTodos;
                 }
-                var opcionTodos = ExtensionesDisponibles.FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
-                FiltroExtensionSeleccionado = opcionTodos;
             }
             finally
             {
@@ -577,7 +582,11 @@ namespace Geomatica.Desktop.ViewModels
             }
 
             string extNorm = extension.StartsWith('.') ? extension.ToLowerInvariant() : "." + extension.ToLowerInvariant();
-            var opcionesSnapshot = ExtensionesDisponibles.ToList();
+            List<FiltroExtensionOption> opcionesSnapshot;
+            lock (_extensionesLock)
+            {
+                opcionesSnapshot = ExtensionesDisponibles.ToList();
+            }
             var match = opcionesSnapshot.FirstOrDefault(e => e.Extension.Equals(extNorm, StringComparison.OrdinalIgnoreCase));
 
             _isUpdatingExtensionSelection = true;
@@ -605,7 +614,10 @@ namespace Geomatica.Desktop.ViewModels
                             OnOpcionExtensionSelectionChanged(nuevaOpcion);
                         }
                     };
-                    ExtensionesDisponibles.Add(nuevaOpcion);
+                    lock (_extensionesLock)
+                    {
+                        ExtensionesDisponibles.Add(nuevaOpcion);
+                    }
                     FiltroExtensionSeleccionado = nuevaOpcion;
                 }
             }
@@ -717,11 +729,16 @@ namespace Geomatica.Desktop.ViewModels
 
                 if (!string.IsNullOrWhiteSpace(newValue.RutaArchivos))
                 {
+                    bool mismaRuta = string.Equals(_rutaRaizProyecto, newValue.RutaArchivos, StringComparison.OrdinalIgnoreCase);
                     _rutaRaizProyecto = newValue.RutaArchivos;
                     _rutaPermisosCacheada = newValue.RutaArchivos;
                     _permisosCacheados = newValue.PermisosCarpeta;
-                    if (RutaActual == "") RefrescarSegunFiltros();
-                    else RutaActual = ""; // raíz virtual
+                    // Solo refrescar si la ruta cambió o si la lista estaba vacía (evita doble I/O consecutivo)
+                    if (!mismaRuta || Items.Count == 0)
+                    {
+                        if (RutaActual == "") RefrescarSegunFiltros();
+                        else RutaActual = ""; // raíz virtual
+                    }
                 }
             }
             else
@@ -742,7 +759,7 @@ namespace Geomatica.Desktop.ViewModels
         {
             if (sender is FichaProyectoViewModel ficha &&
                 (e.PropertyName == nameof(FichaProyectoViewModel.HasExtensionesDetectadas) ||
-                 e.PropertyName == nameof(FichaProyectoViewModel.TotalArchivosDetectados)))
+                 (e.PropertyName == nameof(FichaProyectoViewModel.CargandoFormatos) && !ficha.CargandoFormatos)))
             {
                 ActualizarExtensionesDisponibles(ficha);
             }
@@ -750,77 +767,80 @@ namespace Geomatica.Desktop.ViewModels
 
         public void ActualizarExtensionesDisponibles(FichaProyectoViewModel ficha)
         {
-            _isUpdatingExtensionSelection = true;
-            try
+            lock (_extensionesLock)
             {
-                var seleccionadoActual = FiltroExtensionSeleccionado?.Extension;
-                var seleccionadasAnteriores = ExtensionesDisponibles
-                    .Where(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected)
-                    .Select(e => e.Extension)
-                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-                ExtensionesDisponibles.Clear();
-                var opcionTodos = new FiltroExtensionOption("", "Todos los archivos", "📁", 0, isSelected: true);
-                opcionTodos.PropertyChanged += (s, e) =>
+                _isUpdatingExtensionSelection = true;
+                try
                 {
-                    if (e.PropertyName == nameof(FiltroExtensionOption.IsSelected))
-                    {
-                        OnOpcionExtensionSelectionChanged(opcionTodos);
-                    }
-                };
-                ExtensionesDisponibles.Add(opcionTodos);
+                    var seleccionadoActual = FiltroExtensionSeleccionado?.Extension;
+                    var seleccionadasAnteriores = ExtensionesDisponibles.ToList()
+                        .Where(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected)
+                        .Select(e => e.Extension)
+                        .ToHashSet(StringComparer.OrdinalIgnoreCase);
 
-                var extensionesSnapshot = ficha.ExtensionesDetectadas.ToList();
-                foreach (var ext in extensionesSnapshot)
-                {
-                    bool wasSelected = seleccionadasAnteriores.Contains(ext.Extension) ||
-                                       (!string.IsNullOrEmpty(seleccionadoActual) && ext.Extension.Equals(seleccionadoActual, StringComparison.OrdinalIgnoreCase));
-
-                    var opt = new FiltroExtensionOption(
-                        extension: ext.Extension,
-                        etiqueta: ext.TextoBadge,
-                        icono: ext.Icono,
-                        cantidad: ext.CantidadArchivos,
-                        categoria: ext.Categoria,
-                        isSelected: wasSelected
-                    );
-                    opt.PropertyChanged += (s, e) =>
+                    ExtensionesDisponibles.Clear();
+                    var opcionTodos = new FiltroExtensionOption("", "Todos los archivos", "📁", 0, isSelected: true);
+                    opcionTodos.PropertyChanged += (s, e) =>
                     {
                         if (e.PropertyName == nameof(FiltroExtensionOption.IsSelected))
                         {
-                            OnOpcionExtensionSelectionChanged(opt);
+                            OnOpcionExtensionSelectionChanged(opcionTodos);
                         }
                     };
-                    ExtensionesDisponibles.Add(opt);
-                }
+                    ExtensionesDisponibles.Add(opcionTodos);
 
-                bool hayAlgunaSeleccionada = ExtensionesDisponibles.Any(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected);
-                opcionTodos.IsSelected = !hayAlgunaSeleccionada;
-
-                if (!string.IsNullOrEmpty(seleccionadoActual))
-                {
-                    var match = ExtensionesDisponibles.FirstOrDefault(e => e.Extension.Equals(seleccionadoActual, StringComparison.OrdinalIgnoreCase));
-                    if (match != null)
+                    var extensionesSnapshot = ficha.ExtensionesDetectadas.ToList();
+                    foreach (var ext in extensionesSnapshot)
                     {
-                        FiltroExtensionSeleccionado = match;
+                        bool wasSelected = seleccionadasAnteriores.Contains(ext.Extension) ||
+                                           (!string.IsNullOrEmpty(seleccionadoActual) && ext.Extension.Equals(seleccionadoActual, StringComparison.OrdinalIgnoreCase));
+
+                        var opt = new FiltroExtensionOption(
+                            extension: ext.Extension,
+                            etiqueta: ext.TextoBadge,
+                            icono: ext.Icono,
+                            cantidad: ext.CantidadArchivos,
+                            categoria: ext.Categoria,
+                            isSelected: wasSelected
+                        );
+                        opt.PropertyChanged += (s, e) =>
+                        {
+                            if (e.PropertyName == nameof(FiltroExtensionOption.IsSelected))
+                            {
+                                OnOpcionExtensionSelectionChanged(opt);
+                            }
+                        };
+                        ExtensionesDisponibles.Add(opt);
                     }
-                    else if (FiltroExtensionSeleccionado != null)
+
+                    bool hayAlgunaSeleccionada = ExtensionesDisponibles.Any(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected);
+                    opcionTodos.IsSelected = !hayAlgunaSeleccionada;
+
+                    if (!string.IsNullOrEmpty(seleccionadoActual))
                     {
-                        ExtensionesDisponibles.Add(FiltroExtensionSeleccionado);
+                        var match = ExtensionesDisponibles.FirstOrDefault(e => e.Extension.Equals(seleccionadoActual, StringComparison.OrdinalIgnoreCase));
+                        if (match != null)
+                        {
+                            FiltroExtensionSeleccionado = match;
+                        }
+                        else if (FiltroExtensionSeleccionado != null)
+                        {
+                            ExtensionesDisponibles.Add(FiltroExtensionSeleccionado);
+                        }
+                        else
+                        {
+                            FiltroExtensionSeleccionado = ExtensionesDisponibles[0];
+                        }
                     }
                     else
                     {
                         FiltroExtensionSeleccionado = ExtensionesDisponibles[0];
                     }
                 }
-                else
+                finally
                 {
-                    FiltroExtensionSeleccionado = ExtensionesDisponibles[0];
+                    _isUpdatingExtensionSelection = false;
                 }
-            }
-            finally
-            {
-                _isUpdatingExtensionSelection = false;
             }
 
             OnPropertyChanged(nameof(ExtensionesFiltrables));
@@ -907,8 +927,81 @@ namespace Geomatica.Desktop.ViewModels
             }
             else if (e.PropertyName == nameof(BusquedaTexto))
             {
-                RefrescarSegunFiltros();
+                ProgramarRefrescoBusqueda();
             }
+        }
+
+        // ══════════════════════════════════════════════════════════════
+        // Búsqueda optimizada para proyectos con millones de archivos
+        // ══════════════════════════════════════════════════════════════
+
+        /// <summary>Máximo de resultados que se pintan en la tabla (el total se informa en el banner).</summary>
+        public const int MaxResultadosVisibles = 5000;
+
+        /// <summary>
+        /// Si es verdadero, el índice se construye en segundo plano y la búsqueda por texto espera
+        /// una pausa en la escritura. En pruebas unitarias (sin Application) se ejecuta de forma síncrona.
+        /// </summary>
+        public bool IndexarEnSegundoPlano { get; set; } = Application.Current != null;
+
+        private string? _rutaIndexandose;
+        private CancellationTokenSource? _busquedaCts;
+
+        private async void ProgramarRefrescoBusqueda()
+        {
+            if (!IndexarEnSegundoPlano)
+            {
+                RefrescarSegunFiltros();
+                return;
+            }
+
+            _busquedaCts?.Cancel();
+            var cts = _busquedaCts = new CancellationTokenSource();
+            try
+            {
+                await Task.Delay(250, cts.Token);
+            }
+            catch (TaskCanceledException)
+            {
+                return;
+            }
+            RefrescarSegunFiltros();
+        }
+
+        private void IniciarIndexacionEnSegundoPlano(string ruta)
+        {
+            if (string.Equals(_rutaIndexandose, ruta, StringComparison.OrdinalIgnoreCase)) return;
+            _rutaIndexandose = ruta;
+
+            var dispatcher = Application.Current?.Dispatcher;
+            var progreso = new Progress<int>(n =>
+            {
+                if (string.Equals(ruta, _rutaRaizProyecto, StringComparison.OrdinalIgnoreCase) && IsFiltradoPorExtension)
+                    Estado = $"⏳ Indexando proyecto… {n:N0} archivos";
+            });
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var indice = await _archivosService.ObtenerIndiceAsync(ruta, progreso);
+                    System.Diagnostics.Debug.WriteLine($"[ArchivosViewModel] Índice de '{ruta}': {indice.TotalArchivos:N0} archivos, {indice.TotalCarpetas:N0} carpetas en {indice.TiempoConstruccion.TotalSeconds:N1} s.");
+                    dispatcher?.Invoke(() =>
+                    {
+                        _rutaIndexandose = null;
+                        if (string.Equals(ruta, _rutaRaizProyecto, StringComparison.OrdinalIgnoreCase))
+                            RefrescarSegunFiltros();
+                    });
+                }
+                catch (Exception ex)
+                {
+                    dispatcher?.Invoke(() =>
+                    {
+                        _rutaIndexandose = null;
+                        Estado = $"No se pudo indexar el proyecto: {ex.Message}";
+                    });
+                }
+            });
         }
 
         [RelayCommand]
@@ -916,6 +1009,7 @@ namespace Geomatica.Desktop.ViewModels
         {
             _permisosCacheados = null;
             _rutaPermisosCacheada = null;
+            _archivosService.InvalidarIndice(_rutaRaizProyecto);
             RefrescarSegunFiltros();
         }
 
@@ -980,20 +1074,35 @@ namespace Geomatica.Desktop.ViewModels
                 IsFiltradoPorExtension = hayFiltroExtension;
 
                 List<NodoArchivoVirtual> nodos;
+                int totalCoincidencias = -1;
                 if (hayFiltroExtension)
                 {
-                    var archivosFiltrados = _archivosService.ListarArchivosPorExtensiones(_rutaRaizProyecto, seleccionadas);
-                    nodos = archivosFiltrados.Cast<NodoArchivoVirtual>().ToList();
-                    if (seleccionadas.Count == 1)
+                    // Búsqueda sobre el índice en memoria del proyecto: el árbol de carpetas se recorre
+                    // una sola vez; los cambios de formato o de texto se resuelven en memoria.
+                    if (!_archivosService.TryObtenerIndice(_rutaRaizProyecto, out var indice) || indice == null)
                     {
-                        string extMayus = seleccionadas[0].TrimStart('.').ToUpperInvariant();
-                        BannerFiltroTexto = $"Mostrando {nodos.Count} archivo(s) con formato .{extMayus} encontrados en todo el proyecto.";
+                        if (IndexarEnSegundoPlano)
+                        {
+                            IniciarIndexacionEnSegundoPlano(_rutaRaizProyecto);
+                            BannerFiltroTexto = "⏳ Indexando los archivos del proyecto por primera vez. Los resultados aparecerán automáticamente al terminar.";
+                            if (!Estado.StartsWith("⏳")) Estado = "⏳ Indexando proyecto…";
+                            OnPropertyChanged(nameof(ShowEmptyState));
+                            return;
+                        }
+                        indice = _archivosService.ObtenerIndiceAsync(_rutaRaizProyecto).GetAwaiter().GetResult();
                     }
-                    else
-                    {
-                        string listaExts = string.Join(", ", seleccionadas.Select(e => "." + e.TrimStart('.').ToUpperInvariant()));
-                        BannerFiltroTexto = $"Mostrando {nodos.Count} archivo(s) con formatos ({listaExts}) encontrados en todo el proyecto.";
-                    }
+
+                    string? textoIndice = string.IsNullOrWhiteSpace(BusquedaTexto) ? null : BusquedaTexto;
+                    totalCoincidencias = indice.ContarCoincidencias(seleccionadas, textoIndice);
+                    nodos = indice.Filtrar(seleccionadas, textoIndice, MaxResultadosVisibles).Cast<NodoArchivoVirtual>().ToList();
+
+                    string etiquetaFormatos = seleccionadas.Count == 1
+                        ? $"con formato .{seleccionadas[0].TrimStart('.').ToUpperInvariant()}"
+                        : $"con formatos ({string.Join(", ", seleccionadas.Select(e => "." + e.TrimStart('.').ToUpperInvariant()))})";
+
+                    BannerFiltroTexto = totalCoincidencias > nodos.Count
+                        ? $"Mostrando {nodos.Count:N0} de {totalCoincidencias:N0} archivo(s) {etiquetaFormatos} encontrados en todo el proyecto. Escriba en el buscador para afinar."
+                        : $"Mostrando {nodos.Count} archivo(s) {etiquetaFormatos} encontrados en todo el proyecto.";
                 }
                 else
                 {
@@ -1007,8 +1116,8 @@ namespace Geomatica.Desktop.ViewModels
                     nodos = nodos.Where(n => n.EsCarpeta || n.Nombre.Contains(_filtros.PalabraClave, StringComparison.OrdinalIgnoreCase)).ToList();
                 }
 
-                // Aplicar búsqueda específica en archivos
-                if (!string.IsNullOrWhiteSpace(BusquedaTexto))
+                // Aplicar búsqueda específica en archivos (en modo filtro ya viene aplicada desde el índice)
+                if (!hayFiltroExtension && !string.IsNullOrWhiteSpace(BusquedaTexto))
                 {
                     nodos = nodos.Where(n => n.Nombre.Contains(BusquedaTexto, StringComparison.OrdinalIgnoreCase) || n.RutaRelativaVirtual.Contains(BusquedaTexto, StringComparison.OrdinalIgnoreCase)).ToList();
                 }
@@ -1022,15 +1131,16 @@ namespace Geomatica.Desktop.ViewModels
 
                 if (hayFiltroExtension)
                 {
+                    string sufijoTotal = totalCoincidencias > Items.Count ? $" de {totalCoincidencias:N0}" : "";
                     if (seleccionadas.Count == 1)
                     {
                         string extMayus = seleccionadas[0].TrimStart('.').ToUpperInvariant();
-                        Estado = $"Filtro .{extMayus}: {Items.Count} archivo(s) listado(s)";
+                        Estado = $"Filtro .{extMayus}: {Items.Count}{sufijoTotal} archivo(s) listado(s)";
                     }
                     else
                     {
                         string listaExts = string.Join(", ", seleccionadas.Select(e => "." + e.TrimStart('.').ToUpperInvariant()));
-                        Estado = $"Filtro ({listaExts}): {Items.Count} archivo(s) listado(s)";
+                        Estado = $"Filtro ({listaExts}): {Items.Count}{sufijoTotal} archivo(s) listado(s)";
                     }
                 }
                 else
@@ -1172,6 +1282,10 @@ namespace Geomatica.Desktop.ViewModels
 
         public async Task RegistrarAuditoriaArchivoAsync(string accion, string detalles)
         {
+            // Toda operación de archivos de la aplicación pasa por aquí: el índice deja de ser válido.
+            _archivosService.InvalidarIndice(_rutaRaizProyecto);
+            if (IsFiltradoPorExtension) RefrescarSegunFiltros();
+
             try
             {
                 var proyecto = ObtenerProyectoActual();

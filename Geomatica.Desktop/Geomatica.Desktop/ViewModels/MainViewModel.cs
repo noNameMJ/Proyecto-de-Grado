@@ -122,6 +122,14 @@ namespace Geomatica.Desktop.ViewModels
                 archivosVm.ProyectoDetalle.EditarSolicitado -= OnEditarSolicitado;
             }
 
+            // Reutilizar evaluación de permisos ya disponible en el visor de archivos para evitar I/O redundante en red
+            EvaluacionPermisos? permisosPrecalculados = null;
+            if (archivosVm.PermisosCarpeta != null &&
+                string.Equals(archivosVm.RutaRaizProyecto, detalle.RutaArchivos, StringComparison.OrdinalIgnoreCase))
+            {
+                permisosPrecalculados = archivosVm.PermisosCarpeta;
+            }
+
             var fichaVm = new FichaProyectoViewModel(
                 detalle,
                 () =>
@@ -144,7 +152,8 @@ namespace Geomatica.Desktop.ViewModels
                 Notifications,
                 _proyectoRepository,
                 _historialUseCase,
-                _seguridadService);
+                _seguridadService,
+                permisosPrecalculados);
             fichaVm.EditarSolicitado += OnEditarSolicitado;
 
             archivosVm.ProyectoDetalle = fichaVm;

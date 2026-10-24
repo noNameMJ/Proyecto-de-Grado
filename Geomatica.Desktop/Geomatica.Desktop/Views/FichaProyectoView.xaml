@@ -552,14 +552,14 @@
                                 <DockPanel Margin="0,0,0,4">
                                     <TextBlock Text="Formatos detectados en el repositorio:" FontSize="10.5" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFont}"/>
-                                    <TextBlock Text="{Binding TotalArchivosDetectados, StringFormat='({0} archivos)'}" FontSize="10"
+                                    <TextBlock Text="{Binding TotalArchivosDetectadosTexto}" FontSize="10"
                                                Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFont}"
                                                HorizontalAlignment="Right"/>
                                 </DockPanel>
 
-                                <!-- Indicador de escaneo en segundo plano -->
-                                <TextBlock Text="Analizando tipos de archivos en la carpeta..." FontSize="10.5"
-                                           Foreground="{StaticResource TextMutedBrush}" FontStyle="Italic" Margin="0,2,0,2"
+                                <!-- Indicador de escaneo en segundo plano con conteo progresivo -->
+                                <TextBlock Text="{Binding TextoProgresoFormatos}" FontSize="10.5"
+                                           Foreground="{StaticResource TextMutedBrush}" FontStyle="Italic" Margin="0,2,0,4"
                                            Visibility="{Binding CargandoFormatos, Converter={StaticResource BoolToVis}}"/>
 
                                 <!-- Badges de Extensiones Reales detectadas (Interactivas para filtrar) -->

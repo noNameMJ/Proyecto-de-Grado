@@ -37,7 +37,7 @@ namespace Geomatica.Desktop.ViewModels
         private readonly SemaphoreSlim _formatosLock = new(1, 1);
 
         public ProyectoDetalleDto Proyecto { get; }
-        public EvaluacionPermisos PermisosCarpeta { get; }
+        public EvaluacionPermisos PermisosCarpeta { get; private set; }
 
         public int Id => Proyecto.Id;
         public string CodigoId => $"#PROY-{Proyecto.Id:D4}";
@@ -199,7 +199,15 @@ namespace Geomatica.Desktop.ViewModels
         public Func<string, string, string?>? SaveFileDialogCustomHandler { get; set; }
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(TotalArchivosDetectadosTexto))]
         private int _totalArchivosDetectados;
+
+        public string TotalArchivosDetectadosTexto => TotalArchivosDetectados > 0
+            ? $"({TotalArchivosDetectados:N0} archivos)"
+            : "";
+
+        [ObservableProperty]
+        private string _textoProgresoFormatos = "Analizando tipos de archivos en la carpeta...";
 
         public event EventHandler<string>? ExtensionSeleccionadaParaFiltrado;
 
@@ -275,7 +283,8 @@ namespace Geomatica.Desktop.ViewModels
             INotificationService? notifications = null,
             IProyectoRepository? proyectoRepository = null,
             ObtenerHistorialProyectoUseCase? historialUseCase = null,
-            ISeguridadService? seguridadService = null)
+            ISeguridadService? seguridadService = null,
+            EvaluacionPermisos? permisosPrecalculados = null)
         {
             Proyecto = proyecto;
             _eliminarProyectoUseCase = eliminarProyectoUseCase;
@@ -286,7 +295,10 @@ namespace Geomatica.Desktop.ViewModels
             _historialUseCase = historialUseCase ?? (proyectoRepository != null ? new ObtenerHistorialProyectoUseCase(proyectoRepository) : null);
             _seguridadService = seguridadService ?? new WindowsSeguridadService();
 
-            PermisosCarpeta = _archivosService.EvaluarPermisosCarpeta(proyecto.RutaArchivos);
+            PermisosCarpeta = permisosPrecalculados
+                ?? (_archivosService.TryObtenerPermisosCacheados(proyecto.RutaArchivos, out var c) && c != null
+                    ? c
+                    : _archivosService.EvaluarPermisosCarpeta(proyecto.RutaArchivos));
 
             VolverCommand = new RelayCommand(volverAction);
             EditarCommand = new RelayCommand(() => EditarSolicitado?.Invoke(this, Proyecto), () => PuedeEditar);
@@ -570,7 +582,29 @@ namespace Geomatica.Desktop.ViewModels
             try
             {
                 CargandoFormatos = true;
-                var resumen = await _archivosService.EscanearFormatosArchivosAsync(RutaArchivos, ct);
+                TextoProgresoFormatos = "Analizando tipos de archivos en la carpeta...";
+
+                var progreso = new Progress<ProgresoEscaneoFormatos>(p =>
+                {
+                    TotalArchivosDetectados = p.TotalArchivos;
+                    TextoProgresoFormatos = $"⏳ Analizando archivos en el repositorio... ({p.TotalArchivos:N0} encontrados)";
+
+                    if (p.ExtensionesParciales.Count > 0)
+                    {
+                        var lista = p.ExtensionesParciales.ToList();
+                        ExtensionesDetectadas.Clear();
+                        for (int i = 0; i < lista.Count; i++)
+                        {
+                            ExtensionesDetectadas.Add(lista[i]);
+                        }
+                        HasExtensionesDetectadas = true;
+
+                        var primarios = lista.Where(e => !e.EsAuxiliar).Select(e => $".{e.ExtensionMayus} ({e.CantidadArchivos})");
+                        ResumenInsumosTexto = string.Join(", ", primarios);
+                    }
+                });
+
+                var resumen = await _archivosService.EscanearFormatosArchivosAsync(RutaArchivos, progreso, ct);
 
                 FormatosDetectados.Clear();
                 foreach (var cat in resumen.Categorias)
@@ -590,7 +624,7 @@ namespace Geomatica.Desktop.ViewModels
 
                 if (HasExtensionesDetectadas)
                 {
-                    var primarios = ExtensionesDetectadas.Where(e => !e.EsAuxiliar).Select(e => $".{e.ExtensionMayus} ({e.CantidadArchivos})");
+                    var primarios = resumen.ExtensionesLista.Where(e => !e.EsAuxiliar).Select(e => $".{e.ExtensionMayus} ({e.CantidadArchivos})");
                     ResumenInsumosTexto = string.Join(", ", primarios);
                 }
                 else
