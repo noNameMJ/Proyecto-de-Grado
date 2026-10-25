@@ -9,6 +9,7 @@ using System.Windows;
 using Geomatica.Desktop.Services;
 using Geomatica.Desktop.Models;
 using Geomatica.Desktop.Views;
+using Geomatica.Domain.Catalogos;
 
 namespace Geomatica.Desktop.ViewModels
 {
@@ -429,15 +430,7 @@ namespace Geomatica.Desktop.ViewModels
                 return;
             }
 
-            var extsPorCategoria = categoria.ToLowerInvariant() switch
-            {
-                "vectorial" => new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".shp", ".gpkg", ".geojson", ".kml", ".kmz", ".tab", ".mif", ".gml", ".gdb" },
-                "raster" or "ráster" => new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".tif", ".tiff", ".img", ".dem", ".asc", ".dt2", ".ecw", ".jp2", ".sid" },
-                "lidar" => new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".las", ".laz" },
-                "cad" => new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".dwg", ".dxf", ".dgn" },
-                "docs" => new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".pptx", ".txt", ".csv", ".zip", ".rar", ".7z" },
-                _ => new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-            };
+            var extsPorCategoria = CatalogoFormatosGis.ObtenerExtensionesPorCategoria(categoria);
 
             _isUpdatingExtensionSelection = true;
             bool algunCoincidente = false;
@@ -581,7 +574,7 @@ namespace Geomatica.Desktop.ViewModels
                 return;
             }
 
-            string extNorm = extension.StartsWith('.') ? extension.ToLowerInvariant() : "." + extension.ToLowerInvariant();
+            string extNorm = CatalogoFormatosGis.NormalizarExtension(extension);
             List<FiltroExtensionOption> opcionesSnapshot;
             lock (_extensionesLock)
             {
@@ -717,6 +710,7 @@ namespace Geomatica.Desktop.ViewModels
             {
                 oldValue.ExtensionSeleccionadaParaFiltrado -= Ficha_ExtensionSeleccionadaParaFiltrado;
                 oldValue.PropertyChanged -= Ficha_PropertyChanged;
+                oldValue.ExtensionesActualizadas -= Ficha_ExtensionesActualizadas;
             }
 
             OnPropertyChanged(nameof(HasProyectoDetalle));
@@ -724,6 +718,7 @@ namespace Geomatica.Desktop.ViewModels
             {
                 newValue.ExtensionSeleccionadaParaFiltrado += Ficha_ExtensionSeleccionadaParaFiltrado;
                 newValue.PropertyChanged += Ficha_PropertyChanged;
+                newValue.ExtensionesActualizadas += Ficha_ExtensionesActualizadas;
 
                 ActualizarExtensionesDisponibles(newValue);
 
@@ -755,11 +750,19 @@ namespace Geomatica.Desktop.ViewModels
             FiltrarPorExtension(extension);
         }
 
+        private void Ficha_ExtensionesActualizadas(object? sender, EventArgs e)
+        {
+            if (sender is FichaProyectoViewModel ficha)
+            {
+                ActualizarExtensionesDisponibles(ficha);
+            }
+        }
+
         private void Ficha_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
         {
             if (sender is FichaProyectoViewModel ficha &&
                 (e.PropertyName == nameof(FichaProyectoViewModel.HasExtensionesDetectadas) ||
-                 (e.PropertyName == nameof(FichaProyectoViewModel.CargandoFormatos) && !ficha.CargandoFormatos)))
+                 e.PropertyName == nameof(FichaProyectoViewModel.ExtensionesDetectadas)))
             {
                 ActualizarExtensionesDisponibles(ficha);
             }
@@ -767,6 +770,13 @@ namespace Geomatica.Desktop.ViewModels
 
         public void ActualizarExtensionesDisponibles(FichaProyectoViewModel ficha)
         {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.CheckAccess())
+            {
+                dispatcher.Invoke(() => ActualizarExtensionesDisponibles(ficha));
+                return;
+            }
+
             lock (_extensionesLock)
             {
                 _isUpdatingExtensionSelection = true;
@@ -790,6 +800,12 @@ namespace Geomatica.Desktop.ViewModels
                     ExtensionesDisponibles.Add(opcionTodos);
 
                     var extensionesSnapshot = ficha.ExtensionesDetectadas.ToList();
+                    if (extensionesSnapshot.Count == 0 && !string.IsNullOrWhiteSpace(_rutaRaizProyecto) &&
+                        _archivosService.TryObtenerIndice(_rutaRaizProyecto, out var idx) && idx != null)
+                    {
+                        var resumen = idx.GenerarResumenFormatos();
+                        extensionesSnapshot = resumen.ExtensionesLista.ToList();
+                    }
                     foreach (var ext in extensionesSnapshot)
                     {
                         bool wasSelected = seleccionadasAnteriores.Contains(ext.Extension) ||
@@ -1104,6 +1120,19 @@ namespace Geomatica.Desktop.ViewModels
                         ? $"Mostrando {nodos.Count:N0} de {totalCoincidencias:N0} archivo(s) {etiquetaFormatos} encontrados en todo el proyecto. Escriba en el buscador para afinar."
                         : $"Mostrando {nodos.Count} archivo(s) {etiquetaFormatos} encontrados en todo el proyecto.";
                 }
+                else if (!string.IsNullOrWhiteSpace(BusquedaTexto) &&
+                         _archivosService.TryObtenerIndice(_rutaRaizProyecto, out var indice) &&
+                         indice != null)
+                {
+                    // Búsqueda global en todo el proyecto a través del índice en memoria
+                    string textoLimpio = BusquedaTexto.Trim();
+                    totalCoincidencias = indice.ContarCoincidenciasPorTexto(textoLimpio);
+                    nodos = indice.BuscarPorTexto(textoLimpio, maxResultados: 500).Cast<NodoArchivoVirtual>().ToList();
+
+                    BannerFiltroTexto = totalCoincidencias > nodos.Count
+                        ? $"Mostrando {nodos.Count:N0} de {totalCoincidencias:N0} archivo(s) que coinciden con '{textoLimpio}' en todo el proyecto. Escriba en el buscador para afinar."
+                        : $"Mostrando {nodos.Count} archivo(s) que coinciden con '{textoLimpio}' en todo el proyecto.";
+                }
                 else
                 {
                     BannerFiltroTexto = "";
@@ -1116,8 +1145,8 @@ namespace Geomatica.Desktop.ViewModels
                     nodos = nodos.Where(n => n.EsCarpeta || n.Nombre.Contains(_filtros.PalabraClave, StringComparison.OrdinalIgnoreCase)).ToList();
                 }
 
-                // Aplicar búsqueda específica en archivos (en modo filtro ya viene aplicada desde el índice)
-                if (!hayFiltroExtension && !string.IsNullOrWhiteSpace(BusquedaTexto))
+                // Fallback para búsqueda específica si el índice aún no estaba disponible
+                if (!hayFiltroExtension && string.IsNullOrEmpty(BannerFiltroTexto) && !string.IsNullOrWhiteSpace(BusquedaTexto))
                 {
                     nodos = nodos.Where(n => n.Nombre.Contains(BusquedaTexto, StringComparison.OrdinalIgnoreCase) || n.RutaRelativaVirtual.Contains(BusquedaTexto, StringComparison.OrdinalIgnoreCase)).ToList();
                 }
@@ -1143,6 +1172,10 @@ namespace Geomatica.Desktop.ViewModels
                         Estado = $"Filtro ({listaExts}): {Items.Count}{sufijoTotal} archivo(s) listado(s)";
                     }
                 }
+                else if (!string.IsNullOrWhiteSpace(BannerFiltroTexto))
+                {
+                    Estado = $"Búsqueda '{BusquedaTexto.Trim()}': {Items.Count} archivo(s) listado(s)";
+                }
                 else
                 {
                     Estado = IsSoloLectura ? $"{Items.Count} elementos (Solo Lectura)" : $"{Items.Count} elementos";
@@ -1166,38 +1199,6 @@ namespace Geomatica.Desktop.ViewModels
             }
         }
 
-        private async Task LoadProyectosIntoFiltrosAsync()
-        {
-            try
-            {
-                if (_filtros == null) return;
-                var repo = _proyectoRepository;
-
-                IEnumerable<ProyectoDto> items;
-                if (_filtros.AreaInteres is FiltrosViewModel.MunicipioItem muni && !string.IsNullOrEmpty(muni.Codigo))
-                    items = await repo.ListarPorMunicipioAsync(muni.Codigo, _filtros.Desde, _filtros.Hasta, _filtros.PalabraClave);
-                else if (_filtros.SelectedDepartamento is FiltrosViewModel.DepartamentoItem dept && !string.IsNullOrEmpty(dept.Codigo))
-                    items = await repo.ListarPorDepartamentoAsync(dept.Codigo, _filtros.Desde, _filtros.Hasta, _filtros.PalabraClave);
-                else
-                    items = await repo.ListarAsync(_filtros.Desde, _filtros.Hasta, _filtros.PalabraClave, null);
-
-                await Application.Current.Dispatcher.InvokeAsync(() =>
-                {
-                    _filtros.ResultadosLista.Clear();
-                    _filtros.ResultadosResumen.Clear();
-                    foreach (var p in items) _filtros.ResultadosLista.Add(new FiltrosViewModel.ProyectoItem(p.Id, p.Titulo, p.Lon, p.Lat, p.RutaArchivos));
-                    int total = items.Count();
-                    string textoConteo = total == 1 ? "1 proyecto encontrado" : $"{total} proyectos encontrados";
-                    _filtros.ResultadosResumen.Add(textoConteo);
-                    _filtros.NotificarResultadosCargados();
-                });
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[ArchivosViewModel] Error cargando proyectos: {ex}");
-                await Application.Current.Dispatcher.InvokeAsync(() => _filtros?.NotificarResultadosCargados());
-            }
-        }
 
         public void ProcesarArchivosDroppeados(string[] files, string? subcarpetaDestino = null)
         {
@@ -1997,7 +1998,7 @@ namespace Geomatica.Desktop.ViewModels
                                     i++;
                                 }
                             }
-                            CopiarDirectorioRecursivo(_clipboardRutaFisica, destDir);
+                            _archivosService.CopiarDirectorioRecursivo(_clipboardRutaFisica, destDir);
                             string destRelativo = Path.Combine(targetRelativa, Path.GetFileName(destDir)).Trim('/', '\\').Replace('\\', '/');
                             _notifications?.ShowSuccess($"Carpeta '{Path.GetFileName(destDir)}' pegada con éxito.", "Pegar");
                             Estado = $"Pegada: {Path.GetFileName(destDir)}";
@@ -2232,20 +2233,6 @@ namespace Geomatica.Desktop.ViewModels
             catch (Exception ex)
             {
                 _notifications?.ShowError($"Error abriendo explorador: {ex.Message}", "Error");
-            }
-        }
-
-
-        private static void CopiarDirectorioRecursivo(string sourceDir, string destDir)
-        {
-            Directory.CreateDirectory(destDir);
-            foreach (var file in Directory.GetFiles(sourceDir))
-            {
-                File.Copy(file, Path.Combine(destDir, Path.GetFileName(file)), true);
-            }
-            foreach (var subDir in Directory.GetDirectories(sourceDir))
-            {
-                CopiarDirectorioRecursivo(subDir, Path.Combine(destDir, Path.GetFileName(subDir)));
             }
         }
     }

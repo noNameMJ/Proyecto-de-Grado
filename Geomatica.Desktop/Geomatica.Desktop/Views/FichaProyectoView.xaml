@@ -9,6 +9,40 @@
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+
+        <!-- Estilo interactivo para encabezados de sección plegables / expandibles -->
+        <Style x:Key="SeccionHeaderButtonStyle" TargetType="Button">
+            <Setter Property="Background" Value="White"/>
+            <Setter Property="BorderBrush" Value="#E2E8F0"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="10,8"/>
+            <Setter Property="Margin" Value="0,0,0,6"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="HdrBorder"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{TemplateBinding BorderBrush}"
+                                BorderThickness="{TemplateBinding BorderThickness}"
+                                CornerRadius="6"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Stretch" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="HdrBorder" Property="Background" Value="#F8FAFC"/>
+                                <Setter TargetName="HdrBorder" Property="BorderBrush" Value="#CBD5E1"/>
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="HdrBorder" Property="Background" Value="#F1F5F9"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </UserControl.Resources>
 
     <Grid Background="{StaticResource PanelBrush}">
@@ -146,23 +180,59 @@
                     </Border>
                 </WrapPanel>
 
+                <!-- ═══════════════════════════════════════════════════════════
+                     BARRA DE CONTROL: SECCIONES DE METADATOS (Expandir / Contraer)
+                     ═══════════════════════════════════════════════════════════ -->
+                <DockPanel Margin="0,4,0,10">
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                        <TextBlock Text="ESTRUCTURA DE METADATOS (ISO 19115)" FontSize="10.5" FontWeight="Bold"
+                                   Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFontSemibold}"/>
+                        <TextBlock Text="{Binding ResumenSeccionesExpandidasTexto}" FontSize="10"
+                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center">
+                        <Button Command="{Binding ExpandirTodasSeccionesCommand}"
+                                Style="{StaticResource GhostButton}" Padding="6,2" FontSize="11" Margin="0,0,4,0"
+                                ToolTip="Expandir todas las secciones de metadatos">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="▼ " FontSize="9" VerticalAlignment="Center"/>
+                                <TextBlock Text="Expandir todas" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <Button Command="{Binding ContraerTodasSeccionesCommand}"
+                                Style="{StaticResource GhostButton}" Padding="6,2" FontSize="11"
+                                ToolTip="Contraer todas las secciones de metadatos">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="▲ " FontSize="9" VerticalAlignment="Center"/>
+                                <TextBlock Text="Contraer todas" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </StackPanel>
+                </DockPanel>
+
                 <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                      1. IDENTIFICACIÓN Y DESCRIPCIÓN (MD_DataIdentification)
                      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
-                <DockPanel Margin="0,0,0,6">
-                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                        <TextBlock Text="📋 " FontSize="12" VerticalAlignment="Center"/>
-                        <TextBlock Text="1. IDENTIFICACIÓN Y DESCRIPCIÓN" FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
-                    </StackPanel>
-                    <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
-                            CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <TextBlock Text="MD_DataIdentification" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
-                    </Border>
-                </DockPanel>
+                <Button Command="{Binding ToggleSeccion1Command}" Style="{StaticResource SeccionHeaderButtonStyle}"
+                        ToolTip="Clic para expandir o contraer esta sección">
+                    <DockPanel>
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding ChevronSeccion1}" FontSize="10" FontWeight="Bold"
+                                       Foreground="{StaticResource UisGreenBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Text="📋 " FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="1. IDENTIFICACIÓN Y DESCRIPCIÓN" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
+                                CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock Text="MD_DataIdentification" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
+                        </Border>
+                    </DockPanel>
+                </Button>
 
                 <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
-                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14">
+                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14"
+                        Visibility="{Binding Seccion1Expandida, Converter={StaticResource BoolToVis}}">
                     <StackPanel>
                         <!-- Resumen / Abstract -->
                         <TextBlock Text="RESUMEN DESCRIPTIVO (ABSTRACT)" FontSize="9" FontWeight="Bold"
@@ -225,20 +295,26 @@
                 <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                      2. EXTENSIÓN Y LOCALIZACIÓN GEOGRÁFICA (EX_Extent)
                      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
-                <DockPanel Margin="0,0,0,6">
-                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                        <TextBlock Text="📍 " FontSize="12" VerticalAlignment="Center"/>
-                        <TextBlock Text="2. EXTENSIÓN Y LOCALIZACIÓN GEOGRÁFICA" FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
-                    </StackPanel>
-                    <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
-                            CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <TextBlock Text="EX_Extent" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
-                    </Border>
-                </DockPanel>
+                <Button Command="{Binding ToggleSeccion2Command}" Style="{StaticResource SeccionHeaderButtonStyle}"
+                        ToolTip="Clic para expandir o contraer esta sección">
+                    <DockPanel>
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding ChevronSeccion2}" FontSize="10" FontWeight="Bold"
+                                       Foreground="{StaticResource UisGreenBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Text="📍 " FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="2. EXTENSIÓN Y LOCALIZACIÓN GEOGRÁFICA" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
+                                CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock Text="EX_Extent" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
+                        </Border>
+                    </DockPanel>
+                </Button>
 
                 <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
-                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14">
+                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14"
+                        Visibility="{Binding Seccion2Expandida, Converter={StaticResource BoolToVis}}">
                     <StackPanel>
                         <!-- Jurisdicción Político-Administrativa (Hasta 3 municipios) -->
                         <StackPanel Margin="0,0,0,10" Visibility="{Binding HasPocosMunicipios, Converter={StaticResource BoolToVis}}">
@@ -442,20 +518,26 @@
                 <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                      3. SISTEMA DE REFERENCIA ESPACIAL (MD_ReferenceSystem)
                      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
-                <DockPanel Margin="0,0,0,6">
-                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                        <TextBlock Text="🧭 " FontSize="12" VerticalAlignment="Center"/>
-                        <TextBlock Text="3. SISTEMA DE REFERENCIA ESPACIAL" FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
-                    </StackPanel>
-                    <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
-                            CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <TextBlock Text="MD_ReferenceSystem" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
-                    </Border>
-                </DockPanel>
+                <Button Command="{Binding ToggleSeccion3Command}" Style="{StaticResource SeccionHeaderButtonStyle}"
+                        ToolTip="Clic para expandir o contraer esta sección">
+                    <DockPanel>
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding ChevronSeccion3}" FontSize="10" FontWeight="Bold"
+                                       Foreground="{StaticResource UisGreenBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Text="🧭 " FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="3. SISTEMA DE REFERENCIA ESPACIAL" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
+                                CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock Text="MD_ReferenceSystem" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
+                        </Border>
+                    </DockPanel>
+                </Button>
 
                 <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
-                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14">
+                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14"
+                        Visibility="{Binding Seccion3Expandida, Converter={StaticResource BoolToVis}}">
                     <StackPanel>
                         <!-- SRID y Formato Principal en métricas -->
                         <UniformGrid Columns="2" Margin="0,0,0,4">
@@ -489,20 +571,26 @@
                 <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                      4. CALIDAD Y LINAJE DE LOS DATOS (LI_Lineage)
                      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
-                <DockPanel Margin="0,0,0,6">
-                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                        <TextBlock Text="🛡️ " FontSize="12" VerticalAlignment="Center"/>
-                        <TextBlock Text="4. CALIDAD Y LINAJE DE LOS DATOS" FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
-                    </StackPanel>
-                    <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
-                            CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <TextBlock Text="LI_Lineage" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
-                    </Border>
-                </DockPanel>
+                <Button Command="{Binding ToggleSeccion4Command}" Style="{StaticResource SeccionHeaderButtonStyle}"
+                        ToolTip="Clic para expandir o contraer esta sección">
+                    <DockPanel>
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding ChevronSeccion4}" FontSize="10" FontWeight="Bold"
+                                       Foreground="{StaticResource UisGreenBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Text="🛡️ " FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="4. CALIDAD Y LINAJE DE LOS DATOS" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
+                                CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock Text="LI_Lineage" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
+                        </Border>
+                    </DockPanel>
+                </Button>
 
                 <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
-                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14">
+                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14"
+                        Visibility="{Binding Seccion4Expandida, Converter={StaticResource BoolToVis}}">
                     <StackPanel>
                         <TextBlock Text="DECLARACIÓN DE LINAJE Y PROCEDENCIA (LINEAGE STATEMENT)" FontSize="9" FontWeight="Bold"
                                    Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFontSemibold}" Margin="0,0,0,4"/>
@@ -519,20 +607,29 @@
                 <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                      5. DISTRIBUCIÓN Y RECURSOS DIGITALES (MD_Distribution)
                      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
-                <DockPanel Margin="0,0,0,6">
-                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                        <TextBlock Text="📦 " FontSize="12" VerticalAlignment="Center"/>
-                        <TextBlock Text="5. DISTRIBUCIÓN Y RECURSOS DIGITALES" FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
-                    </StackPanel>
-                    <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
-                            CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <TextBlock Text="MD_Distribution" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
-                    </Border>
-                </DockPanel>
+                <Button Command="{Binding ToggleSeccion5Command}" Style="{StaticResource SeccionHeaderButtonStyle}"
+                        ToolTip="Clic para expandir o contraer esta sección">
+                    <DockPanel>
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding ChevronSeccion5}" FontSize="10" FontWeight="Bold"
+                                       Foreground="{StaticResource UisGreenBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Text="📦 " FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="5. DISTRIBUCIÓN Y RECURSOS DIGITALES" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding TotalArchivosDetectadosTexto}" FontSize="10"
+                                       Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFont}"
+                                       Margin="6,0,0,0" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
+                                CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock Text="MD_Distribution" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
+                        </Border>
+                    </DockPanel>
+                </Button>
 
                 <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
-                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14">
+                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14"
+                        Visibility="{Binding Seccion5Expandida, Converter={StaticResource BoolToVis}}">
                     <StackPanel>
                         <!-- Enlace y Ruta de Almacenamiento (onLine.linkage) -->
                         <TextBlock Text="ENLACE AL REPOSITORIO FÍSICO (onLine.linkage)" FontSize="9" FontWeight="Bold"
@@ -656,20 +753,26 @@
                 <!-- ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
                      6. INFORMACIÓN DEL METADATO Y AUDITORÍA (MD_Metadata)
                      ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ -->
-                <DockPanel Margin="0,0,0,6">
-                    <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
-                        <TextBlock Text="🕒 " FontSize="12" VerticalAlignment="Center"/>
-                        <TextBlock Text="6. INFORMACIÓN DEL METADATO Y AUDITORÍA" FontSize="11" FontWeight="Bold"
-                                   Foreground="{StaticResource TextSecondaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
-                    </StackPanel>
-                    <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
-                            CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
-                        <TextBlock Text="MD_Metadata" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
-                    </Border>
-                </DockPanel>
+                <Button Command="{Binding ToggleSeccion6Command}" Style="{StaticResource SeccionHeaderButtonStyle}"
+                        ToolTip="Clic para expandir o contraer esta sección">
+                    <DockPanel>
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                            <TextBlock Text="{Binding ChevronSeccion6}" FontSize="10" FontWeight="Bold"
+                                       Foreground="{StaticResource UisGreenBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                            <TextBlock Text="🕒 " FontSize="12" VerticalAlignment="Center"/>
+                            <TextBlock Text="6. INFORMACIÓN DEL METADATO Y AUDITORÍA" FontSize="11" FontWeight="Bold"
+                                       Foreground="{StaticResource TextPrimaryBrush}" FontFamily="{StaticResource AppFontSemibold}" VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
+                                CornerRadius="6" Padding="6,1.5" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <TextBlock Text="MD_Metadata" FontSize="9" FontWeight="SemiBold" Foreground="#475569" FontFamily="Consolas, Segoe UI"/>
+                        </Border>
+                    </DockPanel>
+                </Button>
 
                 <Border Background="White" CornerRadius="6" BorderBrush="{StaticResource BorderSubtleBrush}"
-                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14">
+                        BorderThickness="1" Padding="14,12" Margin="0,0,0,14"
+                        Visibility="{Binding Seccion6Expandida, Converter={StaticResource BoolToVis}}">
                     <StackPanel>
                         <!-- Fecha del Metadato (dateStamp) -->
                         <DockPanel Margin="0,0,0,8">

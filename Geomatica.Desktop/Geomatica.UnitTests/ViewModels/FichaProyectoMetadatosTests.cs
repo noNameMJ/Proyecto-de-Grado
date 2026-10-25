@@ -1,4 +1,4 @@
-﻿using System.IO;
+using System.IO;
 using FluentAssertions;
 using Geomatica.Desktop.Services;
 using Geomatica.Desktop.ViewModels;
@@ -206,5 +206,103 @@ public class FichaProyectoMetadatosTests
         vm.FormatosDetectados.Should().BeEmpty();
         vm.TotalArchivosDetectados.Should().Be(0);
         vm.CargandoFormatos.Should().BeFalse();
+    }
+
+    [Fact]
+    public void SeccionesMetadatos_InicialmenteTodasContraidas()
+    {
+        // Arrange
+        var dto = CrearDto();
+
+        // Act
+        var vm = new FichaProyectoViewModel(dto, () => { });
+
+        // Assert - Todas las secciones deben iniciar retraídas / contraídas
+        vm.Seccion1Expandida.Should().BeFalse();
+        vm.Seccion2Expandida.Should().BeFalse();
+        vm.Seccion3Expandida.Should().BeFalse();
+        vm.Seccion4Expandida.Should().BeFalse();
+        vm.Seccion5Expandida.Should().BeFalse();
+        vm.Seccion6Expandida.Should().BeFalse();
+
+        vm.ChevronSeccion1.Should().Be("▶");
+        vm.ChevronSeccion2.Should().Be("▶");
+        vm.ChevronSeccion3.Should().Be("▶");
+        vm.ChevronSeccion4.Should().Be("▶");
+        vm.ChevronSeccion5.Should().Be("▶");
+        vm.ChevronSeccion6.Should().Be("▶");
+
+        vm.TotalSeccionesExpandidas.Should().Be(0);
+        vm.AlgunaSeccionExpandida.Should().BeFalse();
+        vm.TodasSeccionesExpandidas.Should().BeFalse();
+        vm.ResumenSeccionesExpandidasTexto.Should().Be("(todas contraídas)");
+    }
+
+    [Fact]
+    public void ToggleSecciones_PermiteExpandirYContraerManualmenteCadaSeccion()
+    {
+        // Arrange
+        var dto = CrearDto();
+        var vm = new FichaProyectoViewModel(dto, () => { });
+
+        // Act 1: Toggle Sección 1 (Identificación)
+        vm.ToggleSeccion1Command.Execute(null);
+        vm.Seccion1Expandida.Should().BeTrue();
+        vm.ChevronSeccion1.Should().Be("▼");
+        vm.TotalSeccionesExpandidas.Should().Be(1);
+        vm.ResumenSeccionesExpandidasTexto.Should().Be("(1 de 6 expandida)");
+
+        // Act 2: Toggle Sección 5 (Distribución)
+        vm.ToggleSeccion5Command.Execute(null);
+        vm.Seccion5Expandida.Should().BeTrue();
+        vm.ChevronSeccion5.Should().Be("▼");
+        vm.TotalSeccionesExpandidas.Should().Be(2);
+        vm.ResumenSeccionesExpandidasTexto.Should().Be("(2 de 6 expandidas)");
+
+        // Act 3: Toggle nuevamente Sección 1 -> se contrae
+        vm.ToggleSeccion1Command.Execute(null);
+        vm.Seccion1Expandida.Should().BeFalse();
+        vm.ChevronSeccion1.Should().Be("▶");
+        vm.TotalSeccionesExpandidas.Should().Be(1);
+    }
+
+    [Fact]
+    public void ExpandirYContraerTodasSecciones_ModificaTodasLasSeccionesCorrectamente()
+    {
+        // Arrange
+        var dto = CrearDto();
+        var vm = new FichaProyectoViewModel(dto, () => { });
+
+        // Act 1: Expandir todas
+        vm.ExpandirTodasSeccionesCommand.Execute(null);
+
+        // Assert 1
+        vm.Seccion1Expandida.Should().BeTrue();
+        vm.Seccion2Expandida.Should().BeTrue();
+        vm.Seccion3Expandida.Should().BeTrue();
+        vm.Seccion4Expandida.Should().BeTrue();
+        vm.Seccion5Expandida.Should().BeTrue();
+        vm.Seccion6Expandida.Should().BeTrue();
+        vm.TotalSeccionesExpandidas.Should().Be(6);
+        vm.TodasSeccionesExpandidas.Should().BeTrue();
+        vm.ResumenSeccionesExpandidasTexto.Should().Be("(todas expandidas)");
+        vm.ChevronSeccion1.Should().Be("▼");
+        vm.ChevronSeccion6.Should().Be("▼");
+
+        // Act 2: Contraer todas
+        vm.ContraerTodasSeccionesCommand.Execute(null);
+
+        // Assert 2
+        vm.Seccion1Expandida.Should().BeFalse();
+        vm.Seccion2Expandida.Should().BeFalse();
+        vm.Seccion3Expandida.Should().BeFalse();
+        vm.Seccion4Expandida.Should().BeFalse();
+        vm.Seccion5Expandida.Should().BeFalse();
+        vm.Seccion6Expandida.Should().BeFalse();
+        vm.TotalSeccionesExpandidas.Should().Be(0);
+        vm.TodasSeccionesExpandidas.Should().BeFalse();
+        vm.ResumenSeccionesExpandidasTexto.Should().Be("(todas contraídas)");
+        vm.ChevronSeccion1.Should().Be("▶");
+        vm.ChevronSeccion6.Should().Be("▶");
     }
 }

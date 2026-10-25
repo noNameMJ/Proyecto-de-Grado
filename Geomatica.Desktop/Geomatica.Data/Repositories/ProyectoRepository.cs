@@ -135,198 +135,20 @@ namespace Geomatica.Data.Repositories
 
         public async Task<IReadOnlyList<ProyectoDto>> ListarAsync(DateTime? desde = null, DateTime? hasta = null, string? keyword = null, string? areaJson = null)
         {
-            const string sql = @"
-                SELECT p.id_proyecto, p.titulo,
-                       ST_X(ST_Centroid(ST_Transform(p.geom, 4326))) AS lon,
-                       ST_Y(ST_Centroid(ST_Transform(p.geom, 4326))) AS lat,
-                       p.ruta_archivos
-                FROM geovisor.proyecto p
-                WHERE p.geom IS NOT NULL
-                  AND (@desde IS NULL OR p.fecha_inicio >= @desde)
-                  AND (@hasta IS NULL OR p.fecha_inicio <= @hasta)
-                  AND (@kw IS NULL OR (p.palabra_clave ILIKE '%'||@kw||'%' OR p.titulo ILIKE '%'||@kw||'%' OR p.formato_datos ILIKE '%'||@kw||'%'))
-                  AND (
-                      @area IS NULL
-                      OR ST_Intersects(
-                          p.geom,
-                          ST_SetSRID(ST_GeomFromGeoJSON(CAST(@area AS text)), ST_SRID(p.geom))
-                      )
-                  )
-                ORDER BY p.fecha_inicio NULLS LAST, p.id_proyecto;";
-
-            Debug.WriteLine($"[ProyectoRepository] Conectando a Postgres {_debugInfo}");
-
-            using var con = new NpgsqlConnection(_cn);
-            try
-            {
-                await con.OpenAsync();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ProyectoRepository] Error abriendo conexión: {ex}");
-                throw;
-            }
-
-            using var cmd = new NpgsqlCommand(sql, con);
-            // Explicit parameter types to avoid Postgres ambiguity
-            cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Date) { Value = (object?)desde?.Date ?? DBNull.Value });
-            cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Date) { Value = (object?)hasta?.Date ?? DBNull.Value });
-            cmd.Parameters.Add(new NpgsqlParameter("@kw", NpgsqlDbType.Text) { Value = (object?)keyword ?? DBNull.Value });
-            cmd.Parameters.Add(new NpgsqlParameter("@area", NpgsqlDbType.Text) { Value = (object?)areaJson ?? DBNull.Value });
-
-            try
-            {
-                var list = new List<ProyectoDto>();
-                using var rd = await cmd.ExecuteReaderAsync();
-                while (await rd.ReadAsync())
-                {
-                    list.Add(new ProyectoDto(
-                        rd.GetInt32(0),
-                        rd.GetString(1),
-                        rd.IsDBNull(2) ?0 : rd.GetDouble(2),
-                        rd.IsDBNull(3) ?0 : rd.GetDouble(3),
-                        rd.IsDBNull(4) ? null : rd.GetString(4)
-                    ));
-                }
-
-                Debug.WriteLine($"[ProyectoRepository] Proyectos cargados: {list.Count}");
-                return list;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ProyectoRepository] Error ejecutando consulta: {ex}");
-                Debug.WriteLine($"[ProyectoRepository] SQL: {cmd.CommandText}");
-                if (cmd.Parameters != null && cmd.Parameters.Count >0)
-                {
-                    foreach (NpgsqlParameter p in cmd.Parameters)
-                    {
-                        Debug.WriteLine($"[ProyectoRepository] Param: {p.ParameterName} = {p.Value}");
-                    }
-                }
-                throw;
-            }
+            var items = await BuscarAsync(keyword, desde, hasta);
+            return items.Select(p => new ProyectoDto(p.Id, p.Titulo, p.Longitud, p.Latitud, p.RutaArchivos)).ToList();
         }
 
         public async Task<IReadOnlyList<ProyectoDto>> ListarPorDepartamentoAsync(string dptoCcdgo, DateTime? desde = null, DateTime? hasta = null, string? keyword = null)
         {
-            // Use view vw_proyecto_departamento if available to map proyectos to departamentos
-            const string sql = @"
-                SELECT p.id_proyecto, p.titulo,
-                       ST_X(ST_Centroid(ST_Transform(p.geom, 4326))) AS lon,
-                       ST_Y(ST_Centroid(ST_Transform(p.geom, 4326))) AS lat,
-                       p.ruta_archivos
-                FROM geovisor.proyecto p
-                JOIN geovisor.proyecto_municipio pm ON pm.id_proyecto = p.id_proyecto
-                JOIN geovisor.municipio m ON m.mpio_cdpmp = pm.mpio_cdpmp
-                WHERE p.geom IS NOT NULL
-                  AND (m.dpto_ccdgo = @dpto OR pm.mpio_cdpmp LIKE @dpto || '%' OR m.mpio_cdpmp LIKE @dpto || '%')
-                  AND (@desde IS NULL OR p.fecha_inicio >= @desde)
-                  AND (@hasta IS NULL OR p.fecha_inicio <= @hasta)
-                  AND (@kw IS NULL OR (p.palabra_clave ILIKE '%'||@kw||'%' OR p.titulo ILIKE '%'||@kw||'%' OR p.formato_datos ILIKE '%'||@kw||'%'))
-                GROUP BY p.id_proyecto, p.titulo, p.geom, p.ruta_archivos, p.fecha_inicio
-                ORDER BY p.fecha_inicio NULLS LAST, p.id_proyecto;";
-
-            Debug.WriteLine($"[ProyectoRepository] Conectando a Postgres {_debugInfo} (ListarPorDepartamento)");
-
-            using var con = new NpgsqlConnection(_cn);
-            try
-            {
-                await con.OpenAsync();
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ProyectoRepository] Error abriendo conexión (ListarPorDepartamentoAsync): {ex}");
-                throw;
-            }
-
-            using var cmd = new NpgsqlCommand(sql, con);
-            // Explicit parameter types
-            cmd.Parameters.Add(new NpgsqlParameter("@dpto", NpgsqlDbType.Text) { Value = dptoCcdgo ?? string.Empty });
-            cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Date) { Value = (object?)desde?.Date ?? DBNull.Value });
-            cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Date) { Value = (object?)hasta?.Date ?? DBNull.Value });
-            cmd.Parameters.Add(new NpgsqlParameter("@kw", NpgsqlDbType.Text) { Value = (object?)keyword ?? DBNull.Value });
-
-            try
-            {
-                var list = new List<ProyectoDto>();
-                using var rd = await cmd.ExecuteReaderAsync();
-                while (await rd.ReadAsync())
-                {
-                    list.Add(new ProyectoDto(
-                        rd.GetInt32(0),
-                        rd.GetString(1),
-                        rd.IsDBNull(2) ?0 : rd.GetDouble(2),
-                        rd.IsDBNull(3) ?0 : rd.GetDouble(3),
-                        rd.IsDBNull(4) ? null : rd.GetString(4)
-                    ));
-                }
-
-                Debug.WriteLine($"[ProyectoRepository] Proyectos por departamento cargados: {list.Count}");
-                return list;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ProyectoRepository] Error ejecutando consulta (ListarPorDepartamentoAsync): {ex}");
-                Debug.WriteLine($"[ProyectoRepository] SQL: {cmd.CommandText}");
-                if (cmd.Parameters != null && cmd.Parameters.Count >0)
-                {
-                    foreach (NpgsqlParameter p in cmd.Parameters)
-                    {
-                        Debug.WriteLine($"[ProyectoRepository] Param: {p.ParameterName} = {p.Value}");
-                    }
-                }
-                throw;
-            }
+            var items = await BuscarAsync(keyword, desde, hasta, dptoCodigo: dptoCcdgo);
+            return items.Select(p => new ProyectoDto(p.Id, p.Titulo, p.Longitud, p.Latitud, p.RutaArchivos)).ToList();
         }
 
         public async Task<IReadOnlyList<ProyectoDto>> ListarPorMunicipioAsync(string mpioCcdgo, DateTime? desde = null, DateTime? hasta = null, string? keyword = null)
         {
-            const string sql = @"
-                SELECT p.id_proyecto, p.titulo,
-                       ST_X(ST_Centroid(ST_Transform(p.geom, 4326))) AS lon,
-                       ST_Y(ST_Centroid(ST_Transform(p.geom, 4326))) AS lat,
-                       p.ruta_archivos
-                FROM geovisor.proyecto p
-                JOIN geovisor.proyecto_municipio pm ON pm.id_proyecto = p.id_proyecto
-                WHERE p.geom IS NOT NULL
-                  AND pm.mpio_cdpmp = @mpio
-                  AND (@desde IS NULL OR p.fecha_inicio >= @desde)
-                  AND (@hasta IS NULL OR p.fecha_inicio <= @hasta)
-                  AND (@kw IS NULL OR (p.palabra_clave ILIKE '%'||@kw||'%' OR p.titulo ILIKE '%'||@kw||'%' OR p.formato_datos ILIKE '%'||@kw||'%'))
-                GROUP BY p.id_proyecto, p.titulo, p.geom, p.ruta_archivos, p.fecha_inicio
-                ORDER BY p.fecha_inicio NULLS LAST, p.id_proyecto;";
-
-            using var con = new NpgsqlConnection(_cn);
-            await con.OpenAsync();
-
-            using var cmd = new NpgsqlCommand(sql, con);
-            cmd.Parameters.Add(new NpgsqlParameter("@mpio", NpgsqlDbType.Text) { Value = mpioCcdgo ?? string.Empty });
-            cmd.Parameters.Add(new NpgsqlParameter("@desde", NpgsqlDbType.Date) { Value = (object?)desde?.Date ?? DBNull.Value });
-            cmd.Parameters.Add(new NpgsqlParameter("@hasta", NpgsqlDbType.Date) { Value = (object?)hasta?.Date ?? DBNull.Value });
-            cmd.Parameters.Add(new NpgsqlParameter("@kw", NpgsqlDbType.Text) { Value = (object?)keyword ?? DBNull.Value });
-
-            try
-            {
-                var list = new List<ProyectoDto>();
-                using var rd = await cmd.ExecuteReaderAsync();
-                while (await rd.ReadAsync())
-                {
-                    list.Add(new ProyectoDto(
-                        rd.GetInt32(0),
-                        rd.GetString(1),
-                        rd.IsDBNull(2) ? 0 : rd.GetDouble(2),
-                        rd.IsDBNull(3) ? 0 : rd.GetDouble(3),
-                        rd.IsDBNull(4) ? null : rd.GetString(4)
-                    ));
-                }
-                return list;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ProyectoRepository] Error ejecutando consulta (ListarPorMunicipioAsync): {ex}");
-                Debug.WriteLine($"[ProyectoRepository] SQL: {cmd.CommandText}");
-                throw;
-            }
+            var items = await BuscarAsync(keyword, desde, hasta, mpioCodigo: mpioCcdgo);
+            return items.Select(p => new ProyectoDto(p.Id, p.Titulo, p.Longitud, p.Latitud, p.RutaArchivos)).ToList();
         }
 
         public async Task InsertarAsync(string titulo, string? descripcion, DateTime? fechaInicio, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, DateTime? fechaFin = null, string? entidades = null, string? representante = null, string? sistemaReferencia = null, string? formatoDatos = null, string? linaje = null)

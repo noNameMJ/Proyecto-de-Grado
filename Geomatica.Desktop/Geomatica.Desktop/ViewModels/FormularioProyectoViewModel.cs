@@ -4,6 +4,7 @@ using Geomatica.AppCore.UseCases;
 using Geomatica.Data.Repositories;
 using Geomatica.Desktop.Services;
 using Geomatica.Domain.Interfaces.Repositories;
+using Geomatica.Domain.Catalogos;
 using System;
 using System.Collections.ObjectModel;
 using System.Globalization;
@@ -646,7 +647,22 @@ namespace Geomatica.Desktop.ViewModels
             try
             {
                 var extractor = new Geomatica.Infrastructure.Gis.Services.Iso19115MetadataExtractor();
-                var result = await extractor.ExtraerDesdeRutaAsync(Ruta);
+
+                IEnumerable<string>? rutasArchivos = null;
+                IEnumerable<string>? directoriosGdb = null;
+
+                if (_archivosService != null && _archivosService.TryObtenerIndice(Ruta, out var idx) && idx != null)
+                {
+                    rutasArchivos = idx.ObtenerRutasFisicasPorExtensiones(
+                        CatalogoFormatosGis.ExtensionesVectoriales
+                        .Concat(CatalogoFormatosGis.ExtensionesRaster)
+                        .Concat(CatalogoFormatosGis.ExtensionesLidar)
+                        .Concat(CatalogoFormatosGis.ExtensionesCad));
+
+                    directoriosGdb = idx.ObtenerRutasFisicasPorExtension(".gdb");
+                }
+
+                var result = await extractor.ExtraerDesdeRutaAsync(Ruta, rutasArchivos, directoriosGdb);
 
                 bool updated = false;
 

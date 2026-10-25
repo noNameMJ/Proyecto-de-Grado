@@ -210,6 +210,13 @@ namespace Geomatica.Desktop.ViewModels
         private string _textoProgresoFormatos = "Analizando tipos de archivos en la carpeta...";
 
         public event EventHandler<string>? ExtensionSeleccionadaParaFiltrado;
+        public event EventHandler? ExtensionesActualizadas;
+
+        public void NotificarExtensionesActualizadas()
+        {
+            OnPropertyChanged(nameof(ExtensionesDetectadas));
+            ExtensionesActualizadas?.Invoke(this, EventArgs.Empty);
+        }
 
         [RelayCommand]
         private void FiltrarPorExtension(string? extension)
@@ -241,6 +248,120 @@ namespace Geomatica.Desktop.ViewModels
         private string? _ultimaModificacionInfo;
 
         public bool HasUltimaModificacionInfo => !string.IsNullOrWhiteSpace(UltimaModificacionInfo);
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ChevronSeccion1))]
+        [NotifyPropertyChangedFor(nameof(TotalSeccionesExpandidas))]
+        [NotifyPropertyChangedFor(nameof(ResumenSeccionesExpandidasTexto))]
+        [NotifyPropertyChangedFor(nameof(AlgunaSeccionExpandida))]
+        [NotifyPropertyChangedFor(nameof(TodasSeccionesExpandidas))]
+        private bool _seccion1Expandida;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ChevronSeccion2))]
+        [NotifyPropertyChangedFor(nameof(TotalSeccionesExpandidas))]
+        [NotifyPropertyChangedFor(nameof(ResumenSeccionesExpandidasTexto))]
+        [NotifyPropertyChangedFor(nameof(AlgunaSeccionExpandida))]
+        [NotifyPropertyChangedFor(nameof(TodasSeccionesExpandidas))]
+        private bool _seccion2Expandida;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ChevronSeccion3))]
+        [NotifyPropertyChangedFor(nameof(TotalSeccionesExpandidas))]
+        [NotifyPropertyChangedFor(nameof(ResumenSeccionesExpandidasTexto))]
+        [NotifyPropertyChangedFor(nameof(AlgunaSeccionExpandida))]
+        [NotifyPropertyChangedFor(nameof(TodasSeccionesExpandidas))]
+        private bool _seccion3Expandida;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ChevronSeccion4))]
+        [NotifyPropertyChangedFor(nameof(TotalSeccionesExpandidas))]
+        [NotifyPropertyChangedFor(nameof(ResumenSeccionesExpandidasTexto))]
+        [NotifyPropertyChangedFor(nameof(AlgunaSeccionExpandida))]
+        [NotifyPropertyChangedFor(nameof(TodasSeccionesExpandidas))]
+        private bool _seccion4Expandida;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ChevronSeccion5))]
+        [NotifyPropertyChangedFor(nameof(TotalSeccionesExpandidas))]
+        [NotifyPropertyChangedFor(nameof(ResumenSeccionesExpandidasTexto))]
+        [NotifyPropertyChangedFor(nameof(AlgunaSeccionExpandida))]
+        [NotifyPropertyChangedFor(nameof(TodasSeccionesExpandidas))]
+        private bool _seccion5Expandida;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ChevronSeccion6))]
+        [NotifyPropertyChangedFor(nameof(TotalSeccionesExpandidas))]
+        [NotifyPropertyChangedFor(nameof(ResumenSeccionesExpandidasTexto))]
+        [NotifyPropertyChangedFor(nameof(AlgunaSeccionExpandida))]
+        [NotifyPropertyChangedFor(nameof(TodasSeccionesExpandidas))]
+        private bool _seccion6Expandida;
+
+        public string ChevronSeccion1 => Seccion1Expandida ? "▼" : "▶";
+        public string ChevronSeccion2 => Seccion2Expandida ? "▼" : "▶";
+        public string ChevronSeccion3 => Seccion3Expandida ? "▼" : "▶";
+        public string ChevronSeccion4 => Seccion4Expandida ? "▼" : "▶";
+        public string ChevronSeccion5 => Seccion5Expandida ? "▼" : "▶";
+        public string ChevronSeccion6 => Seccion6Expandida ? "▼" : "▶";
+
+        public int TotalSeccionesExpandidas =>
+            (Seccion1Expandida ? 1 : 0) +
+            (Seccion2Expandida ? 1 : 0) +
+            (Seccion3Expandida ? 1 : 0) +
+            (Seccion4Expandida ? 1 : 0) +
+            (Seccion5Expandida ? 1 : 0) +
+            (Seccion6Expandida ? 1 : 0);
+
+        public bool AlgunaSeccionExpandida => TotalSeccionesExpandidas > 0;
+        public bool TodasSeccionesExpandidas => TotalSeccionesExpandidas == 6;
+
+        public string ResumenSeccionesExpandidasTexto => TotalSeccionesExpandidas switch
+        {
+            0 => "(todas contraídas)",
+            6 => "(todas expandidas)",
+            1 => "(1 de 6 expandida)",
+            _ => $"({TotalSeccionesExpandidas} de 6 expandidas)"
+        };
+
+        [RelayCommand]
+        public void ToggleSeccion1() => Seccion1Expandida = !Seccion1Expandida;
+
+        [RelayCommand]
+        public void ToggleSeccion2() => Seccion2Expandida = !Seccion2Expandida;
+
+        [RelayCommand]
+        public void ToggleSeccion3() => Seccion3Expandida = !Seccion3Expandida;
+
+        [RelayCommand]
+        public void ToggleSeccion4() => Seccion4Expandida = !Seccion4Expandida;
+
+        [RelayCommand]
+        public void ToggleSeccion5() => Seccion5Expandida = !Seccion5Expandida;
+
+        [RelayCommand]
+        public void ToggleSeccion6() => Seccion6Expandida = !Seccion6Expandida;
+
+        [RelayCommand]
+        public void ExpandirTodasSecciones()
+        {
+            Seccion1Expandida = true;
+            Seccion2Expandida = true;
+            Seccion3Expandida = true;
+            Seccion4Expandida = true;
+            Seccion5Expandida = true;
+            Seccion6Expandida = true;
+        }
+
+        [RelayCommand]
+        public void ContraerTodasSecciones()
+        {
+            Seccion1Expandida = false;
+            Seccion2Expandida = false;
+            Seccion3Expandida = false;
+            Seccion4Expandida = false;
+            Seccion5Expandida = false;
+            Seccion6Expandida = false;
+        }
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(TextoBotonHistorial))]
@@ -601,6 +722,7 @@ namespace Geomatica.Desktop.ViewModels
 
                         var primarios = lista.Where(e => !e.EsAuxiliar).Select(e => $".{e.ExtensionMayus} ({e.CantidadArchivos})");
                         ResumenInsumosTexto = string.Join(", ", primarios);
+                        NotificarExtensionesActualizadas();
                     }
                 });
 
@@ -631,6 +753,7 @@ namespace Geomatica.Desktop.ViewModels
                 {
                     ResumenInsumosTexto = null;
                 }
+                NotificarExtensionesActualizadas();
             }
             catch (Exception ex)
             {

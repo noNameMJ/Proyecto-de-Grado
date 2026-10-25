@@ -54,6 +54,7 @@ public class ProyectoArchivosServiceZipTests : IDisposable
 
         // Act
         bool resultado = await _service.EmpaquetarCarpetaZipAsync(sourceDir, zipDestino, progress);
+        await Task.Delay(50);
 
         // Assert
         resultado.Should().BeTrue();

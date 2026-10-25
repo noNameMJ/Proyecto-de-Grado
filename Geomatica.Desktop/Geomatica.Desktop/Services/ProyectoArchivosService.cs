@@ -7,6 +7,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Geomatica.Desktop.Models;
+using Geomatica.Domain.Catalogos;
 
 namespace Geomatica.Desktop.Services
 {
@@ -393,6 +394,22 @@ namespace Geomatica.Desktop.Services
         }
 
         /// <summary>
+        /// Copia recursivamente el contenido de un directorio hacia otra ubicación física en disco.
+        /// </summary>
+        public virtual void CopiarDirectorioRecursivo(string origen, string destino)
+        {
+            Directory.CreateDirectory(destino);
+            foreach (var file in Directory.GetFiles(origen))
+            {
+                File.Copy(file, Path.Combine(destino, Path.GetFileName(file)), true);
+            }
+            foreach (var subDir in Directory.GetDirectories(origen))
+            {
+                CopiarDirectorioRecursivo(subDir, Path.Combine(destino, Path.GetFileName(subDir)));
+            }
+        }
+
+        /// <summary>
         /// Lista el contenido de una ruta virtual dada para mostrar en la interfaz. 
         /// </summary>
         public List<NodoArchivoVirtual> ListarContenidoVirtual(string rutaRaizProyecto, string rutaRelativa = "")
@@ -513,7 +530,7 @@ namespace Geomatica.Desktop.Services
             var extSet = new HashSet<string>(
                 extensiones
                     .Where(e => !string.IsNullOrWhiteSpace(e))
-                    .Select(e => e.StartsWith('.') ? e.ToLowerInvariant() : "." + e.ToLowerInvariant()),
+                    .Select(CatalogoFormatosGis.NormalizarExtension),
                 StringComparer.OrdinalIgnoreCase
             );
 

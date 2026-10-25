@@ -242,4 +242,27 @@ public class ArchivosViewModelFiltroExtensionTests : IDisposable
         vm.SelectedEntry.Should().NotBeNull();
         ((Geomatica.Desktop.Models.ArchivoVirtual)vm.SelectedEntry!).Nombre.Should().Be("mosaico1.tif");
     }
+
+    [Fact]
+    public void Ficha_ExtensionesActualizadas_SincronizaExtensionesDisponiblesEnArchivosViewModel()
+    {
+        // Arrange
+        var dto = new ProyectoDetalleDto(1, "Proyecto 1", null, null, null, _tempDir, -73.1, 7.1, "68001", "Bucaramanga");
+        var ficha = new FichaProyectoViewModel(dto, () => { });
+        var vm = new ArchivosViewModel(_filtros, _service, _repoMock.Object);
+        vm.ProyectoDetalle = ficha;
+
+        // Estado inicial
+        vm.ExtensionesDisponibles.Should().HaveCount(1); // Solo "Todos los archivos"
+
+        // Act: La ficha agrega extensiones detectadas durante o al finalizar el escaneo
+        ficha.ExtensionesDetectadas.Add(new FormatoExtensionItem(".las", "LiDAR", "☁️", "#F3E5F5", "#E1BEE7", "#6A1B9A", 5, 5000));
+        ficha.ExtensionesDetectadas.Add(new FormatoExtensionItem(".dwg", "CAD", "📐", "#FFF8E1", "#FFE082", "#B78103", 2, 2000));
+        ficha.NotificarExtensionesActualizadas();
+
+        // Assert
+        vm.ExtensionesDisponibles.Should().Contain(e => e.Extension == ".las" && e.Categoria == "LiDAR");
+        vm.ExtensionesDisponibles.Should().Contain(e => e.Extension == ".dwg" && e.Categoria == "CAD");
+        vm.HasExtensionesFiltrables.Should().BeTrue();
+    }
 }

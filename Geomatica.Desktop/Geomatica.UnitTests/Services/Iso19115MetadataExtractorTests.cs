@@ -87,5 +87,36 @@ namespace Geomatica.UnitTests.Services
             result.FormatoDatos.Should().Contain("File Geodatabase");
             result.SubcarpetasExploradas.Should().Contain(s => s.Contains("Entregables"));
         }
+
+        [Fact]
+        public async Task ExtraerDesdeRutaAsync_ConArchivosPreIndexados_ExtraeDesdeListadoSinReescanear()
+        {
+            // Simular rutas en memoria (sin que existan todos físicamente en disco)
+            var archivosSimulados = new[]
+            {
+                Path.Combine(_tempDir, "Datos_Espaciales", "vias.shp"),
+                Path.Combine(_tempDir, "Datos_Espaciales", "mosaico.tif"),
+                Path.Combine(_tempDir, "Datos_Espaciales", "terreno.las"),
+                Path.Combine(_tempDir, "Entregables", "plano.dwg")
+            };
+
+            var gdbsSimuladas = new[]
+            {
+                Path.Combine(_tempDir, "Datos_Espaciales", "Cartografia.gdb")
+            };
+
+            var extractor = new Iso19115MetadataExtractor();
+            var result = await extractor.ExtraerDesdeRutaAsync(_tempDir, archivosSimulados, gdbsSimuladas);
+
+            result.Should().NotBeNull();
+            result.TotalArchivosEspaciales.Should().Be(5);
+            result.FormatoDatos.Should().Contain("Shapefile");
+            result.FormatoDatos.Should().Contain("Raster");
+            result.FormatoDatos.Should().Contain("LiDAR");
+            result.FormatoDatos.Should().Contain("CAD");
+            result.FormatoDatos.Should().Contain("File Geodatabase");
+            result.SubcarpetasExploradas.Should().Contain("Datos_Espaciales");
+            result.SubcarpetasExploradas.Should().Contain("Entregables");
+        }
     }
 }

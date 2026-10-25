@@ -185,5 +185,36 @@ public class IndiceArchivosProyectoTests : IDisposable
         ficha.ExtensionesDetectadas.Should().Contain(e => e.Extension == ".pdf");
         ficha.CargandoFormatos.Should().BeFalse();
     }
+
+    [Fact]
+    public void IndiceArchivosProyecto_BuscarPorTexto_BuscaGlobalmenteEnTodoElArbol()
+    {
+        // Arrange
+        var subDir1 = Path.Combine(_tempDir, "Datos_Espaciales", "Vectores");
+        var subDir2 = Path.Combine(_tempDir, "Documentos");
+        Directory.CreateDirectory(subDir1);
+        Directory.CreateDirectory(subDir2);
+
+        File.WriteAllText(Path.Combine(subDir1, "curvas_nivel.shp"), "shp");
+        File.WriteAllText(Path.Combine(subDir1, "vias_principales.shp"), "shp");
+        File.WriteAllText(Path.Combine(subDir2, "informe_curvas.pdf"), "pdf");
+        File.WriteAllText(Path.Combine(_tempDir, "curvas_resumen.txt"), "txt");
+
+        var indice = IndiceArchivosProyecto.Construir(_tempDir, gradoParalelismo: 2);
+
+        // Act & Assert
+        indice.ContarCoincidenciasPorTexto("curvas").Should().Be(3);
+        var resultados = indice.BuscarPorTexto("curvas");
+        resultados.Should().HaveCount(3);
+        resultados.Should().Contain(r => r.Nombre == "curvas_nivel.shp");
+        resultados.Should().Contain(r => r.Nombre == "informe_curvas.pdf");
+        resultados.Should().Contain(r => r.Nombre == "curvas_resumen.txt");
+
+        // Rutas físicas
+        var rutasShp = indice.ObtenerRutasFisicasPorExtension(".shp").ToList();
+        rutasShp.Should().HaveCount(2);
+        rutasShp.Should().Contain(p => p.EndsWith("curvas_nivel.shp"));
+        rutasShp.Should().Contain(p => p.EndsWith("vias_principales.shp"));
+    }
 }
 

@@ -8,6 +8,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Geomatica.Desktop.Models;
+using Geomatica.Domain.Catalogos;
 
 namespace Geomatica.Desktop.Services
 {
@@ -367,10 +368,9 @@ namespace Geomatica.Desktop.Services
 
             foreach (var ext in extensiones)
             {
-                if (string.IsNullOrWhiteSpace(ext)) continue;
-                string limpia = ext.Trim();
-                if (!limpia.StartsWith('.')) limpia = "." + limpia;
-                set.Add(limpia.ToLowerInvariant());
+                var norm = CatalogoFormatosGis.NormalizarExtension(ext);
+                if (!string.IsNullOrEmpty(norm))
+                    set.Add(norm);
             }
             return set;
         }
@@ -451,54 +451,86 @@ namespace Geomatica.Desktop.Services
             return resultado;
         }
 
-        private static readonly (string Nombre, string Icono, string Bg, string Border, string Fg, HashSet<string> Exts)[] _categoriasConfig = new[]
+        /// <summary>
+        /// Obtiene la ruta física absoluta en disco de una entrada del índice.
+        /// </summary>
+        public string ObtenerRutaFisica(in EntradaArchivo entrada)
         {
-            (
-                Nombre: "Vectorial",
-                Icono: "🗺️",
-                Bg: "#E8F4EC",
-                Border: "#B2DFBF",
-                Fg: "#1A5C34",
-                Exts: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".shp", ".gpkg", ".geojson", ".kml", ".kmz", ".tab", ".mif", ".gml", ".gdb", ".geodatabase" }
-            ),
-            (
-                Nombre: "Raster / Ortofoto",
-                Icono: "🛰️",
-                Bg: "#E3F2FD",
-                Border: "#BBDEFB",
-                Fg: "#1565C0",
-                Exts: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".tif", ".tiff", ".img", ".dem", ".asc", ".dt2", ".ecw", ".jp2", ".sid" }
-            ),
-            (
-                Nombre: "LiDAR / Nubes",
-                Icono: "☁️",
-                Bg: "#F3E5F5",
-                Border: "#E1BEE7",
-                Fg: "#6A1B9A",
-                Exts: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".las", ".laz", ".xyz", ".pts", ".ply" }
-            ),
-            (
-                Nombre: "CAD / Planos",
-                Icono: "📐",
-                Bg: "#FFF8E1",
-                Border: "#FFE082",
-                Fg: "#B78103",
-                Exts: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".dwg", ".dxf", ".dgn" }
-            ),
-            (
-                Nombre: "Documentación",
-                Icono: "📄",
-                Bg: "#F5F5F5",
-                Border: "#E0E0E0",
-                Fg: "#424242",
-                Exts: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { ".pdf", ".docx", ".doc", ".xlsx", ".xls", ".csv", ".txt", ".md" }
-            )
-        };
+            return entrada.UbicacionRelativa == "(raíz)"
+                ? Path.Combine(RutaRaiz, entrada.Nombre)
+                : Path.Combine(RutaRaiz, entrada.UbicacionRelativa.Replace('/', Path.DirectorySeparatorChar), entrada.Nombre);
+        }
 
-        private static readonly HashSet<string> _sidecarsConfig = new(StringComparer.OrdinalIgnoreCase)
+        /// <summary>
+        /// Obtiene las rutas físicas absolutas de todos los archivos con la extensión especificada.
+        /// </summary>
+        public IEnumerable<string> ObtenerRutasFisicasPorExtension(string extension)
         {
-            ".dbf", ".shx", ".prj", ".cpg", ".sbn", ".sbx", ".tfw", ".ovr", ".aux.xml", ".rrd", ".aux", ".j2w", ".wld", ".qmd", ".xml"
-        };
+            var extNorm = CatalogoFormatosGis.NormalizarExtension(extension);
+            if (_porExtension.TryGetValue(extNorm, out var lista))
+            {
+                for (int i = 0; i < lista.Count; i++)
+                {
+                    yield return ObtenerRutaFisica(lista[i]);
+                }
+            }
+        }
+
+        /// <summary>
+        /// Obtiene las rutas físicas absolutas de todos los archivos pertenecientes al conjunto de extensiones dadas.
+        /// </summary>
+        public IEnumerable<string> ObtenerRutasFisicasPorExtensiones(IEnumerable<string> extensiones)
+        {
+            var extSet = NormalizarExtensiones(extensiones);
+            foreach (var ext in extSet)
+            {
+                if (_porExtension.TryGetValue(ext, out var lista))
+                {
+                    for (int i = 0; i < lista.Count; i++)
+                    {
+                        yield return ObtenerRutaFisica(lista[i]);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Busca archivos por nombre o ruta virtual en todo el proyecto indexado.
+        /// </summary>
+        public List<ArchivoVirtual> BuscarPorTexto(string texto, int maxResultados = 500)
+        {
+            if (string.IsNullOrWhiteSpace(texto) || maxResultados <= 0)
+                return new List<ArchivoVirtual>();
+
+            var resultado = new List<ArchivoVirtual>();
+            for (int i = 0; i < _todas.Count; i++)
+            {
+                var entrada = _todas[i];
+                if (CoincideTexto(in entrada, texto))
+                {
+                    resultado.Add(entrada.ToArchivoVirtual());
+                    if (resultado.Count >= maxResultados)
+                        break;
+                }
+            }
+            return resultado;
+        }
+
+        /// <summary>
+        /// Cuenta cuántos archivos del proyecto coinciden con el texto de búsqueda.
+        /// </summary>
+        public int ContarCoincidenciasPorTexto(string texto)
+        {
+            if (string.IsNullOrWhiteSpace(texto)) return 0;
+            int total = 0;
+            for (int i = 0; i < _todas.Count; i++)
+            {
+                var entrada = _todas[i];
+                if (CoincideTexto(in entrada, texto))
+                    total++;
+            }
+            return total;
+        }
 
         /// <summary>
         /// Genera el resumen consolidado de formatos espaciales y documentales directamente desde el índice en memoria en O(1),
@@ -520,14 +552,14 @@ namespace Geomatica.Desktop.Services
             }
 
             var categoriasResultado = new List<CategoriaFormatoItem>();
-            foreach (var cat in _categoriasConfig)
+            foreach (var cat in CatalogoFormatosGis.Categorias)
             {
                 int sumaArchivos = 0;
                 var extsEncontradas = new List<string>();
 
                 foreach (var kvp in extensionesConteo)
                 {
-                    if (cat.Exts.Contains(kvp.Key))
+                    if (cat.Extensiones.Contains(kvp.Key))
                     {
                         sumaArchivos += kvp.Value.Conteo;
                         extsEncontradas.Add($"{kvp.Key.ToUpperInvariant()} ({kvp.Value.Conteo})");
@@ -539,9 +571,9 @@ namespace Geomatica.Desktop.Services
                     categoriasResultado.Add(new CategoriaFormatoItem(
                         Categoria: cat.Nombre,
                         Icono: cat.Icono,
-                        BadgeBgHex: cat.Bg,
-                        BadgeBorderHex: cat.Border,
-                        BadgeFgHex: cat.Fg,
+                        BadgeBgHex: cat.BgColorHex,
+                        BadgeBorderHex: cat.BorderColorHex,
+                        BadgeFgHex: cat.FgColorHex,
                         CantidadArchivos: sumaArchivos,
                         ExtensionesEncontradas: extsEncontradas
                     ));
@@ -555,14 +587,14 @@ namespace Geomatica.Desktop.Services
                 int conteo = kvp.Value.Conteo;
                 long tamano = kvp.Value.Tamano;
 
-                bool esSidecar = _sidecarsConfig.Contains(ext);
-                var catEncontrada = _categoriasConfig.FirstOrDefault(c => c.Exts.Contains(ext));
+                bool esSidecar = CatalogoFormatosGis.EsAuxiliar(ext);
+                var catDef = CatalogoFormatosGis.ObtenerDefinicionCategoria(ext);
 
-                string categoriaNombre = catEncontrada.Nombre != null ? catEncontrada.Nombre : (esSidecar ? "Auxiliar / Sidecar" : "Otros");
-                string icono = catEncontrada.Icono != null ? catEncontrada.Icono : (esSidecar ? "📎" : "📁");
-                string bg = catEncontrada.Bg != null ? catEncontrada.Bg : (esSidecar ? "#ECEFF1" : "#FAFAFA");
-                string border = catEncontrada.Border != null ? catEncontrada.Border : (esSidecar ? "#CFD8DC" : "#E0E0E0");
-                string fg = catEncontrada.Fg != null ? catEncontrada.Fg : (esSidecar ? "#546E7A" : "#616161");
+                string categoriaNombre = catDef?.Nombre ?? (esSidecar ? CatalogoFormatosGis.CategoriaAuxiliar : CatalogoFormatosGis.CategoriaOtros);
+                string icono = catDef?.Icono ?? (esSidecar ? "📎" : "📁");
+                string bg = catDef?.BgColorHex ?? (esSidecar ? "#ECEFF1" : "#FAFAFA");
+                string border = catDef?.BorderColorHex ?? (esSidecar ? "#CFD8DC" : "#E0E0E0");
+                string fg = catDef?.FgColorHex ?? (esSidecar ? "#546E7A" : "#616161");
 
                 extensionesResultado.Add(new FormatoExtensionItem(
                     Extension: ext,

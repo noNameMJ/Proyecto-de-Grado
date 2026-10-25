@@ -8,6 +8,7 @@ using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using Geomatica.Domain.Catalogos;
 
 namespace Geomatica.Infrastructure.Gis.Services
 {
@@ -26,8 +27,13 @@ namespace Geomatica.Infrastructure.Gis.Services
         /// <summary>
         /// Realiza una inspección profunda y recursiva en todas las subcarpetas del proyecto
         /// (incluyendo 'Datos_Espaciales', 'Cartografia', etc.) para extraer metadatos ISO 19115.
+        /// Si se provee <paramref name="archivosEspacialesFisicos"/> (por ejemplo, proveniente de un índice ya construido),
+        /// se reutilizan directamente en memoria evitando volver a enumerar el sistema de archivos físico o SMB.
         /// </summary>
-        public async Task<Iso19115MetadataResult> ExtraerDesdeRutaAsync(string rutaDirectorio)
+        public async Task<Iso19115MetadataResult> ExtraerDesdeRutaAsync(
+            string rutaDirectorio,
+            IEnumerable<string>? archivosEspacialesFisicos = null,
+            IEnumerable<string>? directoriosGdbFisicos = null)
         {
             var result = new Iso19115MetadataResult();
 
@@ -36,55 +42,46 @@ namespace Geomatica.Infrastructure.Gis.Services
 
             try
             {
-                var dirInfo = new DirectoryInfo(rutaDirectorio);
-                var enumOptions = new EnumerationOptions
+                List<string> listaArchivos;
+                List<string> gdbDirs;
+
+                if (archivosEspacialesFisicos != null)
                 {
-                    IgnoreInaccessible = true,
-                    RecurseSubdirectories = true,
-                    MaxRecursionDepth = 6,
-                    AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System
-                };
-
-                // 1. Recolección recursiva de archivos sin riesgo de excepciones por permisos (omitiendo binarios internos de .gdb)
-                var todosLosArchivos = dirInfo.EnumerateFiles("*.*", enumOptions)
-                    .Where(f => !f.FullName.Contains(".gdb" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
-                                !f.FullName.Contains(".gdb" + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                var shapefiles = todosLosArchivos
-                    .Where(f => f.Extension.Equals(".shp", StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                var rasters = todosLosArchivos
-                    .Where(f => f.Extension.Equals(".tif", StringComparison.OrdinalIgnoreCase) ||
-                                f.Extension.Equals(".tiff", StringComparison.OrdinalIgnoreCase) ||
-                                f.Extension.Equals(".img", StringComparison.OrdinalIgnoreCase) ||
-                                f.Extension.Equals(".dem", StringComparison.OrdinalIgnoreCase) ||
-                                f.Extension.Equals(".jp2", StringComparison.OrdinalIgnoreCase) ||
-                                f.Extension.Equals(".ecw", StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                var geopackages = todosLosArchivos
-                    .Where(f => f.Extension.Equals(".gpkg", StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                var cadFiles = todosLosArchivos
-                    .Where(f => f.Extension.Equals(".dwg", StringComparison.OrdinalIgnoreCase) ||
-                                f.Extension.Equals(".dxf", StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                var lidarFiles = todosLosArchivos
-                    .Where(f => f.Extension.Equals(".las", StringComparison.OrdinalIgnoreCase) ||
-                                f.Extension.Equals(".laz", StringComparison.OrdinalIgnoreCase))
-                    .ToList();
-
-                // Recolección recursiva de File Geodatabases (.gdb)
-                var gdbDirs = new List<DirectoryInfo>();
-                try
-                {
-                    gdbDirs = dirInfo.EnumerateDirectories("*.gdb", enumOptions).ToList();
+                    listaArchivos = archivosEspacialesFisicos.ToList();
+                    gdbDirs = (directoriosGdbFisicos ?? Enumerable.Empty<string>()).ToList();
                 }
-                catch { }
+                else
+                {
+                    var dirInfo = new DirectoryInfo(rutaDirectorio);
+                    var enumOptions = new EnumerationOptions
+                    {
+                        IgnoreInaccessible = true,
+                        RecurseSubdirectories = true,
+                        MaxRecursionDepth = 6,
+                        AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System
+                    };
+
+                    listaArchivos = dirInfo.EnumerateFiles("*.*", enumOptions)
+                        .Where(f => !f.FullName.Contains(".gdb" + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase) &&
+                                    !f.FullName.Contains(".gdb" + Path.AltDirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+                        .Select(f => f.FullName)
+                        .ToList();
+
+                    try
+                    {
+                        gdbDirs = dirInfo.EnumerateDirectories("*.gdb", enumOptions)
+                            .Select(d => d.FullName)
+                            .ToList();
+                    }
+                    catch { gdbDirs = new List<string>(); }
+                }
+
+                // 1. Clasificación canónica usando CatalogoFormatosGis
+                var shapefiles = listaArchivos.Where(f => CatalogoFormatosGis.EsShapefile(Path.GetExtension(f))).ToList();
+                var rasters = listaArchivos.Where(f => CatalogoFormatosGis.EsRaster(Path.GetExtension(f))).ToList();
+                var geopackages = listaArchivos.Where(f => CatalogoFormatosGis.EsGeoPackage(Path.GetExtension(f))).ToList();
+                var cadFiles = listaArchivos.Where(f => CatalogoFormatosGis.EsCad(Path.GetExtension(f))).ToList();
+                var lidarFiles = listaArchivos.Where(f => CatalogoFormatosGis.EsLidar(Path.GetExtension(f))).ToList();
 
                 int totalEspaciales = shapefiles.Count + rasters.Count + geopackages.Count + cadFiles.Count + lidarFiles.Count + gdbDirs.Count;
                 result.TotalArchivosEspaciales = totalEspaciales;
@@ -111,25 +108,25 @@ namespace Geomatica.Infrastructure.Gis.Services
                 var carpetasConDatos = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 foreach (var f in shapefiles.Concat(rasters).Concat(geopackages).Concat(cadFiles).Concat(lidarFiles))
                 {
-                    var rel = Path.GetRelativePath(rutaDirectorio, f.DirectoryName ?? rutaDirectorio);
+                    var dir = Path.GetDirectoryName(f) ?? rutaDirectorio;
+                    var rel = Path.GetRelativePath(rutaDirectorio, dir);
                     if (!string.IsNullOrWhiteSpace(rel) && rel != ".")
                         carpetasConDatos.Add(rel.Replace('\\', '/'));
                 }
                 foreach (var g in gdbDirs)
                 {
-                    var rel = Path.GetRelativePath(rutaDirectorio, g.Parent?.FullName ?? rutaDirectorio);
+                    var dir = Path.GetDirectoryName(g) ?? rutaDirectorio;
+                    var rel = Path.GetRelativePath(rutaDirectorio, dir);
                     if (!string.IsNullOrWhiteSpace(rel) && rel != ".")
                         carpetasConDatos.Add(rel.Replace('\\', '/'));
                 }
                 result.SubcarpetasExploradas = carpetasConDatos.OrderBy(c => c).ToList();
 
                 // 4. Priorización de archivos para extracción del SRID y Extensión
-                // Priorizar archivos en "Datos_Espaciales", "Cartografia", "Vectores", etc.
                 var candidatosPriorizados = shapefiles
-                    .OrderByDescending(f => EsSubcarpetaEspacialPrioritaria(f.FullName))
-                    .Cast<FileSystemInfo>()
-                    .Concat(rasters.OrderByDescending(f => EsSubcarpetaEspacialPrioritaria(f.FullName)))
-                    .Concat(geopackages.OrderByDescending(f => EsSubcarpetaEspacialPrioritaria(f.FullName)))
+                    .OrderByDescending(EsSubcarpetaEspacialPrioritaria)
+                    .Concat(rasters.OrderByDescending(EsSubcarpetaEspacialPrioritaria))
+                    .Concat(geopackages.OrderByDescending(EsSubcarpetaEspacialPrioritaria))
                     .ToList();
 
                 SpatialReference? srEncontrado = null;
@@ -139,93 +136,90 @@ namespace Geomatica.Infrastructure.Gis.Services
                 // 5. Búsqueda exhaustiva del SRID en candidatos
                 foreach (var candidato in candidatosPriorizados)
                 {
-                    if (candidato is FileInfo fi)
+                    var ext = Path.GetExtension(candidato).ToLowerInvariant();
+
+                    // A. SHAPEFILES: Primero intentar PRJ directo (rápido y fiable)
+                    if (ext == ".shp")
                     {
-                        var ext = fi.Extension.ToLowerInvariant();
-
-                        // A. SHAPEFILES: Primero intentar PRJ directo (rápido y fiable)
-                        if (ext == ".shp")
+                        var prjPath = Path.ChangeExtension(candidato, ".prj");
+                        if (File.Exists(prjPath))
                         {
-                            var prjPath = Path.ChangeExtension(fi.FullName, ".prj");
-                            if (File.Exists(prjPath))
-                            {
-                                srEncontrado = ExtraerSrDesdePrj(prjPath);
-                            }
-
-                            // Si no se obtuvo del PRJ, cargar con ArcGIS Runtime
-                            if (srEncontrado == null || extentEncontrado == null)
-                            {
-                                ShapefileFeatureTable? shpTable = null;
-                                try
-                                {
-                                    shpTable = new ShapefileFeatureTable(fi.FullName);
-                                    await shpTable.LoadAsync();
-                                    if (srEncontrado == null && shpTable.SpatialReference != null)
-                                        srEncontrado = shpTable.SpatialReference;
-                                    if (extentEncontrado == null && shpTable.Extent != null)
-                                        extentEncontrado = shpTable.Extent;
-                                }
-                                catch { }
-                                finally
-                                {
-                                    try { shpTable?.Close(); } catch { }
-                                }
-                            }
-
-                            if (srEncontrado != null)
-                            {
-                                archivoReferencia = Path.GetRelativePath(rutaDirectorio, fi.FullName).Replace('\\', '/');
-                                break;
-                            }
+                            srEncontrado = ExtraerSrDesdePrj(prjPath);
                         }
-                        // B. RASTERS (GeoTIFF)
-                        else if (ext == ".tif" || ext == ".tiff" || ext == ".img" || ext == ".jp2")
+
+                        // Si no se obtuvo del PRJ, cargar con ArcGIS Runtime
+                        if (srEncontrado == null || extentEncontrado == null)
                         {
+                            ShapefileFeatureTable? shpTable = null;
                             try
                             {
-                                var raster = new Raster(fi.FullName);
-                                var rasterLayer = new RasterLayer(raster);
-                                await rasterLayer.LoadAsync();
-
-                                if (rasterLayer.SpatialReference != null)
-                                    srEncontrado = rasterLayer.SpatialReference;
-                                if (rasterLayer.FullExtent != null)
-                                    extentEncontrado = rasterLayer.FullExtent;
-                            }
-                            catch { }
-
-                            if (srEncontrado != null)
-                            {
-                                archivoReferencia = Path.GetRelativePath(rutaDirectorio, fi.FullName).Replace('\\', '/');
-                                break;
-                            }
-                        }
-                        // C. GEOPACKAGES
-                        else if (ext == ".gpkg")
-                        {
-                            GeoPackage? gpkg = null;
-                            try
-                            {
-                                gpkg = await GeoPackage.OpenAsync(fi.FullName);
-                                var featTable = gpkg.GeoPackageFeatureTables.FirstOrDefault();
-                                if (featTable != null)
-                                {
-                                    await featTable.LoadAsync();
-                                    srEncontrado = featTable.SpatialReference;
-                                    extentEncontrado = featTable.Extent;
-                                }
+                                shpTable = new ShapefileFeatureTable(candidato);
+                                await shpTable.LoadAsync();
+                                if (srEncontrado == null && shpTable.SpatialReference != null)
+                                    srEncontrado = shpTable.SpatialReference;
+                                if (extentEncontrado == null && shpTable.Extent != null)
+                                    extentEncontrado = shpTable.Extent;
                             }
                             catch { }
                             finally
                             {
-                                try { gpkg?.Close(); } catch { }
+                                try { shpTable?.Close(); } catch { }
                             }
+                        }
 
-                            if (srEncontrado != null)
+                        if (srEncontrado != null)
+                        {
+                            archivoReferencia = Path.GetRelativePath(rutaDirectorio, candidato).Replace('\\', '/');
+                            break;
+                        }
+                    }
+                    // B. RASTERS (GeoTIFF)
+                    else if (ext == ".tif" || ext == ".tiff" || ext == ".img" || ext == ".jp2")
+                    {
+                        try
+                        {
+                            var raster = new Raster(candidato);
+                            var rasterLayer = new RasterLayer(raster);
+                            await rasterLayer.LoadAsync();
+
+                            if (rasterLayer.SpatialReference != null)
+                                srEncontrado = rasterLayer.SpatialReference;
+                            if (rasterLayer.FullExtent != null)
+                                extentEncontrado = rasterLayer.FullExtent;
+                        }
+                        catch { }
+
+                        if (srEncontrado != null)
+                        {
+                            archivoReferencia = Path.GetRelativePath(rutaDirectorio, candidato).Replace('\\', '/');
+                            break;
+                        }
+                    }
+                    // C. GEOPACKAGES
+                    else if (ext == ".gpkg")
+                    {
+                        GeoPackage? gpkg = null;
+                        try
+                        {
+                            gpkg = await GeoPackage.OpenAsync(candidato);
+                            var featTable = gpkg.GeoPackageFeatureTables.FirstOrDefault();
+                            if (featTable != null)
                             {
-                                archivoReferencia = Path.GetRelativePath(rutaDirectorio, fi.FullName).Replace('\\', '/');
-                                break;
+                                await featTable.LoadAsync();
+                                srEncontrado = featTable.SpatialReference;
+                                extentEncontrado = featTable.Extent;
                             }
+                        }
+                        catch { }
+                        finally
+                        {
+                            try { gpkg?.Close(); } catch { }
+                        }
+
+                        if (srEncontrado != null)
+                        {
+                            archivoReferencia = Path.GetRelativePath(rutaDirectorio, candidato).Replace('\\', '/');
+                            break;
                         }
                     }
                 }
