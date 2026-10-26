@@ -34,8 +34,11 @@ namespace Geomatica.Desktop.ViewModels
         public FiltrosViewModel Filtros { get; }
         public ArchivosViewModel ArchivosVM { get; }
         private Layer? _layerMunicipios;
+        public Layer? LayerMunicipios => _layerMunicipios;
         private Layer? _layerProyectos;
         public Layer? LayerProyectos => _layerProyectos;
+        private Layer? _layerSubproyectos;
+        public Layer? LayerSubproyectos => _layerSubproyectos;
         private IReadOnlyList<MunicipioGeoJsonDto>? _cachedMunicipios;
         private Dictionary<string, Geometry>? _cachedGeometries;
         private IReadOnlyList<string>? _ultimosCodigosMunicipio;
@@ -73,6 +76,7 @@ namespace Geomatica.Desktop.ViewModels
         // Overlays de Distinción de Proyectos (Etiquetas de texto y Resaltado interactivo)
         public GraphicsOverlay OverlayProyectosEtiquetas { get; } = new() { Id = "OverlayProyectosEtiquetas" };
         public GraphicsOverlay OverlayResaltadoProyecto { get; } = new() { Id = "OverlayResaltadoProyecto" };
+        public GraphicsOverlay OverlaySubproyectos { get; } = new() { Id = "OverlaySubproyectos" };
         [ObservableProperty] private bool isHerramientasMedicionVisible;
         [ObservableProperty] private string modoMedicion = "Ninguno"; // "Ninguno", "Distancia", "Area"
         [ObservableProperty] private string resultadoMedicion = "";
@@ -86,9 +90,37 @@ namespace Geomatica.Desktop.ViewModels
         // Elemento Identificado (Identify / Popup interactivo de capas de usuario y GDB)
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(HasElementoIdentificado))]
+        [NotifyPropertyChangedFor(nameof(HasSubcarpetaIdentificada))]
         private ElementoIdentificadoInfo? elementoIdentificado;
 
         public bool HasElementoIdentificado => ElementoIdentificado != null;
+        public bool HasSubcarpetaIdentificada => ElementoIdentificado?.HasSubcarpeta == true;
+
+        public event EventHandler<string>? SubcarpetaNavegacionSolicitada;
+
+        [RelayCommand]
+        public async Task AbrirArchivosElementoIdentificadoAsync()
+        {
+            if (ElementoIdentificado?.HasSubcarpeta == true)
+            {
+                var subcarpeta = ElementoIdentificado.Subcarpeta!;
+                var idProy = ElementoIdentificado.IdProyecto;
+
+                if (idProy.HasValue && idProy.Value > 0 &&
+                    (ArchivosVM.ProyectoDetalle == null || ArchivosVM.ProyectoDetalle.Id != idProy.Value))
+                {
+                    ArchivosVM.EstablecerSubcarpetaPendiente(subcarpeta);
+                    await AbrirFichaProyectoAsync(idProy.Value);
+                    ArchivosVM.NavegarASubcarpeta(subcarpeta);
+                }
+                else
+                {
+                    ArchivosVM.NavegarASubcarpeta(subcarpeta);
+                }
+
+                SubcarpetaNavegacionSolicitada?.Invoke(this, subcarpeta);
+            }
+        }
 
         [RelayCommand]
         private void CerrarElementoIdentificado()
@@ -218,6 +250,7 @@ namespace Geomatica.Desktop.ViewModels
             ArchivosVM.AbrirEnMapaSolicitado += async (s, path) => await CargarCapaAdicionalAsync(path);
             ArchivosVM.AbrirCapaEnMapaSolicitado += async (s, args) => await CargarCapaGdbAsync(args.RutaGdb, args.NombreCapa);
             Filtros.PropertyChanged += Filtros_PropertyChanged;
+            Filtros.NavegacionSubcarpetaSolicitada += Filtros_NavegacionSubcarpetaSolicitada;
 
             SetupMap();
             SetupScene();
@@ -260,6 +293,38 @@ namespace Geomatica.Desktop.ViewModels
                     await AbrirFichaProyectoAsync(Filtros.SelectedProyecto.Id);
                 }
             }
+        }
+
+        private async void Filtros_NavegacionSubcarpetaSolicitada(object? sender, SubproyectoDto sub)
+        {
+            await NavegarASubproyectoArchivosAsync(sub);
+        }
+
+        public async Task NavegarASubproyectoArchivosAsync(SubproyectoDto sub)
+        {
+            if (sub == null) return;
+
+            var subcarpeta = sub.Subcarpeta ?? string.Empty;
+            if (sub.IdProyecto > 0 &&
+                (ArchivosVM.ProyectoDetalle == null || ArchivosVM.ProyectoDetalle.Id != sub.IdProyecto))
+            {
+                ArchivosVM.EstablecerSubcarpetaPendiente(subcarpeta);
+                var proyItem = Filtros.ResultadosLista
+                    .OfType<FiltrosViewModel.ProyectoItem>()
+                    .FirstOrDefault(p => p.Id == sub.IdProyecto);
+                if (proyItem != null && Filtros.SelectedProyecto?.Id != proyItem.Id)
+                {
+                    Filtros.SelectedProyecto = proyItem;
+                }
+                await AbrirFichaProyectoAsync(sub.IdProyecto);
+                ArchivosVM.NavegarASubcarpeta(subcarpeta);
+            }
+            else
+            {
+                ArchivosVM.NavegarASubcarpeta(subcarpeta);
+            }
+
+            SubcarpetaNavegacionSolicitada?.Invoke(this, subcarpeta);
         }
 
         private async Task CargarCapaAdicionalAsync(string path)
@@ -1305,8 +1370,12 @@ namespace Geomatica.Desktop.ViewModels
             {
                 if (Filtros != null && Filtros.SelectedProyecto?.Id != detalle.Id)
                 {
-                    Filtros.SelectedProyecto = new FiltrosViewModel.ProyectoItem(
-                        detalle.Id, detalle.Titulo, detalle.Lon, detalle.Lat, detalle.RutaArchivos);
+                    var existente = Filtros.ResultadosLista
+                        .OfType<FiltrosViewModel.ProyectoItem>()
+                        .FirstOrDefault(p => p.Id == detalle.Id);
+                    Filtros.SelectedProyecto = existente ?? new FiltrosViewModel.ProyectoItem(
+                        detalle.Id, detalle.Titulo, detalle.Lon, detalle.Lat, detalle.RutaArchivos,
+                        detalle.FechaInicio, detalle.PalabraClave);
                 }
                 FichaProyectoSolicitada?.Invoke(this, detalle);
             }
@@ -1369,6 +1438,8 @@ namespace Geomatica.Desktop.ViewModels
                     _ownerMapView.GraphicsOverlays.Add(OverlayProyectosEtiquetas);
                 if (!_ownerMapView.GraphicsOverlays.Contains(OverlayResaltadoProyecto))
                     _ownerMapView.GraphicsOverlays.Add(OverlayResaltadoProyecto);
+                if (!_ownerMapView.GraphicsOverlays.Contains(OverlaySubproyectos))
+                    _ownerMapView.GraphicsOverlays.Add(OverlaySubproyectos);
             }
         }
     }
@@ -1424,6 +1495,8 @@ namespace Geomatica.Desktop.ViewModels
                             mv.GraphicsOverlays.Remove(OverlayProyectosEtiquetas);
                         if (mv.GraphicsOverlays.Contains(OverlayResaltadoProyecto))
                             mv.GraphicsOverlays.Remove(OverlayResaltadoProyecto);
+                        if (mv.GraphicsOverlays.Contains(OverlaySubproyectos))
+                            mv.GraphicsOverlays.Remove(OverlaySubproyectos);
                     }
                     _ownerMapView.Map = null; 
                 } 

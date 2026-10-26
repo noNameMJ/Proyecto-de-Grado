@@ -122,5 +122,105 @@ public class FiltrosViewModelTests
         itemSinCoords.HasPalabrasClave.Should().BeFalse();
         itemSinCoords.TieneExtentValido.Should().BeFalse();
     }
-}
 
+    [Fact]
+    public void ProyectoItem_Subproyectos_CalculaPropiedadesVisualesYBadgeCorrectamente()
+    {
+        // Arrange
+        var sub1 = new SubproyectoDto(1, 10, "Embarcadero Norte", "68081", "Barrancabermeja", "embarcadero_norte", -73.85, 7.06);
+        var sub2 = new SubproyectoDto(2, 10, "Embarcadero Sur", "68081", "Barrancabermeja", "embarcadero_sur", -73.84, 7.05);
+
+        var item = new FiltrosViewModel.ProyectoItem(10, "Proyecto Río Magdalena", -73.85, 7.06, @"D:\Proyectos\Rio");
+
+        // Assert inicial (sin subproyectos)
+        item.HasSubproyectos.Should().BeFalse();
+        item.TotalSubproyectos.Should().Be(0);
+        item.SubproyectosBadgeTexto.Should().Be("0 subproyectos / frentes");
+        item.EstaExpandido.Should().BeFalse();
+
+        // Act: agregar 1 subproyecto vía ActualizarSubproyectos
+        item.ActualizarSubproyectos(new[] { sub1 });
+
+        // Assert 1 subproyecto
+        item.HasSubproyectos.Should().BeTrue();
+        item.TotalSubproyectos.Should().Be(1);
+        item.SubproyectosBadgeTexto.Should().Be("1 subproyecto / frente");
+
+        // Act: agregar segundo subproyecto y expandir
+        item.ActualizarSubproyectos(new[] { sub1, sub2 });
+        item.EstaExpandido = true;
+
+        // Assert múltiples subproyectos
+        item.HasSubproyectos.Should().BeTrue();
+        item.TotalSubproyectos.Should().Be(2);
+        item.SubproyectosBadgeTexto.Should().Be("2 subproyectos / frentes");
+        item.EstaExpandido.Should().BeTrue();
+        item.Subproyectos.Should().Contain(sub1).And.Contain(sub2);
+    }
+
+    [Fact]
+    public void UbicarSubproyectoCommand_ConCoordenadasValidas_DisparaSubproyectoSeleccionadoEnMapa()
+    {
+        // Arrange
+        var vm = new FiltrosViewModel(_municipioRepoMock.Object);
+        var subValido = new SubproyectoDto(1, 10, "Sitio A", "68081", "Barrancabermeja", "sitio_a", -73.85, 7.06);
+        var subSinCoords = new SubproyectoDto(2, 10, "Sitio B", "68081", "Barrancabermeja", "sitio_b", 0, 0);
+
+        SubproyectoDto? recibido = null;
+        vm.SubproyectoSeleccionadoEnMapa += (s, e) => recibido = e;
+
+        // Act & Assert para subproyecto con coordenadas
+        vm.UbicarSubproyectoCommand.Execute(subValido);
+        recibido.Should().NotBeNull();
+        recibido!.IdSubproyecto.Should().Be(1);
+        recibido.Nombre.Should().Be("Sitio A");
+
+        // Act & Assert para subproyecto sin coordenadas (0,0) - no debe disparar
+        recibido = null;
+        vm.UbicarSubproyectoCommand.Execute(subSinCoords);
+        recibido.Should().BeNull();
+    }
+
+    [Fact]
+    public void AbrirArchivosSubproyectoCommand_DisparaNavegacionSubcarpetaSolicitada()
+    {
+        // Arrange
+        var vm = new FiltrosViewModel(_municipioRepoMock.Object);
+        var sub = new SubproyectoDto(1, 10, "Embarcadero El Llanito", "68081", "Barrancabermeja", "el_llanito", -73.85, 7.06);
+
+        SubproyectoDto? subRecibido = null;
+        vm.NavegacionSubcarpetaSolicitada += (s, e) => subRecibido = e;
+
+        // Act
+        vm.AbrirArchivosSubproyectoCommand.Execute(sub);
+
+        // Assert
+        subRecibido.Should().NotBeNull();
+        subRecibido!.Subcarpeta.Should().Be("el_llanito");
+    }
+
+    [Fact]
+    public async Task InicializarFiltrosAsync_CargaDepartamentosYMunicipiosSinDispararBusquedaRedundante()
+    {
+        // Arrange
+        _municipioRepoMock.Setup(r => r.ListarDepartamentosAsync())
+            .ReturnsAsync(new List<DepartamentoDto> { new("68", "Santander") });
+        _municipioRepoMock.Setup(r => r.ListarTodosMunicipiosAsync())
+            .ReturnsAsync(new List<MunicipioDto> { new("68001", "Bucaramanga") });
+
+        var vm = new FiltrosViewModel(_municipioRepoMock.Object);
+        bool buscarDisparado = false;
+        vm.BuscarSolicitado += (s, e) => buscarDisparado = true;
+
+        // Act
+        await vm.InicializarFiltrosAsync();
+
+        // Assert
+        vm.Departamentos.Should().HaveCount(2); // "— Todos —" + Santander
+        vm.Areas.Should().HaveCount(2); // "— Todos —" + Bucaramanga
+        vm.SelectedDepartamento.Should().Be(FiltrosViewModel.DepartamentoItem.Todos);
+        vm.AreaInteres.Should().Be(FiltrosViewModel.MunicipioItem.Todos);
+        vm.IsErrorConexionDb.Should().BeFalse();
+        buscarDisparado.Should().BeFalse(); // No debe generar rebotes de búsqueda durante inicialización
+    }
+}

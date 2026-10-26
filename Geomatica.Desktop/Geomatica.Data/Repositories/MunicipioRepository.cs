@@ -27,7 +27,7 @@ namespace Geomatica.Data.Repositories
             if (codigos == null || codigos.Count == 0) return Array.Empty<MunicipioGeoJsonDto>();
             const string sql = @"
                 SELECT m.mpio_cdpmp AS codigo, m.mpio_cnmbr AS nombre,
-                       ST_AsGeoJSON(ST_Transform(m.geom, 4326)) AS geojson
+                       ST_AsGeoJSON(m.geom, 5) AS geojson
                 FROM geovisor.municipio m
                 WHERE m.mpio_cdpmp = ANY(@cods);";
 
@@ -55,7 +55,7 @@ namespace Geomatica.Data.Repositories
         {
             var sql = @"
                 SELECT m.mpio_cdpmp AS codigo, m.mpio_cnmbr AS nombre,
-                       ST_AsGeoJSON(ST_Transform(m.geom, 4326)) AS geojson
+                       ST_AsGeoJSON(m.geom, 5) AS geojson
                 FROM geovisor.municipio m";
             if (limit.HasValue)
                 sql += $" LIMIT {limit.Value};";
@@ -231,7 +231,7 @@ namespace Geomatica.Data.Repositories
                        m.mpio_cnmbr AS muni_nombre,
                        d.dpto_ccdgo AS dpto_codigo,
                        d.dpto_cnmbr AS dpto_nombre,
-                       ST_AsGeoJSON(ST_Transform(m.geom, 4326)) AS geojson
+                       ST_AsGeoJSON(m.geom, 5) AS geojson
                 FROM geovisor.municipio m
                 JOIN geovisor.departamento d ON m.dpto_ccdgo = d.dpto_ccdgo
                 WHERE ST_Intersects(m.geom, ST_Transform(ST_SetSRID(ST_MakePoint(@lon, @lat), 4326), ST_SRID(m.geom)))

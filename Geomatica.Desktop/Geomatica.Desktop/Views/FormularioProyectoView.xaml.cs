@@ -18,6 +18,7 @@ namespace Geomatica.Desktop.Views
     {
         private readonly GraphicsOverlay _pinOverlay = new();
         private readonly GraphicsOverlay _municipioOverlay = new();
+        private readonly GraphicsOverlay _subproyectosOverlay = new();
         private FormularioProyectoViewModel? _currentVm;
 
         public FormularioProyectoView()
@@ -29,6 +30,7 @@ namespace Geomatica.Desktop.Views
             map.InitialViewpoint = new Viewpoint(center, 2_000_000);
             pickerMapView.Map = map;
             pickerMapView.GraphicsOverlays?.Add(_municipioOverlay);
+            pickerMapView.GraphicsOverlays?.Add(_subproyectosOverlay);
             pickerMapView.GraphicsOverlays?.Add(_pinOverlay);
             pickerMapView.GeoViewTapped += PickerMapView_GeoViewTapped;
 
@@ -49,6 +51,8 @@ namespace Geomatica.Desktop.Views
                 _currentVm = vm;
                 vm.MunicipiosGeoJsonListChanged += OnMunicipiosGeoJsonListChanged;
                 vm.CoordenadasPinChanged += OnCoordenadasPinChanged;
+                vm.SubproyectosPinsChanged += OnSubproyectosPinsChanged;
+                vm.CentrarEnSubproyectoSolicitado += OnCentrarEnSubproyectoSolicitado;
 
                 // Mostrar pin inicial si el ViewModel ya cuenta con coordenadas válidas (ej. modo edición)
                 if (!string.IsNullOrWhiteSpace(vm.LatStr) && !string.IsNullOrWhiteSpace(vm.LonStr))
@@ -61,6 +65,12 @@ namespace Geomatica.Desktop.Views
                         ActualizarPin(new MapPoint(lon, lat, SpatialReferences.Wgs84));
                     }
                 }
+
+                // Mostrar pines de subproyectos si ya están disponibles
+                if (vm.Subproyectos.Count > 0)
+                {
+                    ActualizarSubproyectosPins(vm.Subproyectos);
+                }
             }
         }
 
@@ -70,6 +80,8 @@ namespace Geomatica.Desktop.Views
             {
                 _currentVm.MunicipiosGeoJsonListChanged -= OnMunicipiosGeoJsonListChanged;
                 _currentVm.CoordenadasPinChanged -= OnCoordenadasPinChanged;
+                _currentVm.SubproyectosPinsChanged -= OnSubproyectosPinsChanged;
+                _currentVm.CentrarEnSubproyectoSolicitado -= OnCentrarEnSubproyectoSolicitado;
                 _currentVm = null;
             }
         }
@@ -152,6 +164,64 @@ namespace Geomatica.Desktop.Views
             };
 
             _pinOverlay.Graphics.Add(new Graphic(point, marker));
+        }
+        private void OnSubproyectosPinsChanged(System.Collections.Generic.IReadOnlyList<SubproyectoItemFormulario> subproyectos)
+        {
+            Dispatcher.InvokeAsync(() =>
+            {
+                ActualizarSubproyectosPins(subproyectos);
+            });
+        }
+
+        private void OnCentrarEnSubproyectoSolicitado(double lon, double lat)
+        {
+            Dispatcher.InvokeAsync(async () =>
+            {
+                if (lon != 0 || lat != 0)
+                {
+                    var point = new MapPoint(lon, lat, SpatialReferences.Wgs84);
+                    await pickerMapView.SetViewpointCenterAsync(point, 25_000);
+                }
+            });
+        }
+
+        private void ActualizarSubproyectosPins(System.Collections.Generic.IReadOnlyList<SubproyectoItemFormulario>? subproyectos)
+        {
+            _subproyectosOverlay.Graphics.Clear();
+            if (subproyectos == null || subproyectos.Count == 0) return;
+
+            // Símbolo diamante ámbar/naranja con borde blanco para destacar frentes de trabajo / subproyectos
+            var subMarker = new SimpleMarkerSymbol(SimpleMarkerSymbolStyle.Diamond,
+                System.Drawing.Color.FromArgb(240, 230, 126, 34), 11)
+            {
+                Outline = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid,
+                    System.Drawing.Color.White, 1.8f)
+            };
+
+            foreach (var sub in subproyectos)
+            {
+                if (sub.Lon == 0 && sub.Lat == 0) continue;
+
+                var point = new MapPoint(sub.Lon, sub.Lat, SpatialReferences.Wgs84);
+                _subproyectosOverlay.Graphics.Add(new Graphic(point, subMarker));
+
+                if (!string.IsNullOrWhiteSpace(sub.Nombre))
+                {
+                    var textSymbol = new TextSymbol(
+                        sub.Nombre,
+                        System.Drawing.Color.FromArgb(230, 30, 41, 59),
+                        9.5,
+                        Esri.ArcGISRuntime.Symbology.HorizontalAlignment.Left,
+                        Esri.ArcGISRuntime.Symbology.VerticalAlignment.Middle)
+                    {
+                        OffsetX = 9,
+                        OffsetY = 0,
+                        HaloColor = System.Drawing.Color.White,
+                        HaloWidth = 2
+                    };
+                    _subproyectosOverlay.Graphics.Add(new Graphic(point, textSymbol));
+                }
+            }
         }
     }
 }

@@ -11,7 +11,7 @@ public sealed class CrearProyectoUseCase
         _proyectoRepository = proyectoRepository ?? throw new ArgumentNullException(nameof(proyectoRepository));
     }
 
-    public Task EjecutarAsync(
+    public Task<int> EjecutarAsync(
         string titulo,
         string? descripcion,
         DateTime? fechaInicio,

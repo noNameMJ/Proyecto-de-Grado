@@ -34,6 +34,7 @@ namespace Geomatica.Desktop.ViewModels
         private readonly IProyectoRepository? _proyectoRepository;
         private readonly ObtenerHistorialProyectoUseCase? _historialUseCase;
         private readonly ISeguridadService _seguridadService;
+        private readonly ObtenerSubproyectosUseCase? _obtenerSubproyectosUseCase;
         private readonly SemaphoreSlim _formatosLock = new(1, 1);
 
         public ProyectoDetalleDto Proyecto { get; }
@@ -240,6 +241,39 @@ namespace Geomatica.Desktop.ViewModels
         public bool HasPalabrasClave => PalabrasClaveLista.Count > 0;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasSubproyectos))]
+        [NotifyPropertyChangedFor(nameof(TotalSubproyectos))]
+        private ObservableCollection<SubproyectoDto> _subproyectos = new();
+
+        public bool HasSubproyectos => Subproyectos.Count > 0;
+        public int TotalSubproyectos => Subproyectos.Count;
+
+        [ObservableProperty]
+        private bool _cargandoSubproyectos;
+
+        public event EventHandler<string>? NavegacionSubcarpetaSolicitada;
+        public event EventHandler<(double lon, double lat, string nombre)>? UbicarEnMapaSubproyectoSolicitado;
+        public event EventHandler<IReadOnlyList<SubproyectoDto>>? SubproyectosCargados;
+
+        [RelayCommand]
+        private void ExplorarArchivosSubproyecto(SubproyectoDto? subproyecto)
+        {
+            if (subproyecto != null && !string.IsNullOrWhiteSpace(subproyecto.Subcarpeta))
+            {
+                NavegacionSubcarpetaSolicitada?.Invoke(this, subproyecto.Subcarpeta);
+            }
+        }
+
+        [RelayCommand]
+        private void UbicarEnMapaSubproyecto(SubproyectoDto? subproyecto)
+        {
+            if (subproyecto != null)
+            {
+                UbicarEnMapaSubproyectoSolicitado?.Invoke(this, (subproyecto.Lon, subproyecto.Lat, subproyecto.Nombre));
+            }
+        }
+
+        [ObservableProperty]
         private ObservableCollection<AuditoriaProyectoDto> _historialAuditoria = new();
 
         [ObservableProperty]
@@ -414,7 +448,8 @@ namespace Geomatica.Desktop.ViewModels
             IProyectoRepository? proyectoRepository = null,
             ObtenerHistorialProyectoUseCase? historialUseCase = null,
             ISeguridadService? seguridadService = null,
-            EvaluacionPermisos? permisosPrecalculados = null)
+            EvaluacionPermisos? permisosPrecalculados = null,
+            ObtenerSubproyectosUseCase? obtenerSubproyectosUseCase = null)
         {
             Proyecto = proyecto;
             _eliminarProyectoUseCase = eliminarProyectoUseCase;
@@ -424,6 +459,7 @@ namespace Geomatica.Desktop.ViewModels
             _proyectoRepository = proyectoRepository;
             _historialUseCase = historialUseCase ?? (proyectoRepository != null ? new ObtenerHistorialProyectoUseCase(proyectoRepository) : null);
             _seguridadService = seguridadService ?? new WindowsSeguridadService();
+            _obtenerSubproyectosUseCase = obtenerSubproyectosUseCase ?? (proyectoRepository != null ? new ObtenerSubproyectosUseCase(proyectoRepository) : null);
 
             PermisosCarpeta = permisosPrecalculados
                 ?? (_archivosService.TryObtenerPermisosCacheados(proyecto.RutaArchivos, out var c) && c != null
@@ -460,9 +496,40 @@ namespace Geomatica.Desktop.ViewModels
                 _ = CargarHistorialAuditoriaAsync();
             }
 
+            if (_obtenerSubproyectosUseCase != null)
+            {
+                _ = CargarSubproyectosAsync();
+            }
+
             if (PuedeLeerArchivos && !string.IsNullOrWhiteSpace(RutaArchivos))
             {
                 _ = CargarFormatosArchivosAsync();
+            }
+        }
+
+        public async Task CargarSubproyectosAsync()
+        {
+            if (_obtenerSubproyectosUseCase == null || Id <= 0) return;
+            CargandoSubproyectos = true;
+            try
+            {
+                var lista = await _obtenerSubproyectosUseCase.EjecutarAsync(Id);
+                Subproyectos.Clear();
+                foreach (var item in lista)
+                {
+                    Subproyectos.Add(item);
+                }
+                OnPropertyChanged(nameof(HasSubproyectos));
+                OnPropertyChanged(nameof(TotalSubproyectos));
+                SubproyectosCargados?.Invoke(this, lista);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[FichaProyectoViewModel] Error al cargar subproyectos: {ex.Message}");
+            }
+            finally
+            {
+                CargandoSubproyectos = false;
             }
         }
 

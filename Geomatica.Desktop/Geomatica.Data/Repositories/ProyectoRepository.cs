@@ -151,7 +151,7 @@ namespace Geomatica.Data.Repositories
             return items.Select(p => new ProyectoDto(p.Id, p.Titulo, p.Longitud, p.Latitud, p.RutaArchivos)).ToList();
         }
 
-        public async Task InsertarAsync(string titulo, string? descripcion, DateTime? fechaInicio, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, DateTime? fechaFin = null, string? entidades = null, string? representante = null, string? sistemaReferencia = null, string? formatoDatos = null, string? linaje = null)
+        public async Task<int> InsertarAsync(string titulo, string? descripcion, DateTime? fechaInicio, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, DateTime? fechaFin = null, string? entidades = null, string? representante = null, string? sistemaReferencia = null, string? formatoDatos = null, string? linaje = null)
         {
             // 1. Insertar proyecto
             // Using RETURNING id_proyecto to get the generated ID.
@@ -242,6 +242,7 @@ namespace Geomatica.Data.Repositories
                 }
 
                 await tran.CommitAsync();
+                return newId;
             }
             catch (Exception ex)
             {
@@ -676,6 +677,226 @@ namespace Geomatica.Data.Repositories
             catch (Exception ex)
             {
                 Debug.WriteLine($"[ProyectoRepository] Advertencia al verificar columnas de proyecto: {ex.Message}");
+            }
+        }
+
+        public async Task<IReadOnlyList<SubproyectoDto>> ObtenerSubproyectosAsync(int idProyecto, CancellationToken ct = default)
+        {
+            if (idProyecto <= 0) return Array.Empty<SubproyectoDto>();
+
+            const string sql = @"
+                SELECT s.id_subproyecto, s.id_proyecto, s.nombre, s.mpio_cdpmp, m.mpio_cnmbr, s.subcarpeta,
+                       ST_X(s.geom) AS lon, ST_Y(s.geom) AS lat, s.descripcion
+                FROM geovisor.subproyecto s
+                LEFT JOIN geovisor.municipio m ON s.mpio_cdpmp = m.mpio_cdpmp
+                WHERE s.id_proyecto = @idProyecto
+                ORDER BY s.nombre;";
+
+            var lista = new List<SubproyectoDto>();
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("idProyecto", idProyecto);
+
+                using var reader = await cmd.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    int idSub = reader.GetInt32(0);
+                    int idProy = reader.GetInt32(1);
+                    string nombre = reader.GetString(2);
+                    string? mpioCod = reader.IsDBNull(3) ? null : reader.GetString(3).Trim();
+                    string? mpioNom = reader.IsDBNull(4) ? null : reader.GetString(4).Trim();
+                    string subcarpeta = reader.GetString(5);
+                    double lon = reader.GetDouble(6);
+                    double lat = reader.GetDouble(7);
+                    string? desc = reader.IsDBNull(8) ? null : reader.GetString(8);
+
+                    lista.Add(new SubproyectoDto(idSub, idProy, nombre, mpioCod, mpioNom, subcarpeta, lon, lat, desc));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error al obtener subproyectos del proyecto {idProyecto}: {ex.Message}");
+            }
+
+            return lista;
+        }
+
+        public async Task<IReadOnlyDictionary<int, IReadOnlyList<SubproyectoDto>>> ObtenerSubproyectosPorProyectosAsync(IReadOnlyList<int> idsProyecto, CancellationToken ct = default)
+        {
+            var resultado = new Dictionary<int, List<SubproyectoDto>>();
+            if (idsProyecto == null || idsProyecto.Count == 0)
+                return new Dictionary<int, IReadOnlyList<SubproyectoDto>>();
+
+            var idsValidos = idsProyecto.Where(id => id > 0).Distinct().ToList();
+            if (idsValidos.Count == 0)
+                return new Dictionary<int, IReadOnlyList<SubproyectoDto>>();
+
+            const string sql = @"
+                SELECT s.id_subproyecto, s.id_proyecto, s.nombre, s.mpio_cdpmp, m.mpio_cnmbr, s.subcarpeta,
+                       ST_X(s.geom) AS lon, ST_Y(s.geom) AS lat, s.descripcion
+                FROM geovisor.subproyecto s
+                LEFT JOIN geovisor.municipio m ON s.mpio_cdpmp = m.mpio_cdpmp
+                WHERE s.id_proyecto = ANY(@ids)
+                ORDER BY s.id_proyecto, s.nombre;";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("ids", idsValidos.ToArray());
+
+                using var reader = await cmd.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    int idSub = reader.GetInt32(0);
+                    int idProy = reader.GetInt32(1);
+                    string nombre = reader.GetString(2);
+                    string? mpioCod = reader.IsDBNull(3) ? null : reader.GetString(3).Trim();
+                    string? mpioNom = reader.IsDBNull(4) ? null : reader.GetString(4).Trim();
+                    string subcarpeta = reader.GetString(5);
+                    double lon = reader.GetDouble(6);
+                    double lat = reader.GetDouble(7);
+                    string? desc = reader.IsDBNull(8) ? null : reader.GetString(8);
+
+                    if (!resultado.TryGetValue(idProy, out var lista))
+                    {
+                        lista = new List<SubproyectoDto>();
+                        resultado[idProy] = lista;
+                    }
+                    lista.Add(new SubproyectoDto(idSub, idProy, nombre, mpioCod, mpioNom, subcarpeta, lon, lat, desc));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error al obtener subproyectos en lote: {ex.Message}");
+            }
+
+            return resultado.ToDictionary(k => k.Key, k => (IReadOnlyList<SubproyectoDto>)k.Value);
+        }
+
+        public async Task<int> InsertarSubproyectoAsync(
+            int idProyecto,
+            string nombre,
+            string? mpioCdpmp,
+            string subcarpeta,
+            double lon,
+            double lat,
+            string? descripcion = null,
+            CancellationToken ct = default)
+        {
+            const string sql = @"
+                INSERT INTO geovisor.subproyecto (id_proyecto, nombre, mpio_cdpmp, subcarpeta, geom, descripcion)
+                VALUES (@idProyecto, @nombre, @mpioCdpmp, @subcarpeta, ST_SetSRID(ST_MakePoint(@lon, @lat), 4686), @descripcion)
+                RETURNING id_subproyecto;";
+
+            using var con = new NpgsqlConnection(_cn);
+            await con.OpenAsync(ct);
+            using var cmd = new NpgsqlCommand(sql, con);
+            cmd.Parameters.AddWithValue("idProyecto", idProyecto);
+            cmd.Parameters.AddWithValue("nombre", nombre);
+            cmd.Parameters.AddWithValue("mpioCdpmp", (object?)mpioCdpmp ?? DBNull.Value);
+            cmd.Parameters.AddWithValue("subcarpeta", subcarpeta);
+            cmd.Parameters.AddWithValue("lon", lon);
+            cmd.Parameters.AddWithValue("lat", lat);
+            cmd.Parameters.AddWithValue("descripcion", (object?)descripcion ?? DBNull.Value);
+
+            var res = await cmd.ExecuteScalarAsync(ct);
+            return res != null ? Convert.ToInt32(res) : 0;
+        }
+
+        public async Task ActualizarSubproyectoAsync(
+            int idSubproyecto,
+            string nombre,
+            string? mpioCdpmp,
+            string subcarpeta,
+            double lon,
+            double lat,
+            string? descripcion = null,
+            CancellationToken ct = default)
+        {
+            if (idSubproyecto <= 0) return;
+
+            const string sql = @"
+                UPDATE geovisor.subproyecto
+                SET nombre = @nombre,
+                    mpio_cdpmp = @mpioCdpmp,
+                    subcarpeta = @subcarpeta,
+                    geom = ST_SetSRID(ST_MakePoint(@lon, @lat), 4686),
+                    descripcion = @descripcion
+                WHERE id_subproyecto = @idSubproyecto;";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("idSubproyecto", idSubproyecto);
+                cmd.Parameters.AddWithValue("nombre", nombre);
+                cmd.Parameters.AddWithValue("mpioCdpmp", (object?)mpioCdpmp ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("subcarpeta", subcarpeta);
+                cmd.Parameters.AddWithValue("lon", lon);
+                cmd.Parameters.AddWithValue("lat", lat);
+                cmd.Parameters.AddWithValue("descripcion", (object?)descripcion ?? DBNull.Value);
+
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error al actualizar subproyecto {idSubproyecto}: {ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task EliminarSubproyectoAsync(int idSubproyecto, CancellationToken ct = default)
+        {
+            if (idSubproyecto <= 0) return;
+
+            const string sql = "DELETE FROM geovisor.subproyecto WHERE id_subproyecto = @idSubproyecto;";
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("idSubproyecto", idSubproyecto);
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error al eliminar subproyecto {idSubproyecto}: {ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task AsegurarTablaSubproyectosAsync(CancellationToken ct = default)
+        {
+            const string sql = @"
+                CREATE TABLE IF NOT EXISTS geovisor.subproyecto (
+                    id_subproyecto SERIAL PRIMARY KEY,
+                    id_proyecto INT NOT NULL REFERENCES geovisor.proyecto(id_proyecto) ON DELETE CASCADE,
+                    nombre VARCHAR(150) NOT NULL,
+                    mpio_cdpmp CHAR(5) REFERENCES geovisor.municipio(mpio_cdpmp) ON DELETE SET NULL,
+                    subcarpeta VARCHAR(255) NOT NULL,
+                    geom public.geometry(Point, 4686) NOT NULL,
+                    descripcion TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_subproyecto_geom ON geovisor.subproyecto USING gist (geom);
+                CREATE INDEX IF NOT EXISTS idx_subproyecto_proyecto ON geovisor.subproyecto (id_proyecto);";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                await cmd.ExecuteNonQueryAsync(ct);
+                Debug.WriteLine("[ProyectoRepository] Tabla geovisor.subproyecto verificada/creada exitosamente.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Advertencia al verificar tabla subproyecto: {ex.Message}");
             }
         }
     }

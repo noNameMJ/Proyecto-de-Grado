@@ -294,6 +294,125 @@
                                    Style="{StaticResource HintText}" Margin="0,0,0,14"/>
 
                         <!-- ═══════════════════════════════════════════════════════════
+                             SECCIÓN 4: SUBPROYECTOS Y FRENTES DE TRABAJO
+                             ═══════════════════════════════════════════════════════════ -->
+                        <Separator Margin="0,18,0,16" Background="{StaticResource BorderSubtleBrush}"/>
+
+                        <DockPanel Margin="0,0,0,8">
+                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                                <TextBlock Text="📍 " FontSize="14" VerticalAlignment="Center"/>
+                                <TextBlock Text="4. Subproyectos y Frentes de Trabajo" Style="{StaticResource SectionTitle}" VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <Border Background="#EBF3EE" BorderBrush="#B2DFBF" BorderThickness="1"
+                                        CornerRadius="10" Padding="8,2" Margin="0,0,8,0" VerticalAlignment="Center">
+                                    <TextBlock Text="{Binding TotalSubproyectos, StringFormat='{}{0} registrados'}"
+                                               FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource UisGreenBrush}"/>
+                                </Border>
+
+                                <Button Content="📋 Ver como Tabla"
+                                        Command="{Binding AbrirEditorTablaSubproyectosCommand}"
+                                        IsEnabled="{Binding PuedeEscribir}"
+                                        Style="{StaticResource OutlineButton}"
+                                        Padding="8,4" Margin="0,0,6,0" FontSize="11"
+                                        ToolTip="Ver, modificar, agregar y validar subproyectos en formato tabla o cargar desde CSV/TXT"/>
+
+                                <Button Content="➕ Agregar Subproyecto"
+                                        Command="{Binding MostrarFormularioSubproyectoCommand}"
+                                        IsEnabled="{Binding PuedeEscribir}"
+                                        Style="{StaticResource OutlineButton}"
+                                        Padding="10,4" FontSize="11.5"
+                                        ToolTip="Vincular un subproyecto, frente de obra o sector específico mediante una ventana emergente"/>
+                            </StackPanel>
+                        </DockPanel>
+
+                        <TextBlock Text="Permite asociar frentes de trabajo, tramos, estaciones, sectores o sitios específicos con subcarpeta propia y ubicación física en el territorio."
+                                   Style="{StaticResource HintText}" Margin="0,0,0,12"/>
+
+
+                        <!-- Estado Vacío cuando no hay subproyectos -->
+                        <Border Visibility="{Binding NoHaySubproyectos, Converter={StaticResource BoolToVis}}"
+                                Background="#FAFAFA" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                                CornerRadius="6" Padding="14,12" Margin="0,0,0,12">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="📍" FontSize="15" Foreground="{StaticResource TextMutedBrush}" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                                <TextBlock Text="No hay subproyectos ni frentes de trabajo registrados. Si el proyecto cuenta con múltiples sitios o sectores de obra, use el botón '➕ Agregar Subproyecto'."
+                                           Style="{StaticResource HintText}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Border>
+
+                        <!-- Lista de Subproyectos Registrados -->
+                        <ItemsControl ItemsSource="{Binding Subproyectos}" Margin="0,0,0,14">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Border Background="White" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                                            CornerRadius="6" Padding="12,10" Margin="0,0,0,8">
+                                        <DockPanel>
+                                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                <Button Content="🎯 Ubicar"
+                                                        Command="{Binding DataContext.UbicarSubproyectoEnMapaCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"
+                                                        Style="{StaticResource GhostButton}"
+                                                        Padding="6,4" Margin="0,0,4,0" FontSize="11"
+                                                        ToolTip="Centrar y visualizar este subproyecto en el mapa"/>
+
+                                                <Button Content="✏️ Editar"
+                                                        Command="{Binding DataContext.EditarSubproyectoCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"
+                                                        IsEnabled="{Binding DataContext.PuedeEscribir, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        Style="{StaticResource GhostButton}"
+                                                        Padding="6,4" Margin="0,0,4,0" FontSize="11"
+                                                        ToolTip="Editar datos, territorio, coordenadas y subcarpeta de este subproyecto en una ventana emergente"/>
+
+                                                <Button Content="🗑️"
+                                                        Command="{Binding DataContext.QuitarSubproyectoCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        CommandParameter="{Binding}"
+                                                        IsEnabled="{Binding DataContext.PuedeEscribir, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                        Style="{StaticResource GhostButton}"
+                                                        Padding="6,4" FontSize="11"
+                                                        ToolTip="Quitar este subproyecto"/>
+                                            </StackPanel>
+
+                                            <StackPanel VerticalAlignment="Center">
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="📍" Foreground="{StaticResource UisGreenBrush}" Margin="0,0,6,0" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding Nombre}" FontWeight="Bold" FontSize="13" Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                                    <Border Visibility="{Binding EsNuevo, Converter={StaticResource BoolToVis}}"
+                                                            Background="#FFF3CD" BorderBrush="#FFEEBA" BorderThickness="1"
+                                                            CornerRadius="4" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                        <TextBlock Text="Pendiente por guardar" FontSize="10" FontWeight="SemiBold" Foreground="#856404"/>
+                                                    </Border>
+                                                    <Border Visibility="{Binding EsModificadoExistente, Converter={StaticResource BoolToVis}}"
+                                                            Background="#E0F2FE" BorderBrush="#BAE6FD" BorderThickness="1"
+                                                            CornerRadius="4" Padding="6,1" Margin="8,0,0,0" VerticalAlignment="Center">
+                                                        <TextBlock Text="Modificado" FontSize="10" FontWeight="SemiBold" Foreground="#0369A1"/>
+                                                    </Border>
+                                                </StackPanel>
+
+                                                <WrapPanel Margin="0,4,0,0">
+                                                    <TextBlock Text="🏛️ " FontSize="11" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding MunicipioTexto}" FontSize="11.5" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,14,0" VerticalAlignment="Center"/>
+
+                                                    <TextBlock Text="📁 " FontSize="11" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding Subcarpeta}" FontSize="11.5" FontFamily="Consolas" Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,14,0" VerticalAlignment="Center"/>
+
+                                                    <TextBlock Text="🌐 " FontSize="11" VerticalAlignment="Center"/>
+                                                    <TextBlock Text="{Binding CoordenadasTexto}" FontSize="11.5" Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                                                </WrapPanel>
+
+                                                <TextBlock Text="{Binding Descripcion}"
+                                                           Visibility="{Binding HasDescripcion, Converter={StaticResource BoolToVis}}"
+                                                           FontStyle="Italic" FontSize="11" Foreground="{StaticResource TextMutedBrush}"
+                                                           Margin="0,4,0,0"/>
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+
+                        <!-- ═══════════════════════════════════════════════════════════
                              ACCIONES DE GUARDADO / EDICIÓN / ELIMINACIÓN
                              ═══════════════════════════════════════════════════════════ -->
                         <DockPanel Margin="0,20,0,0">

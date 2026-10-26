@@ -369,6 +369,60 @@ ALTER TABLE ONLY geovisor.proyecto_municipio
     ADD CONSTRAINT proyecto_municipio_mpio_cdpmp_fkey FOREIGN KEY (mpio_cdpmp) REFERENCES geovisor.municipio(mpio_cdpmp) ON DELETE RESTRICT;
 
 
+
+
+--
+-- Name: subproyecto; Type: TABLE; Schema: geovisor; Owner: -
+--
+
+CREATE TABLE geovisor.subproyecto (
+    id_subproyecto integer NOT NULL,
+    id_proyecto integer NOT NULL,
+    nombre character varying(150) NOT NULL,
+    mpio_cdpmp character(5),
+    subcarpeta character varying(255) NOT NULL,
+    geom public.geometry(Point,4686) NOT NULL,
+    descripcion text,
+    CONSTRAINT chk_subproyecto_srid CHECK ((public.st_srid(geom) = 4686))
+);
+
+
+--
+-- Name: TABLE subproyecto; Type: COMMENT; Schema: geovisor; Owner: -
+--
+
+COMMENT ON TABLE geovisor.subproyecto IS 'Subproyectos o sitios físicos puntuales de obra (ej. embarcaderos) vinculados a un proyecto matriz';
+
+
+--
+-- Name: subproyecto_id_subproyecto_seq; Type: SEQUENCE; Schema: geovisor; Owner: -
+--
+
+CREATE SEQUENCE geovisor.subproyecto_id_subproyecto_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE geovisor.subproyecto_id_subproyecto_seq OWNED BY geovisor.subproyecto.id_subproyecto;
+
+ALTER TABLE ONLY geovisor.subproyecto ALTER COLUMN id_subproyecto SET DEFAULT nextval('geovisor.subproyecto_id_subproyecto_seq'::regclass);
+
+ALTER TABLE ONLY geovisor.subproyecto
+    ADD CONSTRAINT subproyecto_pkey PRIMARY KEY (id_subproyecto);
+
+CREATE INDEX idx_subproyecto_geom ON geovisor.subproyecto USING gist (geom);
+
+CREATE INDEX idx_subproyecto_proyecto ON geovisor.subproyecto USING btree (id_proyecto);
+
+ALTER TABLE ONLY geovisor.subproyecto
+    ADD CONSTRAINT subproyecto_id_proyecto_fkey FOREIGN KEY (id_proyecto) REFERENCES geovisor.proyecto(id_proyecto) ON DELETE CASCADE;
+
+ALTER TABLE ONLY geovisor.subproyecto
+    ADD CONSTRAINT subproyecto_mpio_cdpmp_fkey FOREIGN KEY (mpio_cdpmp) REFERENCES geovisor.municipio(mpio_cdpmp) ON DELETE SET NULL;
+
 --
 -- PostgreSQL database dump complete
 --

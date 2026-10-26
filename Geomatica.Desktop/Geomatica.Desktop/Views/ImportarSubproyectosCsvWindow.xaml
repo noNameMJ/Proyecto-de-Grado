@@ -1,0 +1,433 @@
+<Window x:Class="Geomatica.Desktop.Views.ImportarSubproyectosCsvWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="📋 Editor Tabular de Subproyectos y Frentes de Trabajo"
+        Height="680" Width="1080" MinHeight="520" MinWidth="850"
+        WindowStartupLocation="CenterOwner"
+        FontFamily="{StaticResource AppFont}"
+        Background="#F8FAFC">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    </Window.Resources>
+
+    <Grid Margin="16,14,16,14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Encabezado y barra de herramientas -->
+            <RowDefinition Height="Auto"/> <!-- Mapeo de columnas y carpeta base -->
+            <RowDefinition Height="*"/>    <!-- Tabla de vista previa / edición -->
+            <RowDefinition Height="Auto"/> <!-- Barra inferior de acciones -->
+        </Grid.RowDefinitions>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             1. ENCABEZADO Y BARRA DE ACCIONES SUPERIOR
+             ═══════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="0" Background="White" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                CornerRadius="8" Padding="14,10" Margin="0,0,0,10">
+            <DockPanel LastChildFill="True">
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                    <!-- Botón Agregar Fila -->
+                    <Button Content="➕ Agregar Fila"
+                            Command="{Binding AgregarFilaCommand}"
+                            Style="{StaticResource PrimaryButton}"
+                            Height="28" Padding="10,3" Margin="0,0,8,0" FontSize="11" FontWeight="SemiBold"
+                            ToolTip="Añadir un nuevo subproyecto o frente de obra en blanco directamente en la tabla"/>
+
+                    <!-- Botón Cargar desde CSV -->
+                    <Button Content="📥 Cargar desde CSV/TXT..."
+                            Command="{Binding CargarArchivoCsvCommand}"
+                            Style="{StaticResource OutlineButton}"
+                            Height="28" Padding="10,3" Margin="0,0,8,0" FontSize="11"
+                            ToolTip="Cargar o anexar subproyectos desde un archivo delimitado (.csv o .txt)"/>
+
+                    <!-- Botón Conmutar Mapeo CSV -->
+                    <Button Content="🗺️ Mapeo CSV"
+                            Command="{Binding AlternarMapeoCsvCommand}"
+                            Style="{StaticResource GhostButton}"
+                            Height="28" Padding="8,3" Margin="0,0,12,0" FontSize="11"
+                            ToolTip="Mostrar u ocultar la barra de configuración y mapeo de campos CSV"/>
+
+                    <!-- Contador total -->
+                    <Border Background="#EBF3EE" BorderBrush="#B2DFBF" BorderThickness="1"
+                            CornerRadius="10" Padding="8,3" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding TotalFilas, StringFormat='{}{0} registros'}"
+                                   FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource UisGreenBrush}"/>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="📋" FontSize="20" Margin="0,0,10,0" VerticalAlignment="Center"/>
+                    <StackPanel>
+                        <TextBlock Text="Editor Tabular de Subproyectos y Frentes de Trabajo" FontSize="14" FontWeight="Bold"
+                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <TextBlock Text="Visualice, agregue, modifique y valide en tiempo real los sitios de obra del proyecto." FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"/>
+                    </StackPanel>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             2. CONFIGURACIÓN: CARPETA BASE Y MAPEO CSV (COLAPSIBLE)
+             ═══════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="1" Background="White" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                CornerRadius="8" Padding="14,10" Margin="0,0,0,10">
+            <StackPanel>
+                <!-- Panel de Carpeta Base Predeterminada (siempre útil) -->
+                <Grid Margin="0,0,0,6">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Row="0" Grid.Column="0" Orientation="Horizontal" Margin="0,0,0,4">
+                        <TextBlock Text="📁 Carpeta base del proyecto para subproyectos:" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="(Ruta sugerida relativa a la raíz del proyecto para organizar datos)" FontSize="10.5"
+                                   Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <DockPanel Grid.Row="1" Grid.Column="0" LastChildFill="True">
+                        <Button DockPanel.Dock="Right" Content="📂 Examinar..."
+                                Command="{Binding SeleccionarCarpetaBaseCommand}"
+                                Style="{StaticResource OutlineButton}"
+                                Padding="8,3" Height="26" Margin="6,0,0,0" FontSize="11"
+                                ToolTip="Examinar carpetas en el directorio del proyecto"/>
+
+                        <ComboBox ItemsSource="{Binding SubcarpetasDisponibles}"
+                                  Text="{Binding SubcarpetaPredeterminada, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                  IsEditable="True"
+                                  Height="26" FontSize="11"
+                                  Style="{StaticResource ModernComboBox}"
+                                  ToolTip="Subcarpeta predeterminada relativa (ej: 'Datos_Espaciales/Embarcaderos')"/>
+                    </DockPanel>
+
+                    <CheckBox Grid.Row="1" Grid.Column="1"
+                              Content="Crear subcarpeta individual por nombre (base/slug)"
+                              IsChecked="{Binding CrearSubcarpetaPorNombre, Mode=TwoWay}"
+                              FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                              VerticalAlignment="Center" Margin="14,0,0,0"
+                              ToolTip="Si está marcado, las nuevas filas o filas sin ruta combinarán la carpeta base con el nombre del subproyecto"/>
+                </Grid>
+
+                <!-- Panel de Mapeo CSV (Se muestra al cargar archivo o con el botón 'Mapeo CSV') -->
+                <Border Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1" CornerRadius="6"
+                        Padding="10,8" Margin="0,6,0,0"
+                        Visibility="{Binding MostrarMapeoCsv, Converter={StaticResource BoolToVis}}">
+                    <StackPanel>
+                        <DockPanel Margin="0,0,0,8">
+                            <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                <TextBlock Text="🗺️ Mapeo de Columnas del Archivo CSV" FontSize="11.5" FontWeight="Bold"
+                                           Foreground="{StaticResource UisGreenBrush}" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                                <TextBlock Text="{Binding NombreArchivo, StringFormat='({0})'}" FontSize="11"
+                                           Foreground="{StaticResource TextSecondaryBrush}" VerticalAlignment="Center"/>
+                            </StackPanel>
+
+                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                <TextBlock Text="Delimitador:" FontSize="11" Foreground="{StaticResource TextSecondaryBrush}"
+                                           VerticalAlignment="Center" Margin="0,0,6,0"/>
+                                <ComboBox ItemsSource="{Binding DelimitadoresDisponibles}"
+                                          SelectedItem="{Binding Delimitador}"
+                                          Width="50" Height="24" FontSize="11"
+                                          Style="{StaticResource ModernComboBox}"/>
+                            </StackPanel>
+                        </DockPanel>
+
+                        <!-- Grid de Mapeo 2x3 -->
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto"/>
+                                <RowDefinition Height="Auto"/>
+                            </Grid.RowDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="12"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel Grid.Row="0" Grid.Column="0" Margin="0,0,0,6">
+                                <TextBlock Text="Nombre del Subproyecto *" Style="{StaticResource FieldLabel}" FontSize="10.5"/>
+                                <ComboBox ItemsSource="{Binding ColumnasDisponibles}"
+                                          SelectedItem="{Binding ColumnaNombre}"
+                                          Style="{StaticResource ModernComboBox}" Height="26"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="0" Grid.Column="2" Margin="0,0,0,6">
+                                <TextBlock Text="Subcarpeta en Proyecto" Style="{StaticResource FieldLabel}" FontSize="10.5"/>
+                                <ComboBox ItemsSource="{Binding ColumnasDisponibles}"
+                                          SelectedItem="{Binding ColumnaSubcarpeta}"
+                                          Style="{StaticResource ModernComboBox}" Height="26"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="0" Grid.Column="4" Margin="0,0,0,6">
+                                <TextBlock Text="Municipio Territorial" Style="{StaticResource FieldLabel}" FontSize="10.5"/>
+                                <ComboBox ItemsSource="{Binding ColumnasDisponibles}"
+                                          SelectedItem="{Binding ColumnaMunicipio}"
+                                          Style="{StaticResource ModernComboBox}" Height="26"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="1" Grid.Column="0">
+                                <TextBlock Text="Latitud (Coordenada Y, WGS84)" Style="{StaticResource FieldLabel}" FontSize="10.5"/>
+                                <ComboBox ItemsSource="{Binding ColumnasDisponibles}"
+                                          SelectedItem="{Binding ColumnaLatitud}"
+                                          Style="{StaticResource ModernComboBox}" Height="26"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="1" Grid.Column="2">
+                                <TextBlock Text="Longitud (Coordenada X, WGS84)" Style="{StaticResource FieldLabel}" FontSize="10.5"/>
+                                <ComboBox ItemsSource="{Binding ColumnasDisponibles}"
+                                          SelectedItem="{Binding ColumnaLongitud}"
+                                          Style="{StaticResource ModernComboBox}" Height="26"/>
+                            </StackPanel>
+
+                            <StackPanel Grid.Row="1" Grid.Column="4">
+                                <TextBlock Text="Descripción / Observaciones" Style="{StaticResource FieldLabel}" FontSize="10.5"/>
+                                <ComboBox ItemsSource="{Binding ColumnasDisponibles}"
+                                          SelectedItem="{Binding ColumnaDescripcion}"
+                                          Style="{StaticResource ModernComboBox}" Height="26"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </Border>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             3. TABLA INTERACTIVA DE EDICIÓN Y VALIDACIÓN
+             ═══════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="2" Background="White" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                CornerRadius="8" Padding="12,10" Margin="0,0,0,10">
+            <Grid>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="*"/>
+                </Grid.RowDefinitions>
+
+                <DockPanel Grid.Row="0" Margin="0,0,0,8">
+                    <TextBlock Text="📋 Registros de Subproyectos (Edición Directa en Tabla)" FontSize="12" FontWeight="Bold"
+                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+
+                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                        <Button Content="☑ Marcar todos"
+                                Command="{Binding SeleccionarTodasCommand}"
+                                Style="{StaticResource GhostButton}"
+                                Padding="6,2" Margin="0,0,6,0" FontSize="11"/>
+                        <Button Content="☐ Desmarcar todos"
+                                Command="{Binding DeseleccionarTodasCommand}"
+                                Style="{StaticResource GhostButton}"
+                                Padding="6,2" FontSize="11"/>
+                    </StackPanel>
+                </DockPanel>
+
+                <ListView Grid.Row="1" ItemsSource="{Binding FilasPreview}"
+                          Style="{StaticResource ModernListView}"
+                          BorderThickness="1" BorderBrush="#E2E8F0"
+                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                          ScrollViewer.VerticalScrollBarVisibility="Auto">
+                    <ListView.View>
+                        <GridView>
+                            <!-- Columna Importar Checkbox -->
+                            <GridViewColumn Width="38">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <CheckBox IsChecked="{Binding Incluir, Mode=TwoWay}"
+                                                  HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+
+                            <!-- Fila # -->
+                            <GridViewColumn Header="#" Width="32">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding NumeroFila}" FontSize="10.5"
+                                                   Foreground="{StaticResource TextMutedBrush}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+
+                            <!-- Estado General -->
+                            <GridViewColumn Header="Estado" Width="55">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding EstadoIcono}" FontSize="12"
+                                                   ToolTip="{Binding EstadoTexto}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+
+                            <!-- Nombre -->
+                            <GridViewColumn Header="Nombre del Subproyecto *" Width="180">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBox Text="{Binding Nombre, UpdateSourceTrigger=PropertyChanged}"
+                                                 FontSize="11" Height="24" VerticalContentAlignment="Center"
+                                                 Padding="4,1" Margin="0" Style="{StaticResource ModernTextBox}"
+                                                 ToolTip="Nombre del subproyecto o frente de obra"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+
+                            <!-- Municipio con Verificación DIVIPOLA -->
+                            <GridViewColumn Header="Municipio (DIVIPOLA)" Width="175">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Grid VerticalAlignment="Center">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <ComboBox Grid.Column="0"
+                                                      ItemsSource="{Binding DataContext.MunicipiosSugeridos, RelativeSource={RelativeSource AncestorType=ListView}}"
+                                                      DisplayMemberPath="Nombre"
+                                                      Text="{Binding Municipio, UpdateSourceTrigger=PropertyChanged}"
+                                                      IsEditable="True"
+                                                      Height="24" FontSize="11" Margin="0,0,3,0"
+                                                      Style="{StaticResource ModernComboBox}"
+                                                      ToolTip="{Binding MunicipioEstadoTexto}"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding MunicipioEstadoIcono}"
+                                                       ToolTip="{Binding MunicipioEstadoTexto}"
+                                                       FontSize="11" VerticalAlignment="Center" Margin="2,0,2,0"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+
+                            <!-- Subcarpeta con Verificación en Disco -->
+                            <GridViewColumn Header="Subcarpeta en Disco *" Width="220">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Grid VerticalAlignment="Center">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                                <ColumnDefinition Width="Auto"/>
+                                            </Grid.ColumnDefinitions>
+                                            <TextBox Grid.Column="0"
+                                                     Text="{Binding Subcarpeta, UpdateSourceTrigger=PropertyChanged}"
+                                                     FontSize="10.5" FontFamily="Consolas" Foreground="#0284C7"
+                                                     Height="24" VerticalContentAlignment="Center"
+                                                     Padding="4,1" Margin="0,0,3,0" Style="{StaticResource ModernTextBox}"
+                                                     ToolTip="{Binding SubcarpetaEstadoTexto}"/>
+                                            <TextBlock Grid.Column="1"
+                                                       Text="{Binding SubcarpetaEstadoIcono}"
+                                                       ToolTip="{Binding SubcarpetaEstadoTexto}"
+                                                       FontSize="11" VerticalAlignment="Center" Margin="2,0,4,0"/>
+                                            <Button Grid.Column="2"
+                                                    Content="📂"
+                                                    ToolTip="Examinar subcarpeta en disco"
+                                                    Command="{Binding DataContext.SeleccionarCarpetaFilaCommand, RelativeSource={RelativeSource AncestorType=ListView}}"
+                                                    CommandParameter="{Binding}"
+                                                    Padding="4,1" Height="24" Width="26"
+                                                    Style="{StaticResource GhostButton}"/>
+                                        </Grid>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+
+                            <!-- Latitud -->
+                            <GridViewColumn Header="Latitud (Y)" Width="95">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBox Text="{Binding LatStr, UpdateSourceTrigger=PropertyChanged}"
+                                                 FontSize="11" Height="24" VerticalContentAlignment="Center"
+                                                 Padding="4,1" Margin="0" Style="{StaticResource ModernTextBox}"
+                                                 ToolTip="Coordenada Latitud WGS84 (ej: 4.7788)"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+
+                            <!-- Longitud -->
+                            <GridViewColumn Header="Longitud (X)" Width="95">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBox Text="{Binding LonStr, UpdateSourceTrigger=PropertyChanged}"
+                                                 FontSize="11" Height="24" VerticalContentAlignment="Center"
+                                                 Padding="4,1" Margin="0" Style="{StaticResource ModernTextBox}"
+                                                 ToolTip="Coordenada Longitud WGS84 (ej: -74.7641)"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+
+                            <!-- Ubicación Resumen -->
+                            <GridViewColumn Header="Ubicación" Width="130">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBlock Text="{Binding CoordenadasTexto, StringFormat='📍 {0}'}"
+                                                   FontSize="10.5" Foreground="{StaticResource TextSecondaryBrush}"
+                                                   TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+
+                            <!-- Descripción -->
+                            <GridViewColumn Header="Descripción" Width="135">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <TextBox Text="{Binding Descripcion, UpdateSourceTrigger=PropertyChanged}"
+                                                 FontSize="10.5" Height="24" VerticalContentAlignment="Center"
+                                                 Padding="4,1" Margin="0" Style="{StaticResource ModernTextBox}"
+                                                 ToolTip="Observaciones o notas del subproyecto"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+
+                            <!-- Acción Eliminar Fila -->
+                            <GridViewColumn Header="Acción" Width="45">
+                                <GridViewColumn.CellTemplate>
+                                    <DataTemplate>
+                                        <Button Content="🗑️"
+                                                ToolTip="Eliminar este subproyecto de la tabla"
+                                                Command="{Binding DataContext.EliminarFilaCommand, RelativeSource={RelativeSource AncestorType=ListView}}"
+                                                CommandParameter="{Binding}"
+                                                Padding="2" Height="22" Width="24"
+                                                Style="{StaticResource GhostButton}"/>
+                                    </DataTemplate>
+                                </GridViewColumn.CellTemplate>
+                            </GridViewColumn>
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+            </Grid>
+        </Border>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             4. BARRA INFERIOR DE ACCIONES
+             ═══════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="3" Background="White" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                CornerRadius="8" Padding="14,10">
+            <DockPanel LastChildFill="True">
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <TextBlock Text="ℹ️ " FontSize="13" VerticalAlignment="Center"/>
+                    <TextBlock Text="{Binding ResumenImportacionTexto}" FontWeight="SemiBold" FontSize="12"
+                               Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" DockPanel.Dock="Right">
+                    <Button Content="Cancelar"
+                            Click="BtnCancelar_Click"
+                            IsCancel="True"
+                            Style="{StaticResource OutlineButton}"
+                            Padding="12,5" Margin="0,0,10,0" FontSize="11.5"/>
+
+                    <Button Content="{Binding TextoBotonAceptar}"
+                            Click="BtnAceptar_Click"
+                            IsEnabled="{Binding PuedeAceptar}"
+                            IsDefault="True"
+                            Style="{StaticResource PrimaryButton}"
+                            Padding="14,6" FontSize="12" FontWeight="SemiBold"/>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+    </Grid>
+</Window>
+

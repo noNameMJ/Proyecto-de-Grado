@@ -802,8 +802,14 @@
                             </StackPanel>
                         </ScrollViewer>
 
-                        <!-- Botones de Acción (Centrar) -->
+                        <!-- Botones de Acción (Centrar y Opcional: Ver Archivos si es Subproyecto) -->
                         <DockPanel Grid.Row="3" Margin="0,4,0,0">
+                            <Button Content="📂 Ver Archivos"
+                                    Command="{Binding AbrirArchivosElementoIdentificadoCommand}"
+                                    Visibility="{Binding HasSubcarpetaIdentificada, Converter={StaticResource BoolToVis}}"
+                                    Style="{StaticResource PrimaryButton}" Background="#0284C7" BorderBrush="#0369A1"
+                                    Padding="10,4" FontSize="11" HorizontalAlignment="Left"
+                                    ToolTip="Abrir y explorar los archivos de este subproyecto / embarcadero"/>
                             <Button Content="🎯 Centrar en el mapa" Command="{Binding CentrarElementoIdentificadoCommand}"
                                     Style="{StaticResource PrimaryButton}" Padding="10,4" FontSize="11" HorizontalAlignment="Right"
                                     ToolTip="Centrar la vista del mapa sobre este elemento"/>

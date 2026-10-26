@@ -37,6 +37,7 @@ namespace Geomatica.Desktop.ViewModels
         private readonly IProyectoRepository _proyectoRepository;
         private readonly ObtenerHistorialProyectoUseCase? _historialUseCase;
         private readonly ISeguridadService? _seguridadService;
+        private readonly ObtenerSubproyectosUseCase? _obtenerSubproyectosUseCase;
         private readonly Func<MapaViewModel> _mapFactory;
         private readonly Func<ArchivosViewModel> _filesFactory;
         private readonly Func<Action, Action?, CrearProyectoViewModel> _createFactory;
@@ -57,7 +58,8 @@ namespace Geomatica.Desktop.ViewModels
             Func<ProyectoDetalleDto, Action, Action?, EditarProyectoViewModel> editFactory,
             IProyectoRepository proyectoRepository,
             ObtenerHistorialProyectoUseCase? historialUseCase = null,
-            ISeguridadService? seguridadService = null)
+            ISeguridadService? seguridadService = null,
+            ObtenerSubproyectosUseCase? obtenerSubproyectosUseCase = null)
         {
             Filtros = filtros;
             Notifications = notifications;
@@ -66,6 +68,7 @@ namespace Geomatica.Desktop.ViewModels
             _proyectoRepository = proyectoRepository;
             _historialUseCase = historialUseCase ?? new ObtenerHistorialProyectoUseCase(proyectoRepository);
             _seguridadService = seguridadService;
+            _obtenerSubproyectosUseCase = obtenerSubproyectosUseCase;
             _mapFactory = mapFactory;
             _filesFactory = filesFactory;
             _createFactory = createFactory;
@@ -80,6 +83,8 @@ namespace Geomatica.Desktop.ViewModels
             {
                 _mapVM = _mapFactory();
                 _mapVM.FichaProyectoSolicitada += OnFichaProyectoSolicitada;
+                _mapVM.SubcarpetaNavegacionSolicitada -= OnSubcarpetaNavegacionSolicitada;
+                _mapVM.SubcarpetaNavegacionSolicitada += OnSubcarpetaNavegacionSolicitada;
                 _mapVM.ArchivosVM.PropertyChanged -= FilesVM_PropertyChanged;
                 _mapVM.ArchivosVM.PropertyChanged += FilesVM_PropertyChanged;
             }
@@ -106,7 +111,12 @@ namespace Geomatica.Desktop.ViewModels
         {
             _createVM = _createFactory(ShowMapa, () =>
             {
-                _mapVM?.InvalidarCache();
+                if (_mapVM != null)
+                {
+                    _mapVM.ArchivosVM.ProyectoDetalle = null;
+                    _mapVM.InvalidarCache();
+                    _ = _mapVM.BuscarConFiltrosGeograficosAsync();
+                }
             });
             CurrentView = _createVM;
             OnPropertyChanged(nameof(CurrentViewName));
@@ -136,11 +146,13 @@ namespace Geomatica.Desktop.ViewModels
                 {
                     // "Cerrar detalle" limpia la ficha pero nos quedamos en MapaView.
                     archivosVm.ProyectoDetalle = null;
+                    _mapVM?.LimpiarSubproyectos();
                 },
                 _eliminarProyectoUseCase,
                 () =>
                 {
                     archivosVm.ProyectoDetalle = null;
+                    _mapVM?.LimpiarSubproyectos();
                     if (Filtros.SelectedProyecto?.Id == detalle.Id)
                     {
                         Filtros.SelectedProyecto = null;
@@ -153,14 +165,43 @@ namespace Geomatica.Desktop.ViewModels
                 _proyectoRepository,
                 _historialUseCase,
                 _seguridadService,
-                permisosPrecalculados);
+                permisosPrecalculados,
+                _obtenerSubproyectosUseCase);
             fichaVm.EditarSolicitado += OnEditarSolicitado;
+            fichaVm.SubproyectosCargados += (s, lista) =>
+            {
+                _mapVM?.MostrarSubproyectosEnMapa(lista, actualizarListaGlobal: false);
+            };
+            fichaVm.NavegacionSubcarpetaSolicitada += (s, subcarpeta) =>
+            {
+                archivosVm.NavegarASubcarpeta(subcarpeta);
+                CurrentView = _mapVM;
+                OnPropertyChanged(nameof(CurrentViewName));
+            };
+            fichaVm.UbicarEnMapaSubproyectoSolicitado += async (s, coords) =>
+            {
+                if (_mapVM != null)
+                {
+                    CurrentView = _mapVM;
+                    await _mapVM.CentrarEnSubproyectoAsync(coords.lon, coords.lat, coords.nombre);
+                }
+            };
 
             archivosVm.ProyectoDetalle = fichaVm;
 
             // Asegurarse de que el current view siga siendo Mapa y se actualice el visual.
             CurrentView = _mapVM;
             OnPropertyChanged(nameof(CurrentViewName));
+        }
+
+        private void OnSubcarpetaNavegacionSolicitada(object? sender, string subcarpeta)
+        {
+            if (_mapVM != null)
+            {
+                _mapVM.ArchivosVM.NavegarASubcarpeta(subcarpeta);
+                CurrentView = _mapVM;
+                OnPropertyChanged(nameof(CurrentViewName));
+            }
         }
 
         private void FilesVM_PropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
@@ -181,8 +222,8 @@ namespace Geomatica.Desktop.ViewModels
                         Filtros.SelectedProyecto = null;
                     }
                     _mapVM.InvalidarCache();
+                    _ = _mapVM.BuscarConFiltrosGeograficosAsync();
                 }
-                Filtros.BuscarCommand.Execute(null);
             });
             CurrentView = editVm;
             OnPropertyChanged(nameof(CurrentViewName));

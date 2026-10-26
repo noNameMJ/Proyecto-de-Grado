@@ -128,14 +128,14 @@ namespace Geomatica.Infrastructure.Gis.Services
 
             // 1. Halo exterior brillante de amplio alcance (36px)
             var haloExterior = new SimpleMarkerSymbol(
-                SimpleMarkerSymbolStyle.Circle,
+                SimpleMarkerSymbolStyle.Diamond,
                 Color.FromArgb(50, 0, 229, 255), // Cyan brillante traslúcido
                 36.0);
             graphics.Add(new Graphic(point, haloExterior));
 
             // 2. Anillo medio de foco
             var anilloMedio = new SimpleMarkerSymbol(
-                SimpleMarkerSymbolStyle.Circle,
+                SimpleMarkerSymbolStyle.Diamond,
                 Color.FromArgb(110, 0, 229, 255),
                 22.0)
             {
@@ -145,7 +145,7 @@ namespace Geomatica.Infrastructure.Gis.Services
 
             // 3. Núcleo central de oro/ámbar brillante
             var nucleo = new SimpleMarkerSymbol(
-                SimpleMarkerSymbolStyle.Circle,
+                SimpleMarkerSymbolStyle.Diamond,
                 Color.FromArgb(255, 255, 215, 0), // Oro
                 9.0)
             {
@@ -167,6 +167,57 @@ namespace Geomatica.Infrastructure.Gis.Services
             }
 
             return graphics;
+        }
+
+        /// <summary>
+        /// Genera los Graphics para un subproyecto puntual o sitio físico de obra (ej. embarcadero / muelle):
+        /// - Marcador circular en tono cyan fluvial (#0284C7) con contorno blanco sólido de alto contraste.
+        /// - Etiqueta flotante con el icono 📍 y el nombre del sitio.
+        /// </summary>
+        public static IReadOnlyList<Graphic> CrearSubproyectoGraphics(
+            MapPoint point,
+            int idSubproyecto,
+            string nombre,
+            string subcarpeta,
+            string? municipio = null,
+            string? descripcion = null,
+            int idProyecto = 0)
+        {
+            var markerSymbol = new SimpleMarkerSymbol(
+                SimpleMarkerSymbolStyle.Diamond,
+                Color.FromArgb(2, 132, 199),
+                12.0)
+            {
+                Outline = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, Color.White, 2.0)
+            };
+
+            var graphic = new Graphic(point, markerSymbol);
+            graphic.Attributes["id_subproyecto"] = idSubproyecto;
+            graphic.Attributes["id_proyecto"] = idProyecto;
+            graphic.Attributes["nombre"] = nombre;
+            graphic.Attributes["subcarpeta"] = subcarpeta;
+            graphic.Attributes["municipio"] = municipio ?? string.Empty;
+            graphic.Attributes["lat"] = point.Y;
+            graphic.Attributes["lon"] = point.X;
+            graphic.Attributes["descripcion"] = descripcion ?? string.Empty;
+            graphic.Attributes["tipo"] = "subproyecto";
+
+            var textSymbol = new TextSymbol(
+                $"📍 {nombre}",
+                Color.FromArgb(12, 74, 110),
+                9.5,
+                Esri.ArcGISRuntime.Symbology.HorizontalAlignment.Left,
+                Esri.ArcGISRuntime.Symbology.VerticalAlignment.Bottom)
+            {
+                HaloColor = Color.FromArgb(245, 255, 255, 255),
+                HaloWidth = 2.0,
+                OffsetX = 10,
+                OffsetY = 4,
+                FontWeight = Esri.ArcGISRuntime.Symbology.FontWeight.Bold
+            };
+            var textGraphic = new Graphic(point, textSymbol);
+
+            return new[] { graphic, textGraphic };
         }
     }
 }

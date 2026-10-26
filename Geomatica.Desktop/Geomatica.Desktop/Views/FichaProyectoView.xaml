@@ -512,6 +512,8 @@
                                 <TextBlock Text="Copiar coordenadas geográficas" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Button>
+
+
                     </StackPanel>
                 </Border>
 

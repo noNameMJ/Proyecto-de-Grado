@@ -1,4 +1,4 @@
-﻿using System.Collections.Generic;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using Esri.ArcGISRuntime.Geometry;
@@ -15,6 +15,9 @@ namespace Geomatica.Desktop.Models
 
         public string? RutaGdbOrigen { get; set; }
         public string? GlobalId { get; set; }
+        public int? IdProyecto { get; set; }
+        public string? Subcarpeta { get; set; }
+        public bool HasSubcarpeta => !string.IsNullOrWhiteSpace(Subcarpeta);
 
         public ObservableCollection<AdjuntoFotoInfo> Adjuntos { get; } = new();
 

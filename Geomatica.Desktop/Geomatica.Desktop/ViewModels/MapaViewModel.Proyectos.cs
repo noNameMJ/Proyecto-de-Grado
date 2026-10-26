@@ -3,6 +3,7 @@ using Esri.ArcGISRuntime.Geometry;
 using Esri.ArcGISRuntime.Mapping;
 using Esri.ArcGISRuntime.Symbology;
 using Geomatica.Domain.Entities;
+using Geomatica.Desktop.Services;
 using Geomatica.Infrastructure.Gis.Services;
 using System;
 using System.Collections.Generic;
@@ -33,14 +34,38 @@ public partial class MapaViewModel
 
     private void RemoverCapasBaseSistema()
     {
+        RemoverCapaMunicipios();
+        RemoverCapaProyectos();
+        RemoverCapaSubproyectos();
+    }
+
+    private void RemoverCapaMunicipios()
+    {
         if (Map == null) return;
         if (_layerMunicipios != null)
         {
             Map.OperationalLayers.Remove(_layerMunicipios);
+            _layerMunicipios = null;
         }
+    }
+
+    private void RemoverCapaProyectos()
+    {
+        if (Map == null) return;
         if (_layerProyectos != null)
         {
             Map.OperationalLayers.Remove(_layerProyectos);
+            _layerProyectos = null;
+        }
+    }
+
+    private void RemoverCapaSubproyectos()
+    {
+        if (Map == null) return;
+        if (_layerSubproyectos != null)
+        {
+            Map.OperationalLayers.Remove(_layerSubproyectos);
+            _layerSubproyectos = null;
         }
     }
 
@@ -53,12 +78,16 @@ public partial class MapaViewModel
         _cachedMunicipios = null;
         _cachedGeometries = null;
         _oidToProjectId.Clear();
+        _ultimosSubproyectosPorProyecto = new Dictionary<int, IReadOnlyList<SubproyectoDto>>();
+        _todosSubproyectosActuales = Array.Empty<SubproyectoDto>();
         RemoverCapasBaseSistema();
         _layerProyectos = null;
         _layerMunicipios = null;
+        _layerSubproyectos = null;
         _updateGeneration++;
         OverlayProyectosEtiquetas.Graphics.Clear();
         OverlayResaltadoProyecto.Graphics.Clear();
+        OverlaySubproyectos.Graphics.Clear();
     }
 
     /// <summary>
@@ -95,6 +124,78 @@ public partial class MapaViewModel
     /// Actualiza las capas del mapa con los proyectos filtrados.
     /// Llamar desde MapaView después de obtener los resultados filtrados.
     /// </summary>
+    /// <summary>
+    /// Actualiza de forma inmediata y segura para el hilo de interfaz los resultados y contadores en el panel de filtros.
+    /// </summary>
+    private IReadOnlyList<SubproyectoDto> _todosSubproyectosActuales = Array.Empty<SubproyectoDto>();
+    private IReadOnlyDictionary<int, IReadOnlyList<SubproyectoDto>> _ultimosSubproyectosPorProyecto = new Dictionary<int, IReadOnlyList<SubproyectoDto>>();
+
+    public IReadOnlyDictionary<int, IReadOnlyList<SubproyectoDto>> UltimosSubproyectosPorProyecto => _ultimosSubproyectosPorProyecto;
+
+    public void ActualizarResultadosFiltros(IReadOnlyList<ProyectoGeomatico> proyectos)
+    {
+        ActualizarResultadosFiltros(proyectos, _ultimosSubproyectosPorProyecto);
+    }
+
+    public void ActualizarResultadosFiltros(
+        IReadOnlyList<ProyectoGeomatico> proyectos,
+        IReadOnlyDictionary<int, IReadOnlyList<SubproyectoDto>>? subproyectosPorProyecto)
+    {
+        if (subproyectosPorProyecto != null)
+        {
+            _ultimosSubproyectosPorProyecto = subproyectosPorProyecto;
+            var todosSubproyectos = subproyectosPorProyecto.Values.SelectMany(x => x).ToList();
+            MostrarSubproyectosEnMapa(todosSubproyectos);
+        }
+
+        void Actualizar()
+        {
+            var expandidos = Filtros.ResultadosLista
+                .OfType<FiltrosViewModel.ProyectoItem>()
+                .Where(x => x.EstaExpandido)
+                .Select(x => x.Id)
+                .ToHashSet();
+
+            var subsFuente = subproyectosPorProyecto ?? _ultimosSubproyectosPorProyecto;
+
+            Filtros.ResultadosLista.Clear();
+            Filtros.ResultadosResumen.Clear();
+
+            foreach (var p in proyectos)
+            {
+                IReadOnlyList<SubproyectoDto>? subs = null;
+                subsFuente?.TryGetValue(p.Id, out subs);
+
+                var item = new FiltrosViewModel.ProyectoItem(
+                    p.Id, p.Titulo, p.Longitud, p.Latitud, p.RutaArchivos,
+                    p.Fecha, p.PalabrasClave, p.Responsable,
+                    p.MinX, p.MinY, p.MaxX, p.MaxY,
+                    subproyectos: subs);
+
+                if (expandidos.Contains(p.Id))
+                {
+                    item.EstaExpandido = true;
+                }
+
+                Filtros.ResultadosLista.Add(item);
+            }
+
+            string textoConteo = proyectos.Count == 1 ? "1 proyecto encontrado" : $"{proyectos.Count} proyectos encontrados";
+            Filtros.ResultadosResumen.Add(textoConteo);
+
+            Filtros.NotificarResultadosCargados();
+        }
+
+        if (System.Windows.Application.Current?.Dispatcher != null && !System.Windows.Application.Current.Dispatcher.CheckAccess())
+        {
+            System.Windows.Application.Current.Dispatcher.Invoke(Actualizar);
+        }
+        else
+        {
+            Actualizar();
+        }
+    }
+
     public async Task<IReadOnlyList<ProyectoGeomatico>> BuscarYActualizarCapasAsync(
         string? texto,
         DateTime? desde,
@@ -108,6 +209,29 @@ public partial class MapaViewModel
         CancellationToken ct = default)
     {
         var proyectos = await _buscarProyectos.EjecutarAsync(texto, desde, hasta, dptoCodigo, mpioCodigo, minX, minY, maxX, maxY, ct);
+        
+        // Obtener en lote los subproyectos asociados a todos los proyectos encontrados
+        var ids = proyectos.Select(p => p.Id).ToList();
+        IReadOnlyDictionary<int, IReadOnlyList<SubproyectoDto>> subproyectosPorProyecto;
+        try
+        {
+            subproyectosPorProyecto = await _proyectos.ObtenerSubproyectosPorProyectosAsync(ids, ct);
+        }
+        catch (Exception exSubs)
+        {
+            System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Advertencia al obtener subproyectos en lote: {exSubs.Message}");
+            subproyectosPorProyecto = new Dictionary<int, IReadOnlyList<SubproyectoDto>>();
+        }
+
+        // Notificar y poblar la lista de proyectos en la barra lateral con sus subproyectos anidados
+        ActualizarResultadosFiltros(proyectos, subproyectosPorProyecto);
+
+        if (ct.IsCancellationRequested) return proyectos;
+
+        // Visualizar inmediatamente todos los subproyectos en el mapa principal
+        var todosSubproyectos = subproyectosPorProyecto.Values.SelectMany(x => x).ToList();
+        MostrarSubproyectosEnMapa(todosSubproyectos);
+
         await ActualizarCapasConFiltroAsync(proyectos);
         return proyectos;
     }
@@ -120,14 +244,23 @@ public partial class MapaViewModel
 
         try
         {
-            // Limpiar únicamente las capas base del sistema preservando las capas cargadas por el usuario
-            RemoverCapasBaseSistema();
-            _layerProyectos = null;
-            _layerMunicipios = null;
-
-            // 1. Crear capa de proyectos
+            // 1. Crear y presentar la capa de proyectos DE INMEDIATO para visibilidad instantánea (<50ms)
             var layerProy = await CrearCapaProyectosDesdeListaAsync(proyectosFiltrados);
             if (gen != _updateGeneration) return;
+
+            RemoverCapaProyectos();
+            RemoverCapaSubproyectos();
+            if (layerProy != null)
+            {
+                int insertProyIdx = _layerMunicipios != null && Map.OperationalLayers.Contains(_layerMunicipios) ? 1 : 0;
+                Map.OperationalLayers.Insert(Math.Min(insertProyIdx, Map.OperationalLayers.Count), layerProy);
+                _layerProyectos = layerProy;
+                _ = layerProy.LoadAsync();
+            }
+
+            await ActualizarCapaSubproyectosAsync(_todosSubproyectosActuales);
+
+            AppLogger.Info($"[MapaViewModel] Capa de proyectos actualizada en el mapa ({proyectosFiltrados.Count} proyectos).");
 
             // 2. Obtener municipios de los proyectos filtrados
             var ids = proyectosFiltrados.Select(p => p.Id).ToList();
@@ -137,19 +270,15 @@ public partial class MapaViewModel
             if (gen != _updateGeneration) return;
             _ultimosCodigosMunicipio = codigosMuni;
 
-            // 3. Asegurar que el caché de geometrías esté poblado
+            // 3. Poblar caché de geometrías de municipios bajo demanda solo para los municipios requeridos
             if (_cachedMunicipios == null)
             {
-                var todosCodigosConProyecto = await _proyectos.ObtenerTodosCodigosMunicipioAsync();
-                _cachedMunicipios = todosCodigosConProyecto.Count > 0
-                    ? await _municipios.PorCodigosGeoJsonAsync(todosCodigosConProyecto)
-                    : (IReadOnlyList<MunicipioGeoJsonDto>)Array.Empty<MunicipioGeoJsonDto>();
+                _cachedMunicipios = new List<MunicipioGeoJsonDto>();
             }
-            if (gen != _updateGeneration) return;
 
-            // Asegurar que si hay municipios en codigosMuni que no estaban en el caché inicial, se carguen dinámicamente
             var codigosFaltantes = codigosMuni
                 .Where(c => _cachedMunicipios.All(m => !string.Equals(m.Codigo, c, StringComparison.OrdinalIgnoreCase)))
+                .Distinct()
                 .ToList();
 
             if (codigosFaltantes.Count > 0)
@@ -172,47 +301,43 @@ public partial class MapaViewModel
             {
                 await Task.Run(() =>
                 {
-                    foreach (var m in munisParaGeometrias)
+                    var tempParsed = new System.Collections.Concurrent.ConcurrentDictionary<string, Geometry>();
+                    Parallel.ForEach(munisParaGeometrias, m =>
                     {
-                        if (string.IsNullOrEmpty(m.GeoJson)) continue;
+                        if (string.IsNullOrEmpty(m.GeoJson)) return;
                         try
                         {
                             var geom = ParseGeoJson(m.GeoJson);
-                            if (geom != null) _cachedGeometries[m.Codigo] = geom;
+                            if (geom != null) tempParsed[m.Codigo] = geom;
                         }
                         catch { }
+                    });
+
+                    foreach (var kvp in tempParsed)
+                    {
+                        _cachedGeometries[kvp.Key] = kvp.Value;
                     }
                 });
             }
             if (gen != _updateGeneration) return;
 
             // 4. Crear capa de municipios solo con los del filtro
-            var filteredMuni = _cachedMunicipios.Where(m => codigosMuni.Contains(m.Codigo));
+            var filteredMuni = _cachedMunicipios.Where(m => codigosMuni.Contains(m.Codigo)).ToList();
             var layerMuni = await CrearCapaMunicipiosFiltradaAsync(filteredMuni);
             if (gen != _updateGeneration) return;
 
-            // 5. Agregar capas del sistema en el fondo del mapa (municipios abajo, proyectos arriba, capas de usuario encima)
-            RemoverCapasBaseSistema();
-            int insertIndex = 0;
+            // 5. Agregar capa de municipios en el fondo del mapa (índice 0, debajo de proyectos)
+            RemoverCapaMunicipios();
             if (layerMuni != null)
             {
-                Map.OperationalLayers.Insert(insertIndex++, layerMuni);
-                await layerMuni.LoadAsync();
+                Map.OperationalLayers.Insert(0, layerMuni);
+                _layerMunicipios = layerMuni;
+                _ = layerMuni.LoadAsync();
             }
-            if (gen != _updateGeneration) return;
-            if (layerProy != null)
-            {
-                int idx = Math.Min(insertIndex, Map.OperationalLayers.Count);
-                Map.OperationalLayers.Insert(idx, layerProy);
-                await layerProy.LoadAsync();
-            }
-
-            _layerMunicipios = layerMuni;
-            _layerProyectos = layerProy;
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error actualizando capas con filtro: {ex}");
+            AppLogger.Error("[MapaViewModel] Error actualizando capas con filtro", ex);
         }
     }
 
@@ -346,7 +471,11 @@ public partial class MapaViewModel
     public async Task ResaltarProyectoEnMapaAsync(FiltrosViewModel.ProyectoItem? proyecto)
     {
         OverlayResaltadoProyecto.Graphics.Clear();
-        if (proyecto == null || (proyecto.Lon == 0 && proyecto.Lat == 0)) return;
+        if (proyecto == null || (proyecto.Lon == 0 && proyecto.Lat == 0))
+        {
+            LimpiarSubproyectos();
+            return;
+        }
 
         var pt = new MapPoint(proyecto.Lon, proyecto.Lat, SpatialReferences.Wgs84);
         Envelope? extentGeom = null;
@@ -377,6 +506,214 @@ public partial class MapaViewModel
                 }
             }
             catch { }
+        }
+
+        // Cargar y graficar subproyectos (embarcaderos / sitios físicos) si existen
+        if (proyecto.Id > 0)
+        {
+            try
+            {
+                var subproyectos = await _proyectos.ObtenerSubproyectosAsync(proyecto.Id);
+                MostrarSubproyectosEnMapa(subproyectos, actualizarListaGlobal: false);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MapaViewModel] Error al cargar subproyectos para resaltado: {ex.Message}");
+            }
+        }
+        else
+        {
+            LimpiarSubproyectos();
+        }
+    }
+
+    /// <summary>
+    /// Limpia los gráficos de sitios / embarcaderos en el mapa.
+    /// </summary>
+    public void LimpiarSubproyectos()
+    {
+        if (_todosSubproyectosActuales != null && _todosSubproyectosActuales.Count > 0)
+        {
+            MostrarSubproyectosEnMapa(_todosSubproyectosActuales, actualizarListaGlobal: false);
+            return;
+        }
+        OverlaySubproyectos.Graphics.Clear();
+    }
+
+    private void _legacyLimpiarSubproyectos()
+    {
+        OverlaySubproyectos.Graphics.Clear();
+    }
+
+    /// <summary>
+    /// Muestra los marcadores y etiquetas de subproyectos (ej. embarcaderos) en el overlay correspondiente.
+    /// </summary>
+    public void MostrarSubproyectosEnMapa(IReadOnlyList<SubproyectoDto>? subproyectos, bool actualizarListaGlobal = true)
+    {
+        if (actualizarListaGlobal)
+        {
+            _todosSubproyectosActuales = subproyectos ?? Array.Empty<SubproyectoDto>();
+        }
+        OverlaySubproyectos.Graphics.Clear();
+        if (subproyectos == null || subproyectos.Count == 0) return;
+
+        foreach (var sub in subproyectos)
+        {
+            if (sub.Lon == 0 && sub.Lat == 0) continue;
+
+            var pt = new MapPoint(sub.Lon, sub.Lat, SpatialReferences.Wgs84);
+            var graphics = ProyectoStylingHelper.CrearSubproyectoGraphics(
+                pt,
+                sub.IdSubproyecto,
+                sub.Nombre,
+                sub.Subcarpeta,
+                sub.MunicipioNombre,
+                sub.Descripcion,
+                sub.IdProyecto);
+
+            foreach (var g in graphics)
+            {
+                OverlaySubproyectos.Graphics.Add(g);
+            }
+        }
+
+        _ = ActualizarCapaSubproyectosAsync(_todosSubproyectosActuales);
+    }
+
+    /// <summary>
+    /// Centra y hace zoom de alta precisión (1:10,000) a un subproyecto puntual (embarcadero).
+    /// </summary>
+    public async Task CentrarEnSubproyectoAsync(double lon, double lat, string nombre)
+    {
+        if (lon == 0 && lat == 0) return;
+        var pt = new MapPoint(lon, lat, SpatialReferences.Wgs84);
+        if (_ownerMapView != null)
+        {
+            try
+            {
+                await _ownerMapView.SetViewpointCenterAsync(pt, 10_000);
+            }
+            catch { }
+        }
+    }
+
+    public void AsegurarSubproyectoVisibleEnMapa(SubproyectoDto? sub)
+    {
+        if (sub == null) return;
+
+        bool yaEstaVisible = OverlaySubproyectos.Graphics.Any(g =>
+            g.Attributes.TryGetValue("id_subproyecto", out var val) &&
+            val is int id && id == sub.IdSubproyecto);
+
+        if (!yaEstaVisible)
+        {
+            if (_todosSubproyectosActuales != null && _todosSubproyectosActuales.Count > 0)
+            {
+                MostrarSubproyectosEnMapa(_todosSubproyectosActuales, actualizarListaGlobal: false);
+            }
+            else if (sub.Lon != 0 || sub.Lat != 0)
+            {
+                var pt = new MapPoint(sub.Lon, sub.Lat, SpatialReferences.Wgs84);
+                var graphics = ProyectoStylingHelper.CrearSubproyectoGraphics(
+                    pt, sub.IdSubproyecto, sub.Nombre, sub.Subcarpeta, sub.MunicipioNombre, sub.Descripcion, sub.IdProyecto);
+                foreach (var g in graphics)
+                    OverlaySubproyectos.Graphics.Add(g);
+            }
+        }
+    }
+
+    private async Task<Layer?> CrearCapaSubproyectosAsync(IReadOnlyList<SubproyectoDto> items)
+    {
+        if (items == null || items.Count == 0) return null;
+
+        var validItems = items.Where(s => s.Lon != 0 || s.Lat != 0).ToList();
+        if (validItems.Count == 0) return null;
+
+        var fields = new List<Field>
+        {
+            OID("oid"),
+            Int("id_subproyecto"),
+            Int("id_proyecto"),
+            Str("nombre", 200),
+            Str("subcarpeta", 300),
+            Str("municipio", 200),
+            Str("descripcion", 500)
+        };
+        var table = new FeatureCollectionTable(fields, GeometryType.Point, SpatialReferences.Wgs84);
+
+        var features = new List<Feature>();
+        int oid = 1;
+        foreach (var s in validItems)
+        {
+            var attrs = new Dictionary<string, object?>
+            {
+                ["oid"] = oid++,
+                ["id_subproyecto"] = s.IdSubproyecto,
+                ["id_proyecto"] = s.IdProyecto,
+                ["nombre"] = s.Nombre,
+                ["subcarpeta"] = s.Subcarpeta,
+                ["municipio"] = s.MunicipioNombre ?? string.Empty,
+                ["descripcion"] = s.Descripcion ?? string.Empty
+            };
+            var geom = new MapPoint(s.Lon, s.Lat, SpatialReferences.Wgs84);
+            features.Add(table.CreateFeature(attrs, geom));
+        }
+
+        await table.AddFeaturesAsync(features);
+
+        var markerSymbol = new SimpleMarkerSymbol(
+            SimpleMarkerSymbolStyle.Diamond,
+            System.Drawing.Color.FromArgb(2, 132, 199),
+            12.0)
+        {
+            Outline = new SimpleLineSymbol(SimpleLineSymbolStyle.Solid, System.Drawing.Color.White, 2.0)
+        };
+        table.Renderer = new SimpleRenderer(markerSymbol);
+
+        var collection = new FeatureCollection(new[] { table });
+        var layer = new FeatureCollectionLayer(collection)
+        {
+            Name = "Subproyectos"
+        };
+        return layer;
+    }
+
+    public async Task ActualizarCapaSubproyectosAsync(IReadOnlyList<SubproyectoDto>? subproyectos)
+    {
+        if (Map == null) return;
+
+        try
+        {
+            var layer = await CrearCapaSubproyectosAsync(subproyectos ?? Array.Empty<SubproyectoDto>());
+
+            void AplicarEnMapa()
+            {
+                RemoverCapaSubproyectos();
+                if (layer != null)
+                {
+                    int insertIdx = Map.OperationalLayers.Count;
+                    if (_layerProyectos != null && Map.OperationalLayers.Contains(_layerProyectos))
+                    {
+                        insertIdx = Map.OperationalLayers.IndexOf(_layerProyectos) + 1;
+                    }
+                    Map.OperationalLayers.Insert(Math.Min(insertIdx, Map.OperationalLayers.Count), layer);
+                    _layerSubproyectos = layer;
+                    _ = layer.LoadAsync();
+                }
+            }
+
+            if (System.Windows.Application.Current?.Dispatcher != null && !System.Windows.Application.Current.Dispatcher.CheckAccess())
+            {
+                await System.Windows.Application.Current.Dispatcher.InvokeAsync(AplicarEnMapa);
+            }
+            else
+            {
+                AplicarEnMapa();
+            }
+        }
+        catch (Exception ex)
+        {
+            AppLogger.Error("[MapaViewModel] Error al actualizar capa operacional de subproyectos", ex);
         }
     }
 

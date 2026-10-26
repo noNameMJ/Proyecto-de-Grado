@@ -32,6 +32,9 @@ namespace Geomatica.Desktop.ViewModels
         private readonly ProyectoArchivosService? _archivosService;
         private readonly ProyectoDetalleDto? _proyectoOriginal;
         private readonly ISeguridadService? _seguridadService;
+        private readonly GuardarSubproyectoUseCase? _guardarSubproyectoUseCase;
+        private readonly ObtenerSubproyectosUseCase? _obtenerSubproyectosUseCase;
+        private readonly EliminarSubproyectoUseCase? _eliminarSubproyectoUseCase;
         private bool _isUpdatingProgrammatically;
 
         public bool EsModoEdicion { get; }
@@ -58,6 +61,11 @@ namespace Geomatica.Desktop.ViewModels
 
         // Sección 1: Ruta y Metadatos Técnicos ISO 19115
         [ObservableProperty] private string? ruta;
+
+        partial void OnRutaChanged(string? value)
+        {
+            ActualizarSubcarpetasDisponibles();
+        }
         [ObservableProperty] private string? sistemaReferencia;
         [ObservableProperty] private string? formatoDatos;
         [ObservableProperty] private string? linaje;
@@ -121,7 +129,10 @@ namespace Geomatica.Desktop.ViewModels
             ProyectoArchivosService proyectoArchivosService,
             Action navigateBack,
             Action? onProyectoCreado = null,
-            INotificationService? notifications = null)
+            INotificationService? notifications = null,
+            GuardarSubproyectoUseCase? guardarSubproyectoUseCase = null,
+            ObtenerSubproyectosUseCase? obtenerSubproyectosUseCase = null,
+            EliminarSubproyectoUseCase? eliminarSubproyectoUseCase = null)
         {
             EsModoEdicion = false;
             _crearProyectoUseCase = crearProyectoUseCase;
@@ -130,11 +141,15 @@ namespace Geomatica.Desktop.ViewModels
             _navigateBack = navigateBack;
             _onGuardadoExitoso = onProyectoCreado;
             _notifications = notifications;
+            _guardarSubproyectoUseCase = guardarSubproyectoUseCase;
+            _obtenerSubproyectosUseCase = obtenerSubproyectosUseCase;
+            _eliminarSubproyectoUseCase = eliminarSubproyectoUseCase;
 
             MunicipiosSeleccionados.CollectionChanged += (_, _) =>
             {
                 OnPropertyChanged(nameof(HasMunicipiosSeleccionados));
                 OnPropertyChanged(nameof(ResumenMunicipiosSeleccionados));
+                ActualizarMunicipiosDisponiblesSubproyecto();
             };
 
             GuardarCommand = new AsyncRelayCommand(GuardarAsync);
@@ -146,6 +161,17 @@ namespace Geomatica.Desktop.ViewModels
             AgregarMunicipioCommand = new AsyncRelayCommand(AgregarMunicipioSeleccionadoAsync);
             QuitarMunicipioCommand = new AsyncRelayCommand<MunicipioSeleccionadoItem>(QuitarMunicipioSeleccionadoAsync);
             AgregarTodoDepartamentoCommand = new AsyncRelayCommand(AgregarTodoDepartamentoSeleccionadoAsync);
+
+            MostrarFormularioSubproyectoCommand = new RelayCommand(MostrarFormularioSubproyecto);
+            CancelarFormularioSubproyectoCommand = new RelayCommand(CancelarFormularioSubproyecto);
+            GuardarNuevoSubproyectoCommand = new RelayCommand(GuardarNuevoSubproyecto);
+            EditarSubproyectoCommand = new RelayCommand<SubproyectoItemFormulario>(EditarSubproyecto);
+            UbicarSubproyectoEnMapaCommand = new RelayCommand<SubproyectoItemFormulario>(UbicarSubproyectoEnMapa);
+            QuitarSubproyectoCommand = new RelayCommand<SubproyectoItemFormulario>(QuitarSubproyecto);
+            UsarCoordenadasMapaParaSubproyectoCommand = new RelayCommand(UsarCoordenadasMapaParaSubproyecto);
+            SeleccionarSubcarpetaCommand = new RelayCommand(SeleccionarSubcarpeta);
+            ImportarSubproyectosCsvCommand = new RelayCommand(ImportarSubproyectosCsv);
+            AbrirEditorTablaSubproyectosCommand = new RelayCommand(AbrirEditorTablaSubproyectos);
 
             _ = CargarDatosInicialesAsync(null);
         }
@@ -162,7 +188,10 @@ namespace Geomatica.Desktop.ViewModels
             EliminarProyectoUseCase? eliminarProyectoUseCase = null,
             INotificationService? notifications = null,
             ProyectoArchivosService? archivosService = null,
-            ISeguridadService? seguridadService = null)
+            ISeguridadService? seguridadService = null,
+            GuardarSubproyectoUseCase? guardarSubproyectoUseCase = null,
+            ObtenerSubproyectosUseCase? obtenerSubproyectosUseCase = null,
+            EliminarSubproyectoUseCase? eliminarSubproyectoUseCase = null)
         {
             EsModoEdicion = true;
             _actualizarProyectoUseCase = actualizarProyectoUseCase;
@@ -174,11 +203,15 @@ namespace Geomatica.Desktop.ViewModels
             _notifications = notifications;
             _archivosService = archivosService;
             _seguridadService = seguridadService ?? new WindowsSeguridadService();
+            _guardarSubproyectoUseCase = guardarSubproyectoUseCase;
+            _obtenerSubproyectosUseCase = obtenerSubproyectosUseCase;
+            _eliminarSubproyectoUseCase = eliminarSubproyectoUseCase;
 
             MunicipiosSeleccionados.CollectionChanged += (_, _) =>
             {
                 OnPropertyChanged(nameof(HasMunicipiosSeleccionados));
                 OnPropertyChanged(nameof(ResumenMunicipiosSeleccionados));
+                ActualizarMunicipiosDisponiblesSubproyecto();
             };
 
             if (_archivosService != null && !string.IsNullOrWhiteSpace(proyecto.RutaArchivos))
@@ -215,6 +248,17 @@ namespace Geomatica.Desktop.ViewModels
             QuitarMunicipioCommand = new AsyncRelayCommand<MunicipioSeleccionadoItem>(QuitarMunicipioSeleccionadoAsync);
             AgregarTodoDepartamentoCommand = new AsyncRelayCommand(AgregarTodoDepartamentoSeleccionadoAsync);
 
+            MostrarFormularioSubproyectoCommand = new RelayCommand(MostrarFormularioSubproyecto);
+            CancelarFormularioSubproyectoCommand = new RelayCommand(CancelarFormularioSubproyecto);
+            GuardarNuevoSubproyectoCommand = new RelayCommand(GuardarNuevoSubproyecto);
+            EditarSubproyectoCommand = new RelayCommand<SubproyectoItemFormulario>(EditarSubproyecto);
+            UbicarSubproyectoEnMapaCommand = new RelayCommand<SubproyectoItemFormulario>(UbicarSubproyectoEnMapa);
+            QuitarSubproyectoCommand = new RelayCommand<SubproyectoItemFormulario>(QuitarSubproyecto);
+            UsarCoordenadasMapaParaSubproyectoCommand = new RelayCommand(UsarCoordenadasMapaParaSubproyecto);
+            SeleccionarSubcarpetaCommand = new RelayCommand(SeleccionarSubcarpeta);
+            ImportarSubproyectosCsvCommand = new RelayCommand(ImportarSubproyectosCsv);
+            AbrirEditorTablaSubproyectosCommand = new RelayCommand(AbrirEditorTablaSubproyectos);
+
             _ = CargarDatosInicialesAsync(proyecto.MunicipioCodigo);
         }
 
@@ -222,13 +266,723 @@ namespace Geomatica.Desktop.ViewModels
         // CARGA Y CASCADA DE MUNICIPIOS (DIVIPOLA + MULTIDEPARTAMENTAL)
         // ═══════════════════════════════════════════════════════════════
 
-        private async Task CargarDatosInicialesAsync(string? municipioCodigo)
+
+        // ═══════════════════════════════════════════════════════════════
+        // SECCIÓN 4: SUBPROYECTOS Y FRENTES DE TRABAJO
+        // ═══════════════════════════════════════════════════════════════
+        public ObservableCollection<SubproyectoItemFormulario> Subproyectos { get; } = new();
+        private readonly List<int> _subproyectosAEliminar = new();
+        public ObservableCollection<string> SubcarpetasDisponibles { get; } = new();
+        public ObservableCollection<MunicipioItem> MunicipiosDisponiblesSubproyecto { get; } = new();
+
+        public bool HasSubproyectos => Subproyectos.Count > 0;
+        public bool NoHaySubproyectos => Subproyectos.Count == 0;
+        public int TotalSubproyectos => Subproyectos.Count;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(BotonAgregarSubproyectoVisible))]
+        private bool formularioSubproyectoVisible;
+
+        public bool BotonAgregarSubproyectoVisible => !FormularioSubproyectoVisible;
+
+        [ObservableProperty] private string? nuevoSubproyectoNombre;
+        [ObservableProperty] private MunicipioItem? nuevoSubproyectoMunicipio;
+        [ObservableProperty] private string? nuevoSubproyectoSubcarpeta;
+        [ObservableProperty] private string? nuevoSubproyectoLatStr;
+        [ObservableProperty] private string? nuevoSubproyectoLonStr;
+        [ObservableProperty] private string? nuevoSubproyectoDescripcion;
+
+        private SubproyectoItemFormulario? _subproyectoEnEdicion;
+
+        public bool EsEdicionSubproyecto => _subproyectoEnEdicion != null;
+
+        public string TituloFormularioSubproyecto => EsEdicionSubproyecto
+            ? "✏️ Editar Subproyecto / Frente de Trabajo"
+            : "📍 Nuevo Subproyecto / Frente de Trabajo";
+
+        public string TextoBotonGuardarSubproyecto => EsEdicionSubproyecto
+            ? "💾 Actualizar Subproyecto"
+            : "💾 Añadir a la Lista de Subproyectos";
+
+        public event Action<IReadOnlyList<SubproyectoItemFormulario>>? SubproyectosPinsChanged;
+        public event Action<double, double>? CentrarEnSubproyectoSolicitado;
+
+        public IRelayCommand MostrarFormularioSubproyectoCommand { get; }
+        public IRelayCommand CancelarFormularioSubproyectoCommand { get; }
+        public IRelayCommand GuardarNuevoSubproyectoCommand { get; }
+        public IRelayCommand<SubproyectoItemFormulario> EditarSubproyectoCommand { get; }
+        public IRelayCommand<SubproyectoItemFormulario> QuitarSubproyectoCommand { get; }
+        public IRelayCommand<SubproyectoItemFormulario> UbicarSubproyectoEnMapaCommand { get; }
+        public IRelayCommand UsarCoordenadasMapaParaSubproyectoCommand { get; }
+        public IRelayCommand SeleccionarSubcarpetaCommand { get; }
+        public IRelayCommand ImportarSubproyectosCsvCommand { get; }
+        public IRelayCommand AbrirEditorTablaSubproyectosCommand { get; }
+        public Func<string, IReadOnlyList<SubproyectoItemFormulario>?>? DialogoImportacionCsvHandler { get; set; }
+        public Func<string?>? SelectorArchivoCsvHandler { get; set; }
+        public Func<IEnumerable<SubproyectoItemFormulario>, IReadOnlyList<SubproyectoItemFormulario>?>? DialogoEditorTablaHandler { get; set; }
+        public Func<SubproyectoItemFormulario, bool?>? DialogoEditarSubproyectoHandler { get; set; }
+        public Func<SubproyectoItemFormulario?>? DialogoNuevoSubproyectoHandler { get; set; }
+        public IReadOnlyList<MunicipioItem>? TodosMunicipiosCatalogo { get; private set; }
+
+        private void ActualizarTextosFormularioSubproyecto()
+        {
+            OnPropertyChanged(nameof(EsEdicionSubproyecto));
+            OnPropertyChanged(nameof(TituloFormularioSubproyecto));
+            OnPropertyChanged(nameof(TextoBotonGuardarSubproyecto));
+        }
+
+        private void MostrarFormularioSubproyecto()
+        {
+            _subproyectoEnEdicion = null;
+            ActualizarTextosFormularioSubproyecto();
+            ActualizarSubcarpetasDisponibles();
+            ActualizarMunicipiosDisponiblesSubproyecto();
+
+            if (NuevoSubproyectoMunicipio == null)
+            {
+                NuevoSubproyectoMunicipio = MunicipiosDisponiblesSubproyecto.FirstOrDefault(m => m.Codigo == SelectedMunicipio?.Codigo)
+                    ?? MunicipiosDisponiblesSubproyecto.FirstOrDefault();
+            }
+
+            if (string.IsNullOrWhiteSpace(NuevoSubproyectoLatStr) && !string.IsNullOrWhiteSpace(LatStr))
+            {
+                NuevoSubproyectoLatStr = LatStr;
+                NuevoSubproyectoLonStr = LonStr;
+            }
+
+            // 1. Delegado para pruebas unitarias / inyección desacoplada
+            if (DialogoNuevoSubproyectoHandler != null)
+            {
+                var nuevo = DialogoNuevoSubproyectoHandler();
+                if (nuevo != null)
+                {
+                    Subproyectos.Add(nuevo);
+                    OnPropertyChanged(nameof(HasSubproyectos));
+                    OnPropertyChanged(nameof(NoHaySubproyectos));
+                    OnPropertyChanged(nameof(TotalSubproyectos));
+                    NotificarCambioSubproyectosPins();
+                    _notifications?.ShowInfo($"Subproyecto '{nuevo.Nombre}' añadido a la lista.", "Subproyecto Preparado");
+                }
+                return;
+            }
+
+            // 2. Ventana emergente modal en entorno WPF interactivo
+            if (System.Windows.Application.Current?.MainWindow is MainWindow)
+            {
+                var nuevo = MostrarDialogoNuevoSubproyecto();
+                if (nuevo != null)
+                {
+                    Subproyectos.Add(nuevo);
+                    OnPropertyChanged(nameof(HasSubproyectos));
+                    OnPropertyChanged(nameof(NoHaySubproyectos));
+                    OnPropertyChanged(nameof(TotalSubproyectos));
+                    NotificarCambioSubproyectosPins();
+                    _notifications?.ShowInfo($"Subproyecto '{nuevo.Nombre}' añadido a la lista.", "Subproyecto Preparado");
+                }
+            }
+            else
+            {
+                // Fallback para entornos de prueba sin UI / Application.Current
+                FormularioSubproyectoVisible = true;
+            }
+        }
+
+        private SubproyectoItemFormulario? MostrarDialogoNuevoSubproyecto()
+        {
+            try
+            {
+                var vm = new EditarSubproyectoViewModel(
+                    subproyecto: null,
+                    Ruta,
+                    SubcarpetasDisponibles,
+                    MunicipiosDisponiblesSubproyecto,
+                    TodosMunicipiosCatalogo,
+                    LatStr,
+                    LonStr);
+
+                var window = new Views.EditarSubproyectoWindow(vm);
+                if (System.Windows.Application.Current?.MainWindow != null &&
+                    System.Windows.Application.Current.MainWindow != window)
+                {
+                    window.Owner = System.Windows.Application.Current.MainWindow;
+                }
+
+                if (window.ShowDialog() == true)
+                {
+                    var nuevo = vm.CrearNuevoSubproyecto();
+                    nuevo.IdProyecto = IdProyecto ?? 0;
+                    return nuevo;
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error("Error al abrir ventana emergente de creación de subproyecto", ex);
+                _notifications?.ShowError($"Error abriendo editor de subproyecto: {ex.Message}", "Nuevo Subproyecto");
+                return null;
+            }
+        }
+
+        public void EditarSubproyecto(SubproyectoItemFormulario? subproyecto)
+        {
+            if (subproyecto == null) return;
+
+            _subproyectoEnEdicion = subproyecto;
+            ActualizarTextosFormularioSubproyecto();
+            ActualizarSubcarpetasDisponibles();
+            ActualizarMunicipiosDisponiblesSubproyecto();
+
+            NuevoSubproyectoNombre = subproyecto.Nombre;
+            NuevoSubproyectoSubcarpeta = subproyecto.Subcarpeta;
+            NuevoSubproyectoMunicipio = MunicipiosDisponiblesSubproyecto.FirstOrDefault(m => m.Codigo == subproyecto.MpioCdpmp)
+                ?? (string.IsNullOrWhiteSpace(subproyecto.MpioCdpmp) ? null : new MunicipioItem(subproyecto.MpioCdpmp, subproyecto.MunicipioNombre ?? subproyecto.MpioCdpmp));
+
+            NuevoSubproyectoLatStr = subproyecto.Lat != 0 ? subproyecto.Lat.ToString("F6", CultureInfo.InvariantCulture) : string.Empty;
+            NuevoSubproyectoLonStr = subproyecto.Lon != 0 ? subproyecto.Lon.ToString("F6", CultureInfo.InvariantCulture) : string.Empty;
+            NuevoSubproyectoDescripcion = subproyecto.Descripcion;
+
+            if (subproyecto.Lon != 0 || subproyecto.Lat != 0)
+            {
+                CentrarEnSubproyectoSolicitado?.Invoke(subproyecto.Lon, subproyecto.Lat);
+            }
+
+            // 1. Delegado para pruebas unitarias / inyección desacoplada
+            if (DialogoEditarSubproyectoHandler != null)
+            {
+                var editado = DialogoEditarSubproyectoHandler(subproyecto);
+                if (editado == true)
+                {
+                    subproyecto.EsModificado = true;
+                    subproyecto.NotificarTodos();
+                    NotificarCambioSubproyectosPins();
+                    _notifications?.ShowInfo($"Subproyecto '{subproyecto.Nombre}' actualizado.", "Subproyecto Modificado");
+                }
+                return;
+            }
+
+            // 2. Ventana emergente modal en entorno WPF interactivo
+            if (System.Windows.Application.Current?.MainWindow is MainWindow)
+            {
+                var editado = MostrarDialogoEditarSubproyecto(subproyecto);
+                if (editado == true)
+                {
+                    subproyecto.EsModificado = true;
+                    subproyecto.NotificarTodos();
+                    NotificarCambioSubproyectosPins();
+                    _notifications?.ShowInfo($"Subproyecto '{subproyecto.Nombre}' actualizado.", "Subproyecto Modificado");
+                }
+            }
+            else
+            {
+                // Fallback para entornos de prueba sin UI / Application.Current
+                FormularioSubproyectoVisible = true;
+            }
+        }
+
+        private bool? MostrarDialogoEditarSubproyecto(SubproyectoItemFormulario subproyecto)
+        {
+            try
+            {
+                var vm = new EditarSubproyectoViewModel(
+                    subproyecto,
+                    Ruta,
+                    SubcarpetasDisponibles,
+                    MunicipiosDisponiblesSubproyecto,
+                    TodosMunicipiosCatalogo,
+                    LatStr,
+                    LonStr);
+
+                var window = new Views.EditarSubproyectoWindow(vm);
+                if (System.Windows.Application.Current?.MainWindow != null &&
+                    System.Windows.Application.Current.MainWindow != window)
+                {
+                    window.Owner = System.Windows.Application.Current.MainWindow;
+                }
+
+                if (window.ShowDialog() == true)
+                {
+                    vm.AplicarCambiosASubproyecto(subproyecto);
+                    return true;
+                }
+                return false;
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error("Error al abrir ventana emergente de edición de subproyecto", ex);
+                _notifications?.ShowError($"Error abriendo editor de subproyecto: {ex.Message}", "Editor de Subproyecto");
+                return null;
+            }
+        }
+
+        public void UbicarSubproyectoEnMapa(SubproyectoItemFormulario? subproyecto)
+        {
+            if (subproyecto == null) return;
+
+            if (subproyecto.Lon != 0 || subproyecto.Lat != 0)
+            {
+                CentrarEnSubproyectoSolicitado?.Invoke(subproyecto.Lon, subproyecto.Lat);
+                _notifications?.ShowInfo($"Ubicación centrada en: {subproyecto.Nombre} ({subproyecto.CoordenadasTexto})", "Mapa");
+            }
+            else
+            {
+                _notifications?.ShowWarning($"El subproyecto '{subproyecto.Nombre}' no cuenta con coordenadas geográficas.", "Sin Coordenadas");
+            }
+        }
+
+        private void CancelarFormularioSubproyecto()
+        {
+            _subproyectoEnEdicion = null;
+            ActualizarTextosFormularioSubproyecto();
+            FormularioSubproyectoVisible = false;
+            NuevoSubproyectoNombre = null;
+            NuevoSubproyectoSubcarpeta = null;
+            NuevoSubproyectoLatStr = null;
+            NuevoSubproyectoLonStr = null;
+            NuevoSubproyectoDescripcion = null;
+        }
+
+        private void UsarCoordenadasMapaParaSubproyecto()
+        {
+            if (!string.IsNullOrWhiteSpace(LatStr) && !string.IsNullOrWhiteSpace(LonStr))
+            {
+                NuevoSubproyectoLatStr = LatStr;
+                NuevoSubproyectoLonStr = LonStr;
+                _notifications?.ShowInfo($"Coordenadas copiadas del mapa ({LatStr}, {LonStr}).", "Coordenadas Asignadas");
+            }
+            else
+            {
+                _notifications?.ShowWarning("Haga clic primero en el mapa en la Sección 3 para marcar el punto deseado.", "Sin Punto Seleccionado");
+            }
+        }
+
+        private void GuardarNuevoSubproyecto()
+        {
+            if (string.IsNullOrWhiteSpace(NuevoSubproyectoNombre))
+            {
+                _notifications?.ShowWarning("El nombre del subproyecto es obligatorio.", "Validación");
+                return;
+            }
+
+            if (string.IsNullOrWhiteSpace(NuevoSubproyectoSubcarpeta))
+            {
+                _notifications?.ShowWarning("Debe indicar o seleccionar la subcarpeta asociada al subproyecto.", "Validación");
+                return;
+            }
+
+            double lat = 0;
+            double lon = 0;
+            var latNorm = NuevoSubproyectoLatStr?.Replace(',', '.');
+            var lonNorm = NuevoSubproyectoLonStr?.Replace(',', '.');
+
+            if (!string.IsNullOrWhiteSpace(latNorm) && !double.TryParse(latNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out lat))
+            {
+                _notifications?.ShowWarning("La latitud debe ser un número decimal válido.", "Validación");
+                return;
+            }
+
+            if (!string.IsNullOrWhiteSpace(lonNorm) && !double.TryParse(lonNorm, NumberStyles.Float, CultureInfo.InvariantCulture, out lon))
+            {
+                _notifications?.ShowWarning("La longitud debe ser un número decimal válido.", "Validación");
+                return;
+            }
+
+            string subcarpetaNorm = NuevoSubproyectoSubcarpeta.Trim().Replace('/', '\\').Trim('\\');
+            string? nombreMpioLimpio = NuevoSubproyectoMunicipio?.Nombre;
+            if (!string.IsNullOrWhiteSpace(NuevoSubproyectoMunicipio?.Codigo))
+            {
+                var mSel = MunicipiosSeleccionados.FirstOrDefault(m => string.Equals(m.Codigo, NuevoSubproyectoMunicipio.Codigo, StringComparison.OrdinalIgnoreCase));
+                if (mSel != null)
+                {
+                    nombreMpioLimpio = mSel.Nombre;
+                }
+            }
+
+            if (_subproyectoEnEdicion != null)
+            {
+                _subproyectoEnEdicion.Nombre = NuevoSubproyectoNombre.Trim();
+                _subproyectoEnEdicion.MpioCdpmp = NuevoSubproyectoMunicipio?.Codigo;
+                _subproyectoEnEdicion.MunicipioNombre = nombreMpioLimpio;
+                _subproyectoEnEdicion.Subcarpeta = subcarpetaNorm;
+                _subproyectoEnEdicion.Lon = lon;
+                _subproyectoEnEdicion.Lat = lat;
+                _subproyectoEnEdicion.Descripcion = NuevoSubproyectoDescripcion?.Trim();
+                _subproyectoEnEdicion.EsModificado = true;
+                _subproyectoEnEdicion.NotificarTodos();
+
+                _notifications?.ShowInfo($"Subproyecto '{_subproyectoEnEdicion.Nombre}' actualizado.", "Subproyecto Modificado");
+            }
+            else
+            {
+                var item = new SubproyectoItemFormulario
+                {
+                    IdSubproyecto = 0,
+                    IdProyecto = IdProyecto ?? 0,
+                    Nombre = NuevoSubproyectoNombre.Trim(),
+                    MpioCdpmp = NuevoSubproyectoMunicipio?.Codigo,
+                    MunicipioNombre = nombreMpioLimpio,
+                    Subcarpeta = subcarpetaNorm,
+                    Lon = lon,
+                    Lat = lat,
+                    Descripcion = NuevoSubproyectoDescripcion?.Trim(),
+                    EsModificado = true
+                };
+
+                Subproyectos.Add(item);
+                _notifications?.ShowInfo($"Subproyecto '{item.Nombre}' añadido a la lista.", "Subproyecto Preparado");
+            }
+
+            OnPropertyChanged(nameof(HasSubproyectos));
+            OnPropertyChanged(nameof(NoHaySubproyectos));
+            OnPropertyChanged(nameof(TotalSubproyectos));
+
+            NotificarCambioSubproyectosPins();
+            CancelarFormularioSubproyecto();
+        }
+
+        private void QuitarSubproyecto(SubproyectoItemFormulario? subproyecto)
+        {
+            if (subproyecto == null) return;
+
+            if (subproyecto.IdSubproyecto > 0)
+            {
+                _subproyectosAEliminar.Add(subproyecto.IdSubproyecto);
+            }
+
+            if (_subproyectoEnEdicion == subproyecto)
+            {
+                CancelarFormularioSubproyecto();
+            }
+
+            Subproyectos.Remove(subproyecto);
+            OnPropertyChanged(nameof(HasSubproyectos));
+            OnPropertyChanged(nameof(NoHaySubproyectos));
+            OnPropertyChanged(nameof(TotalSubproyectos));
+
+            NotificarCambioSubproyectosPins();
+        }
+
+        public void NotificarCambioSubproyectosPins()
+        {
+            SubproyectosPinsChanged?.Invoke(Subproyectos.ToList());
+        }
+
+        private void SeleccionarSubcarpeta()
+        {
+            try
+            {
+                var dialog = new Microsoft.Win32.OpenFolderDialog
+                {
+                    Title = "Seleccionar subcarpeta del subproyecto / frente de trabajo",
+                    Multiselect = false
+                };
+
+                if (!string.IsNullOrWhiteSpace(Ruta) && Directory.Exists(Ruta))
+                {
+                    dialog.InitialDirectory = Ruta;
+                }
+
+                if (dialog.ShowDialog() == true)
+                {
+                    var seleccion = dialog.FolderName;
+                    string subcarpetaRel;
+
+                    if (!string.IsNullOrWhiteSpace(Ruta) && seleccion.StartsWith(Ruta, StringComparison.OrdinalIgnoreCase))
+                    {
+                        subcarpetaRel = Path.GetRelativePath(Ruta, seleccion);
+                        if (subcarpetaRel == ".") subcarpetaRel = "";
+                    }
+                    else
+                    {
+                        subcarpetaRel = Path.GetFileName(seleccion) ?? seleccion;
+                    }
+
+                    NuevoSubproyectoSubcarpeta = subcarpetaRel;
+
+                    // Agregar a la lista disponible si no existe
+                    if (!string.IsNullOrWhiteSpace(subcarpetaRel) && !SubcarpetasDisponibles.Contains(subcarpetaRel))
+                    {
+                        SubcarpetasDisponibles.Insert(0, subcarpetaRel);
+                    }
+
+                    // Si el nombre del subproyecto aún no fue asignado, sugerir el nombre de la carpeta seleccionada
+                    if (string.IsNullOrWhiteSpace(NuevoSubproyectoNombre))
+                    {
+                        NuevoSubproyectoNombre = Path.GetFileName(seleccion);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _notifications?.ShowError($"Error al seleccionar subcarpeta: {ex.Message}", "Explorador");
+            }
+        }
+
+        public void ActualizarSubcarpetasDisponibles()
+        {
+            SubcarpetasDisponibles.Clear();
+            if (string.IsNullOrWhiteSpace(Ruta) || !Directory.Exists(Ruta)) return;
+
+            try
+            {
+                var rootDir = new DirectoryInfo(Ruta);
+                var listaRelativas = new List<string>();
+
+                void EscanearRecursivo(DirectoryInfo dir, int profundidadActual, int maxProfundidad)
+                {
+                    if (profundidadActual > maxProfundidad || listaRelativas.Count >= 200) return;
+
+                    DirectoryInfo[] subdirs;
+                    try
+                    {
+                        subdirs = dir.GetDirectories();
+                    }
+                    catch
+                    {
+                        return;
+                    }
+
+                    foreach (var sub in subdirs.OrderBy(d => d.Name))
+                    {
+                        if (listaRelativas.Count >= 200) break;
+
+                        // Omitir carpetas ocultas, del sistema o contenedores internos de FileGDB
+                        if (sub.Attributes.HasFlag(FileAttributes.Hidden) ||
+                            sub.Name.StartsWith('.') ||
+                            sub.Name.StartsWith('$') ||
+                            sub.Name.EndsWith(".gdb", StringComparison.OrdinalIgnoreCase))
+                        {
+                            continue;
+                        }
+
+                        var rutaRelativa = Path.GetRelativePath(rootDir.FullName, sub.FullName);
+                        listaRelativas.Add(rutaRelativa);
+
+                        EscanearRecursivo(sub, profundidadActual + 1, maxProfundidad);
+                    }
+                }
+
+                EscanearRecursivo(rootDir, 1, 4);
+
+                foreach (var rel in listaRelativas)
+                {
+                    SubcarpetasDisponibles.Add(rel);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Warn($"Error escaneando subdirectorios en {Ruta}: {ex.Message}");
+            }
+        }
+
+        public void AbrirEditorTablaSubproyectos()
+        {
+            try
+            {
+                IReadOnlyList<SubproyectoItemFormulario>? subproyectosActualizados = null;
+
+                if (DialogoEditorTablaHandler != null)
+                {
+                    subproyectosActualizados = DialogoEditorTablaHandler(Subproyectos);
+                }
+                else
+                {
+                    subproyectosActualizados = MostrarDialogoEditorTablaSubproyectos();
+                }
+
+                if (subproyectosActualizados != null)
+                {
+                    AplicarSubproyectosDesdeTabla(subproyectosActualizados);
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error("Error en el editor tabular de subproyectos", ex);
+                _notifications?.ShowError($"Error en el editor de subproyectos: {ex.Message}", "Editor de Subproyectos");
+            }
+        }
+
+        private IReadOnlyList<SubproyectoItemFormulario>? MostrarDialogoEditorTablaSubproyectos()
+        {
+            if (System.Windows.Application.Current?.MainWindow is not MainWindow)
+            {
+                return null;
+            }
+
+            var vm = new ImportarSubproyectosCsvViewModel(
+                IdProyecto ?? 0,
+                MunicipiosDisponiblesSubproyecto,
+                Ruta,
+                SubcarpetasDisponibles,
+                TodosMunicipiosCatalogo);
+
+            vm.CargarSubproyectosExistentes(Subproyectos);
+
+            var window = new Views.ImportarSubproyectosCsvWindow(vm)
+            {
+                Owner = System.Windows.Application.Current.MainWindow
+            };
+
+            if (window.ShowDialog() == true)
+            {
+                return vm.ObtenerSubproyectosAprobados();
+            }
+            return null;
+        }
+
+        public void AplicarSubproyectosDesdeTabla(IReadOnlyList<SubproyectoItemFormulario> nuevos)
+        {
+            var nuevosIds = new HashSet<int>(nuevos.Where(s => s.IdSubproyecto > 0).Select(s => s.IdSubproyecto));
+            foreach (var existente in Subproyectos)
+            {
+                if (existente.IdSubproyecto > 0 && !nuevosIds.Contains(existente.IdSubproyecto))
+                {
+                    _subproyectosAEliminar.Add(existente.IdSubproyecto);
+                }
+            }
+
+            Subproyectos.Clear();
+            foreach (var sub in nuevos)
+            {
+                sub.IdProyecto = IdProyecto ?? 0;
+                sub.EsModificado = true;
+                Subproyectos.Add(sub);
+            }
+
+            OnPropertyChanged(nameof(HasSubproyectos));
+            OnPropertyChanged(nameof(NoHaySubproyectos));
+            OnPropertyChanged(nameof(TotalSubproyectos));
+
+            NotificarCambioSubproyectosPins();
+            _notifications?.ShowSuccess(
+                $"Se actualizaron {nuevos.Count} subproyectos exitosamente.",
+                "Subproyectos Actualizados");
+        }
+
+        private void ImportarSubproyectosCsv()
+        {
+            if (SelectorArchivoCsvHandler == null)
+            {
+                AbrirEditorTablaSubproyectos();
+                return;
+            }
+
+            try
+            {
+                string? rutaArchivo = SelectorArchivoCsvHandler();
+                if (string.IsNullOrWhiteSpace(rutaArchivo) || !File.Exists(rutaArchivo))
+                    return;
+
+                IReadOnlyList<SubproyectoItemFormulario>? subproyectosImportados = null;
+
+                if (DialogoImportacionCsvHandler != null)
+                {
+                    subproyectosImportados = DialogoImportacionCsvHandler(rutaArchivo);
+                }
+                else
+                {
+                    subproyectosImportados = MostrarDialogoImportacionCsv(rutaArchivo);
+                }
+
+                if (subproyectosImportados != null && subproyectosImportados.Count > 0)
+                {
+                    foreach (var sub in subproyectosImportados)
+                    {
+                        sub.IdProyecto = IdProyecto ?? 0;
+                        sub.EsModificado = true;
+                        Subproyectos.Add(sub);
+                    }
+
+                    OnPropertyChanged(nameof(HasSubproyectos));
+                    OnPropertyChanged(nameof(NoHaySubproyectos));
+                    OnPropertyChanged(nameof(TotalSubproyectos));
+
+                    NotificarCambioSubproyectosPins();
+                    _notifications?.ShowSuccess(
+                        $"Se importaron {subproyectosImportados.Count} subproyectos exitosamente.",
+                        "Importación Completada");
+                }
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error("Error al importar subproyectos desde CSV/TXT", ex);
+                _notifications?.ShowError($"Error durante la importación: {ex.Message}", "Importar CSV");
+            }
+        }
+
+        private IReadOnlyList<SubproyectoItemFormulario>? MostrarDialogoImportacionCsv(string rutaArchivo)
+        {
+            if (System.Windows.Application.Current?.MainWindow is not MainWindow)
+            {
+                return null;
+            }
+
+            var vm = new ImportarSubproyectosCsvViewModel(
+                IdProyecto ?? 0,
+                MunicipiosDisponiblesSubproyecto,
+                Ruta,
+                SubcarpetasDisponibles,
+                TodosMunicipiosCatalogo);
+            vm.CargarArchivo(rutaArchivo);
+
+            var window = new Views.ImportarSubproyectosCsvWindow(vm)
+            {
+                Owner = System.Windows.Application.Current.MainWindow
+            };
+
+            if (window.ShowDialog() == true)
+            {
+                return vm.ObtenerSubproyectosAprobados();
+            }
+            return null;
+        }
+
+        public void ActualizarMunicipiosDisponiblesSubproyecto()
+        {
+            var codigoPrevio = NuevoSubproyectoMunicipio?.Codigo;
+            var nombrePrevio = NuevoSubproyectoMunicipio?.Nombre;
+
+            MunicipiosDisponiblesSubproyecto.Clear();
+
+            foreach (var m in MunicipiosSeleccionados)
+            {
+                if (MunicipiosDisponiblesSubproyecto.All(item => item.Codigo != m.Codigo))
+                    MunicipiosDisponiblesSubproyecto.Add(new MunicipioItem(m.Codigo, m.EtiquetaCompleta));
+            }
+
+            if (SelectedMunicipio != null && MunicipiosDisponiblesSubproyecto.All(item => item.Codigo != SelectedMunicipio.Codigo))
+            {
+                MunicipiosDisponiblesSubproyecto.Add(SelectedMunicipio);
+            }
+
+            if (MunicipiosDisponiblesSubproyecto.Count == 0)
+            {
+                foreach (var m in Municipios)
+                    MunicipiosDisponiblesSubproyecto.Add(m);
+            }
+
+            if (!string.IsNullOrWhiteSpace(codigoPrevio))
+            {
+                NuevoSubproyectoMunicipio = MunicipiosDisponiblesSubproyecto.FirstOrDefault(m => string.Equals(m.Codigo, codigoPrevio, StringComparison.OrdinalIgnoreCase))
+                    ?? new MunicipioItem(codigoPrevio, nombrePrevio ?? codigoPrevio);
+            }
+        }
+
+        public async Task CargarDatosInicialesAsync(string? municipioCodigo = null)
         {
             _isUpdatingProgrammatically = true;
             try
             {
                 var deps = await _municipioRepository.ListarDepartamentosAsync();
                 Departamentos.Clear();
+                try
+                {
+                    var todos = await _municipioRepository.ListarTodosMunicipiosAsync();
+                    TodosMunicipiosCatalogo = todos.Select(m => new MunicipioItem(m.Codigo, m.Nombre)).ToList();
+                }
+                catch (Exception ex)
+                {
+                    AppLogger.Warn($"No se pudo precargar catálogo completo de municipios: {ex.Message}");
+                }
                 foreach (var d in deps)
                 {
                     Departamentos.Add(new DepartamentoItem(d.Codigo, d.Nombre));
@@ -286,6 +1040,40 @@ namespace Geomatica.Desktop.ViewModels
             }
 
             await ActualizarGeometriasMapaAsync();
+
+            ActualizarSubcarpetasDisponibles();
+
+            if (EsModoEdicion && IdProyecto.HasValue && _obtenerSubproyectosUseCase != null)
+            {
+                try
+                {
+                    var subs = await _obtenerSubproyectosUseCase.EjecutarAsync(IdProyecto.Value);
+                    Subproyectos.Clear();
+                    foreach (var s in subs)
+                    {
+                        Subproyectos.Add(new SubproyectoItemFormulario
+                        {
+                            IdSubproyecto = s.IdSubproyecto,
+                            IdProyecto = s.IdProyecto,
+                            Nombre = s.Nombre,
+                            MpioCdpmp = s.MunicipioCodigo,
+                            MunicipioNombre = s.MunicipioNombre,
+                            Subcarpeta = s.Subcarpeta,
+                            Lon = s.Lon,
+                            Lat = s.Lat,
+                            Descripcion = s.Descripcion
+                        });
+                    }
+                    OnPropertyChanged(nameof(HasSubproyectos));
+                    OnPropertyChanged(nameof(NoHaySubproyectos));
+                    OnPropertyChanged(nameof(TotalSubproyectos));
+                    NotificarCambioSubproyectosPins();
+                }
+                catch (Exception exSubs)
+                {
+                    AppLogger.Error("Error al cargar subproyectos existentes en formulario", exSubs);
+                }
+            }
         }
 
         private System.Collections.Generic.IReadOnlyList<string> ObtenerCodigosMunicipiosEfectivos()
@@ -443,6 +1231,11 @@ namespace Geomatica.Desktop.ViewModels
 
         async partial void OnSelectedMunicipioChanged(MunicipioItem? value)
         {
+            if (FormularioSubproyectoVisible)
+            {
+                ActualizarMunicipiosDisponiblesSubproyecto();
+            }
+
             if (_isUpdatingProgrammatically) return;
 
             if (value == null || string.IsNullOrEmpty(value.Codigo))
@@ -512,6 +1305,24 @@ namespace Geomatica.Desktop.ViewModels
                 {
                     _notifications?.ShowWarning("El punto seleccionado no se encuentra dentro del territorio de ningún municipio registrado.", "Ubicación Inválida");
                     return false;
+                }
+
+                if (FormularioSubproyectoVisible)
+                {
+                    NuevoSubproyectoLatStr = lat.ToString("F6", CultureInfo.InvariantCulture);
+                    NuevoSubproyectoLonStr = lon.ToString("F6", CultureInfo.InvariantCulture);
+
+                    if (SelectedMunicipio == null && MunicipiosSeleccionados.Count == 0)
+                    {
+                        await AsignarUbicacionDetectadaAsync(ubicacion);
+                        SetCoordenadas(lat, lon);
+                    }
+
+                    ActualizarMunicipiosDisponiblesSubproyecto();
+                    var matchMuni = MunicipiosDisponiblesSubproyecto.FirstOrDefault(m => string.Equals(m.Codigo, ubicacion.MunicipioCodigo, StringComparison.OrdinalIgnoreCase))
+                        ?? new MunicipioItem(ubicacion.MunicipioCodigo, ubicacion.MunicipioNombre);
+                    NuevoSubproyectoMunicipio = matchMuni;
+                    return true;
                 }
 
                 // Si ya pertenece a alguno de los municipios seleccionados en un proyecto multidepartamental/multimunicipal
@@ -630,6 +1441,12 @@ namespace Geomatica.Desktop.ViewModels
             LatStr = lat.ToString("F6", CultureInfo.InvariantCulture);
             LonStr = lon.ToString("F6", CultureInfo.InvariantCulture);
             CoordenadasPinChanged?.Invoke(lat, lon);
+
+            if (FormularioSubproyectoVisible)
+            {
+                NuevoSubproyectoLatStr = LatStr;
+                NuevoSubproyectoLonStr = LonStr;
+            }
         }
 
         // ═══════════════════════════════════════════════════════════════
@@ -854,6 +1671,7 @@ namespace Geomatica.Desktop.ViewModels
                 string usuarioActual = System.Security.Principal.WindowsIdentity.GetCurrent()?.Name ?? Environment.UserName;
                 string equipoActual = Environment.MachineName;
 
+                int nuevoId = 0;
                 if (EsModoEdicion)
                 {
                     if (_actualizarProyectoUseCase == null || !IdProyecto.HasValue)
@@ -891,7 +1709,7 @@ namespace Geomatica.Desktop.ViewModels
                         return;
                     }
 
-                    await _crearProyectoUseCase.EjecutarAsync(
+                    nuevoId = await _crearProyectoUseCase.EjecutarAsync(
                         Titulo,
                         Descripcion,
                         FechaInicio,
@@ -910,6 +1728,67 @@ namespace Geomatica.Desktop.ViewModels
                     );
 
                     _notifications?.ShowSuccess("Proyecto creado exitosamente.", "Proyecto Creado");
+                }
+
+                // Guardar y sincronizar subproyectos
+                int idProyectoDestino = EsModoEdicion ? (IdProyecto ?? 0) : nuevoId;
+                if (idProyectoDestino > 0)
+                {
+                    if (_eliminarSubproyectoUseCase != null && _subproyectosAEliminar.Count > 0)
+                    {
+                        foreach (var subId in _subproyectosAEliminar)
+                        {
+                            try { await _eliminarSubproyectoUseCase.EjecutarAsync(subId); }
+                            catch (Exception exDel) { AppLogger.Error($"Error eliminando subproyecto {subId}", exDel); }
+                        }
+                        _subproyectosAEliminar.Clear();
+                    }
+
+                    if (_guardarSubproyectoUseCase != null)
+                    {
+                        // 1. Insertar subproyectos nuevos
+                        foreach (var sub in Subproyectos.Where(s => s.EsNuevo))
+                        {
+                            try
+                            {
+                                int subId = await _guardarSubproyectoUseCase.EjecutarAsync(
+                                    idProyectoDestino,
+                                    sub.Nombre,
+                                    sub.MpioCdpmp,
+                                    sub.Subcarpeta,
+                                    sub.Lon,
+                                    sub.Lat,
+                                    sub.Descripcion);
+                                sub.IdSubproyecto = subId;
+                                sub.EsModificado = false;
+                            }
+                            catch (Exception exSub)
+                            {
+                                AppLogger.Error($"Error guardando subproyecto nuevo '{sub.Nombre}'", exSub);
+                            }
+                        }
+
+                        // 2. Actualizar subproyectos existentes modificados
+                        foreach (var sub in Subproyectos.Where(s => !s.EsNuevo && s.EsModificado))
+                        {
+                            try
+                            {
+                                await _guardarSubproyectoUseCase.ActualizarAsync(
+                                    sub.IdSubproyecto,
+                                    sub.Nombre,
+                                    sub.MpioCdpmp,
+                                    sub.Subcarpeta,
+                                    sub.Lon,
+                                    sub.Lat,
+                                    sub.Descripcion);
+                                sub.EsModificado = false;
+                            }
+                            catch (Exception exSub)
+                            {
+                                AppLogger.Error($"Error actualizando subproyecto existente '{sub.Nombre}'", exSub);
+                            }
+                        }
+                    }
                 }
 
                 _onGuardadoExitoso?.Invoke();
@@ -967,6 +1846,152 @@ namespace Geomatica.Desktop.ViewModels
             public string EtiquetaCompleta => string.IsNullOrWhiteSpace(DepartamentoNombre)
                 ? Nombre
                 : $"{Nombre} ({DepartamentoNombre})";
+        }
+    }
+
+    /// <summary>
+    /// Modelo de datos para subproyectos / sitios de obra editables en el formulario.
+    /// </summary>
+    public class SubproyectoItemFormulario : ObservableObject
+    {
+        private int _idSubproyecto;
+        private int _idProyecto;
+        private string _nombre = string.Empty;
+        private string? _mpioCdpmp;
+        private string? _municipioNombre;
+        private string _subcarpeta = string.Empty;
+        private double _lon;
+        private double _lat;
+        private string? _descripcion;
+        private bool _esModificado;
+
+        public int IdSubproyecto
+        {
+            get => _idSubproyecto;
+            set
+            {
+                if (SetProperty(ref _idSubproyecto, value))
+                {
+                    OnPropertyChanged(nameof(EsNuevo));
+                }
+            }
+        }
+
+        public int IdProyecto
+        {
+            get => _idProyecto;
+            set => SetProperty(ref _idProyecto, value);
+        }
+
+        public string Nombre
+        {
+            get => _nombre;
+            set => SetProperty(ref _nombre, value);
+        }
+
+        public string? MpioCdpmp
+        {
+            get => _mpioCdpmp;
+            set
+            {
+                if (SetProperty(ref _mpioCdpmp, value))
+                {
+                    OnPropertyChanged(nameof(MunicipioTexto));
+                }
+            }
+        }
+
+        public string? MunicipioNombre
+        {
+            get => _municipioNombre;
+            set
+            {
+                if (SetProperty(ref _municipioNombre, value))
+                {
+                    OnPropertyChanged(nameof(MunicipioTexto));
+                }
+            }
+        }
+
+        public string Subcarpeta
+        {
+            get => _subcarpeta;
+            set => SetProperty(ref _subcarpeta, value);
+        }
+
+        public double Lon
+        {
+            get => _lon;
+            set
+            {
+                if (SetProperty(ref _lon, value))
+                {
+                    OnPropertyChanged(nameof(CoordenadasTexto));
+                    OnPropertyChanged(nameof(TieneCoordenadas));
+                }
+            }
+        }
+
+        public double Lat
+        {
+            get => _lat;
+            set
+            {
+                if (SetProperty(ref _lat, value))
+                {
+                    OnPropertyChanged(nameof(CoordenadasTexto));
+                    OnPropertyChanged(nameof(TieneCoordenadas));
+                }
+            }
+        }
+
+        public string? Descripcion
+        {
+            get => _descripcion;
+            set
+            {
+                if (SetProperty(ref _descripcion, value))
+                {
+                    OnPropertyChanged(nameof(HasDescripcion));
+                }
+            }
+        }
+
+        public bool EsModificado
+        {
+            get => _esModificado;
+            set => SetProperty(ref _esModificado, value);
+        }
+
+        public bool EsNuevo => IdSubproyecto <= 0;
+        public bool EsModificadoExistente => !EsNuevo && EsModificado;
+        public bool HasDescripcion => !string.IsNullOrWhiteSpace(Descripcion);
+        public bool TieneCoordenadas => Lon != 0 || Lat != 0;
+
+        public string CoordenadasTexto => (Lon != 0 || Lat != 0)
+            ? $"{Lat.ToString("F4", CultureInfo.InvariantCulture)}°N, {Lon.ToString("F4", CultureInfo.InvariantCulture)}°W"
+            : "Sin coordenadas";
+
+        public string MunicipioTexto => !string.IsNullOrWhiteSpace(MunicipioNombre)
+            ? MunicipioNombre
+            : (!string.IsNullOrWhiteSpace(MpioCdpmp) ? MpioCdpmp : "Sin municipio");
+
+        public void NotificarTodos()
+        {
+            OnPropertyChanged(nameof(Nombre));
+            OnPropertyChanged(nameof(MpioCdpmp));
+            OnPropertyChanged(nameof(MunicipioNombre));
+            OnPropertyChanged(nameof(MunicipioTexto));
+            OnPropertyChanged(nameof(Subcarpeta));
+            OnPropertyChanged(nameof(Lon));
+            OnPropertyChanged(nameof(Lat));
+            OnPropertyChanged(nameof(TieneCoordenadas));
+            OnPropertyChanged(nameof(CoordenadasTexto));
+            OnPropertyChanged(nameof(Descripcion));
+            OnPropertyChanged(nameof(HasDescripcion));
+            OnPropertyChanged(nameof(EsModificado));
+            OnPropertyChanged(nameof(EsModificadoExistente));
+            OnPropertyChanged(nameof(EsNuevo));
         }
     }
 }

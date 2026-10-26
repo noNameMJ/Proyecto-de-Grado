@@ -9,6 +9,7 @@ using System.Windows;
 using System.Windows.Controls;
 using Geomatica.Desktop.Services;
 using Geomatica.Desktop.Models;
+using Geomatica.Infrastructure.Gis.Services;
 
 namespace Geomatica.Desktop.Views
 {
@@ -50,6 +51,7 @@ namespace Geomatica.Desktop.Views
                 {
                     oldVm.Filtros.BuscarSolicitado -= Filtros_BuscarSolicitado;
                     oldVm.Filtros.ProyectoSeleccionadoEnMapa -= Filtros_ProyectoSeleccionadoEnMapa;
+                    oldVm.Filtros.SubproyectoSeleccionadoEnMapa -= Filtros_SubproyectoSeleccionadoEnMapa;
                 }
                 if (oldVm.ArchivosVM != null)
                 {
@@ -93,6 +95,7 @@ namespace Geomatica.Desktop.Views
                 {
                     newVm.Filtros.BuscarSolicitado += Filtros_BuscarSolicitado;
                     newVm.Filtros.ProyectoSeleccionadoEnMapa += Filtros_ProyectoSeleccionadoEnMapa;
+                    newVm.Filtros.SubproyectoSeleccionadoEnMapa += Filtros_SubproyectoSeleccionadoEnMapa;
                 }
                 if (newVm.ArchivosVM != null)
                 {
@@ -145,10 +148,11 @@ namespace Geomatica.Desktop.Views
                     }
                 }
 
-                // Load proyectos: solo si es la primera carga o si el caché fue invalidado.
-                // Al volver al mapa (LastViewpoint != null) con capas ya cargadas, no hay necesidad
+                // Load proyectos: solo si es la primera carga y no fueron precargados en el Splash Screen,
+                // o si el caché fue invalidado.
+                // Al volver al mapa (o tras la precarga exitosa del Splash) con capas ya cargadas, no hay necesidad
                 // de re-consultar la BD ni recrear las capas.
-                bool necesitaCargar = newVm.LastViewpoint == null || newVm.LayerProyectos == null;
+                bool necesitaCargar = newVm.LayerProyectos == null && newVm.LayerMunicipios == null;
                 if (necesitaCargar)
                 {
                     _loadCts?.Cancel();
@@ -231,6 +235,7 @@ namespace Geomatica.Desktop.Views
                 {
                     vm.Filtros.BuscarSolicitado -= Filtros_BuscarSolicitado;
                     vm.Filtros.ProyectoSeleccionadoEnMapa -= Filtros_ProyectoSeleccionadoEnMapa;
+                    vm.Filtros.SubproyectoSeleccionadoEnMapa -= Filtros_SubproyectoSeleccionadoEnMapa;
                 }
                 if (vm.ArchivosVM != null)
                 {
@@ -525,6 +530,22 @@ namespace Geomatica.Desktop.Views
             }
         }
 
+        private async void Filtros_SubproyectoSeleccionadoEnMapa(object? sender, SubproyectoDto sub)
+        {
+            if (_currentVm != null && (sub.Lon != 0 || sub.Lat != 0))
+            {
+                try
+                {
+                    _currentVm.AsegurarSubproyectoVisibleEnMapa(sub);
+                    await _currentVm.CentrarEnSubproyectoAsync(sub.Lon, sub.Lat, sub.Nombre);
+                }
+                catch (Exception ex)
+                {
+                    Debug.WriteLine($"[MapaView] Error al centrar en subproyecto: {ex}");
+                }
+            }
+        }
+
         private static long? BuscarOidEnResultado(IdentifyLayerResult result)
         {
             foreach (var element in result.GeoElements)
@@ -556,6 +577,53 @@ namespace Geomatica.Desktop.Views
                 {
                     _currentVm.AgregarPuntoMedicion(e.Location);
                     return;
+                }
+
+                // 1. Identificar si se hizo tap en un subproyecto / embarcadero puntual en el mapa
+                if (_currentVm.OverlaySubproyectos != null && _currentVm.OverlaySubproyectos.Graphics.Count > 0)
+                {
+                    var subResult = await mv.IdentifyGraphicsOverlayAsync(_currentVm.OverlaySubproyectos, e.Position, 12, false);
+                    if (subResult.Graphics.Count > 0)
+                    {
+                        var g = subResult.Graphics.FirstOrDefault(gr => gr.Attributes.ContainsKey("tipo") && gr.Attributes["tipo"]?.ToString() == "subproyecto")
+                            ?? subResult.Graphics[0];
+
+                        if (g.Attributes.TryGetValue("nombre", out var nomVal) && nomVal != null)
+                        {
+                            mv.DismissCallout();
+                            string nombre = nomVal.ToString()!;
+                            string subcarpeta = g.Attributes.TryGetValue("subcarpeta", out var sc) ? sc?.ToString() ?? "" : "";
+                            string municipio = g.Attributes.TryGetValue("municipio", out var mp) ? mp?.ToString() ?? "" : "";
+                            string desc = g.Attributes.TryGetValue("descripcion", out var d) ? d?.ToString() ?? "" : "";
+                            double lat = g.Attributes.TryGetValue("lat", out var la) && la is double ld ? ld : 0;
+                            double lon = g.Attributes.TryGetValue("lon", out var lo) && lo is double lod ? lod : 0;
+                            int idProySub = g.Attributes.TryGetValue("id_proyecto", out var idp) && idp is int ip ? ip : 0;
+
+                            var atributos = new List<KeyValuePair<string, string>>
+                            {
+                                new("Subproyecto / Frente", nombre),
+                                new("Subcarpeta", string.IsNullOrWhiteSpace(subcarpeta) ? "Raíz" : $"/{subcarpeta}"),
+                            };
+                            if (!string.IsNullOrWhiteSpace(municipio))
+                                atributos.Add(new("Municipio", municipio));
+                            if (lat != 0 && lon != 0)
+                                atributos.Add(new("Coordenadas", $"{lat:F5}° N, {lon:F5}° W"));
+                            if (!string.IsNullOrWhiteSpace(desc))
+                                atributos.Add(new("Descripción", desc));
+
+                            _currentVm.ElementoIdentificado = new ElementoIdentificadoInfo
+                            {
+                                NombreCapa = "Subproyectos / Sitios de Obra",
+                                TituloElemento = $"📍 {nombre}",
+                                TipoIcono = "📍",
+                                Geometria = g.Geometry,
+                                Atributos = atributos,
+                                IdProyecto = idProySub > 0 ? idProySub : null,
+                                Subcarpeta = subcarpeta
+                            };
+                            return;
+                        }
+                    }
                 }
 
                 int? idProyecto = null;
@@ -723,12 +791,17 @@ namespace Geomatica.Desktop.Views
         {
             try
             {
+                AppLogger.Info("[MapaView] Iniciando consulta y carga de proyectos...");
                 var items = await vm.BuscarConFiltrosGeograficosAsync(ct);
 
                 // Si llegó una búsqueda más reciente, descartar estos resultados
-                if (ct.IsCancellationRequested) return;
+                if (ct.IsCancellationRequested)
+                {
+                    AppLogger.Info("[MapaView] Carga de proyectos cancelada por una solicitud más reciente.");
+                    return;
+                }
 
-                if (ct.IsCancellationRequested) return;
+                AppLogger.Info($"[MapaView] Búsqueda completada exitosamente. {items.Count} proyectos encontrados.");
 
                 if (adjustViewpoint)
                 {
@@ -760,40 +833,22 @@ namespace Geomatica.Desktop.Views
                     }
                 }
 
-                // Update UI-bound collections on UI thread
-                await Dispatcher.InvokeAsync(() =>
+                // Garantizar sincronización de resultados en el panel de filtros
+                if (!ct.IsCancellationRequested)
                 {
-                    if (ct.IsCancellationRequested) return;
-
-                    vm.Filtros.ResultadosLista.Clear();
-                    vm.Filtros.ResultadosResumen.Clear();
-
-                    foreach (var p in items)
+                    if (vm.Filtros.ResultadosLista.Count == 0 && items.Count > 0)
                     {
-                        vm.Filtros.ResultadosLista.Add(new ViewModels.FiltrosViewModel.ProyectoItem(
-                            p.Id, p.Titulo, p.Longitud, p.Latitud, p.RutaArchivos,
-                            p.Fecha, p.PalabrasClave, p.Responsable,
-                            p.MinX, p.MinY, p.MaxX, p.MaxY));
+                        vm.ActualizarResultadosFiltros(items, vm.UltimosSubproyectosPorProyecto);
                     }
-
-                    string textoConteo = items.Count == 1 ? "1 proyecto encontrado" : $"{items.Count} proyectos encontrados";
-                    vm.Filtros.ResultadosResumen.Add(textoConteo);
-
-                    if (items.Count == 0)
-                    {
-                        Debug.WriteLine("[MapaView] No se encontraron proyectos en la consulta.");
-                    }
-
-                    vm.Filtros.NotificarResultadosCargados();
-                });
+                }
             }
             catch (OperationCanceledException)
             {
-                // Query cancelada por un filtro más reciente, es esperado
+                AppLogger.Info("[MapaView] Operación de carga de proyectos cancelada.");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[MapaView] Error cargando proyectos: {ex}");
+                AppLogger.Error($"[MapaView] Error cargando proyectos: {ex.Message}", ex);
                 await Dispatcher.InvokeAsync(() =>
                 {
                     vm.Filtros.NotificarErrorConexion($"No se pudo consultar PostgreSQL ({ex.Message}). Verifique VPN o conexión.");

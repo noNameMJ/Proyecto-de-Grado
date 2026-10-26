@@ -24,8 +24,11 @@ namespace Geomatica.Desktop.ViewModels
             EliminarProyectoUseCase? eliminarProyectoUseCase = null,
             INotificationService? notifications = null,
             ProyectoArchivosService? archivosService = null,
-            ISeguridadService? seguridadService = null)
-            : base(actualizarProyectoUseCase, municipioRepository, proyecto, navigateBack, onProyectoEditado, eliminarProyectoUseCase, notifications, archivosService, seguridadService)
+            ISeguridadService? seguridadService = null,
+            GuardarSubproyectoUseCase? guardarSubproyectoUseCase = null,
+            ObtenerSubproyectosUseCase? obtenerSubproyectosUseCase = null,
+            EliminarSubproyectoUseCase? eliminarSubproyectoUseCase = null)
+            : base(actualizarProyectoUseCase, municipioRepository, proyecto, navigateBack, onProyectoEditado, eliminarProyectoUseCase, notifications, archivosService, seguridadService, guardarSubproyectoUseCase, obtenerSubproyectosUseCase, eliminarSubproyectoUseCase)
         {
         }
 
@@ -38,9 +41,13 @@ namespace Geomatica.Desktop.ViewModels
             EliminarProyectoUseCase? eliminarProyectoUseCase = null,
             INotificationService? notifications = null,
             ProyectoArchivosService? archivosService = null,
-            ISeguridadService? seguridadService = null)
-            : this(new ActualizarProyectoUseCase(proyectoRepository), municipioRepository, proyecto, navigateBack, onProyectoEditado, eliminarProyectoUseCase, notifications, archivosService, seguridadService)
+            ISeguridadService? seguridadService = null,
+            GuardarSubproyectoUseCase? guardarSubproyectoUseCase = null,
+            ObtenerSubproyectosUseCase? obtenerSubproyectosUseCase = null,
+            EliminarSubproyectoUseCase? eliminarSubproyectoUseCase = null)
+            : this(new ActualizarProyectoUseCase(proyectoRepository), municipioRepository, proyecto, navigateBack, onProyectoEditado, eliminarProyectoUseCase, notifications, archivosService, seguridadService, guardarSubproyectoUseCase, obtenerSubproyectosUseCase, eliminarSubproyectoUseCase)
         {
         }
     }
 }
+

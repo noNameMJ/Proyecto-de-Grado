@@ -21,7 +21,7 @@ public interface IProyectoRepository
     Task<IReadOnlyList<string>> ObtenerTodosCodigosMunicipioAsync();
     Task<IReadOnlyList<ProyectoDto>> ListarPorDepartamentoAsync(string dptoCcdgo, DateTime? desde = null, DateTime? hasta = null, string? keyword = null);
     Task<IReadOnlyList<ProyectoDto>> ListarPorMunicipioAsync(string mpioCcdgo, DateTime? desde = null, DateTime? hasta = null, string? keyword = null);
-    Task InsertarAsync(string titulo, string? descripcion, DateTime? fechaInicio, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, DateTime? fechaFin = null, string? entidades = null, string? representante = null, string? sistemaReferencia = null, string? formatoDatos = null, string? linaje = null);
+    Task<int> InsertarAsync(string titulo, string? descripcion, DateTime? fechaInicio, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, DateTime? fechaFin = null, string? entidades = null, string? representante = null, string? sistemaReferencia = null, string? formatoDatos = null, string? linaje = null);
     Task<ProyectoDetalleDto?> ObtenerPorIdAsync(int idProyecto);
     Task ActualizarAsync(int idProyecto, string titulo, string? descripcion, DateTime? fechaInicio, string? palabraClave, string? ruta, string? geom, string? municipioCodigo, string? usuario = null, string? equipo = null, DateTime? fechaFin = null, string? entidades = null, string? representante = null, string? sistemaReferencia = null, string? formatoDatos = null, string? linaje = null);
     Task EliminarAsync(int idProyecto, CancellationToken ct = default);
@@ -30,4 +30,10 @@ public interface IProyectoRepository
     Task RegistrarAuditoriaAsync(int idProyecto, string tituloProyecto, string accion, string detalles, string? usuario = null, string? equipo = null, CancellationToken ct = default);
     Task AsegurarTablaAuditoriaAsync(CancellationToken ct = default);
     Task AsegurarColumnasProyectoAsync(CancellationToken ct = default);
+    Task<IReadOnlyList<SubproyectoDto>> ObtenerSubproyectosAsync(int idProyecto, CancellationToken ct = default);
+    Task<IReadOnlyDictionary<int, IReadOnlyList<SubproyectoDto>>> ObtenerSubproyectosPorProyectosAsync(IReadOnlyList<int> idsProyecto, CancellationToken ct = default);
+    Task<int> InsertarSubproyectoAsync(int idProyecto, string nombre, string? mpioCdpmp, string subcarpeta, double lon, double lat, string? descripcion = null, CancellationToken ct = default);
+    Task ActualizarSubproyectoAsync(int idSubproyecto, string nombre, string? mpioCdpmp, string subcarpeta, double lon, double lat, string? descripcion = null, CancellationToken ct = default);
+    Task EliminarSubproyectoAsync(int idSubproyecto, CancellationToken ct = default);
+    Task AsegurarTablaSubproyectosAsync(CancellationToken ct = default);
 }

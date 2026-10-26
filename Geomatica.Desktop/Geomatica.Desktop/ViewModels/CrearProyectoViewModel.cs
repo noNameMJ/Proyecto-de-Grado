@@ -18,8 +18,11 @@ namespace Geomatica.Desktop.ViewModels
             ProyectoArchivosService proyectoArchivosService,
             Action navigateBack,
             Action? onProyectoCreado = null,
-            INotificationService? notifications = null)
-            : base(crearProyectoUseCase, municipioRepository, proyectoArchivosService, navigateBack, onProyectoCreado, notifications)
+            INotificationService? notifications = null,
+            GuardarSubproyectoUseCase? guardarSubproyectoUseCase = null,
+            ObtenerSubproyectosUseCase? obtenerSubproyectosUseCase = null,
+            EliminarSubproyectoUseCase? eliminarSubproyectoUseCase = null)
+            : base(crearProyectoUseCase, municipioRepository, proyectoArchivosService, navigateBack, onProyectoCreado, notifications, guardarSubproyectoUseCase, obtenerSubproyectosUseCase, eliminarSubproyectoUseCase)
         {
         }
 
@@ -29,9 +32,13 @@ namespace Geomatica.Desktop.ViewModels
             ProyectoArchivosService proyectoArchivosService,
             Action navigateBack,
             Action? onProyectoCreado = null,
-            INotificationService? notifications = null)
-            : this(new CrearProyectoUseCase(proyectoRepository), municipioRepository, proyectoArchivosService, navigateBack, onProyectoCreado, notifications)
+            INotificationService? notifications = null,
+            GuardarSubproyectoUseCase? guardarSubproyectoUseCase = null,
+            ObtenerSubproyectosUseCase? obtenerSubproyectosUseCase = null,
+            EliminarSubproyectoUseCase? eliminarSubproyectoUseCase = null)
+            : this(new CrearProyectoUseCase(proyectoRepository), municipioRepository, proyectoArchivosService, navigateBack, onProyectoCreado, notifications, guardarSubproyectoUseCase, obtenerSubproyectosUseCase, eliminarSubproyectoUseCase)
         {
         }
     }
 }
+

@@ -150,7 +150,10 @@
                 <ListBox Grid.Row="1" ItemsSource="{Binding ResultadosLista}" 
                          SelectedItem="{Binding SelectedProyecto, Mode=TwoWay}" 
                          Style="{StaticResource ModernListBox}"
-                         ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
+                         ScrollViewer.CanContentScroll="False"
+                         VirtualizingPanel.ScrollUnit="Pixel">
                     <ListBox.ItemTemplate>
                         <DataTemplate>
                             <Border Margin="0,3" CornerRadius="6" Background="White"
@@ -201,6 +204,91 @@
                                                        Foreground="{StaticResource TextMutedBrush}" FontFamily="{StaticResource AppFont}"
                                                        TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
                                         </DockPanel>
+
+                                        <!-- Desplegable de Subproyectos y Frentes de Trabajo -->
+                                        <Expander Margin="0,6,0,0"
+                                                  IsExpanded="{Binding EstaExpandido, Mode=TwoWay}"
+                                                  Visibility="{Binding HasSubproyectos, Converter={StaticResource BoolToVis}}"
+                                                  BorderThickness="0"
+                                                  Background="Transparent">
+                                            <Expander.Header>
+                                                <Border Background="#F0F9FF" BorderBrush="#BAE6FD" BorderThickness="1"
+                                                        CornerRadius="4" Padding="6,2" Margin="0,1">
+                                                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                        <TextBlock Text="📍 " FontSize="10.5" VerticalAlignment="Center"/>
+                                                        <TextBlock Text="{Binding SubproyectosBadgeTexto}" FontSize="10.5" FontWeight="SemiBold"
+                                                                   Foreground="#0369A1" VerticalAlignment="Center"/>
+                                                    </StackPanel>
+                                                </Border>
+                                            </Expander.Header>
+
+                                            <Border Margin="0,4,0,2" Background="#F8FAFC" BorderBrush="#E2E8F0" BorderThickness="1"
+                                                    CornerRadius="6" Padding="6,6">
+                                                <ItemsControl ItemsSource="{Binding Subproyectos}">
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Border Background="White" BorderBrush="#E2E8F0" BorderThickness="1"
+                                                                    CornerRadius="4" Padding="8,6" Margin="0,0,0,5">
+                                                                <Grid>
+                                                                    <Grid.RowDefinitions>
+                                                                        <RowDefinition Height="Auto"/>
+                                                                        <RowDefinition Height="Auto"/>
+                                                                        <RowDefinition Height="Auto"/>
+                                                                    </Grid.RowDefinitions>
+
+                                                                    <!-- Fila 1: Nombre y Municipio -->
+                                                                    <DockPanel Grid.Row="0">
+                                                                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                                                                            <TextBlock Text="📍 " FontSize="10.5" VerticalAlignment="Center" Foreground="#0284C7"/>
+                                                                            <TextBlock Text="{Binding Nombre}" FontSize="11" FontWeight="Bold"
+                                                                                       Foreground="{StaticResource TextPrimaryBrush}" TextTrimming="CharacterEllipsis"/>
+                                                                        </StackPanel>
+                                                                        <Border DockPanel.Dock="Right" Background="#F1F5F9" BorderBrush="#CBD5E1" BorderThickness="1"
+                                                                                CornerRadius="3" Padding="4,1" Margin="4,0,0,0" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                                                            <TextBlock Text="{Binding UbicacionMunicipioTexto}" FontSize="9" FontWeight="SemiBold"
+                                                                                       Foreground="#475569"/>
+                                                                        </Border>
+                                                                    </DockPanel>
+
+                                                                    <!-- Fila 2: Subcarpeta y Coordenadas -->
+                                                                    <StackPanel Grid.Row="1" Margin="0,3,0,4">
+                                                                        <TextBlock Text="{Binding Subcarpeta, StringFormat='📁 /{0}'}"
+                                                                                   FontSize="10" FontFamily="Consolas" Foreground="#0284C7" TextTrimming="CharacterEllipsis"/>
+                                                                        <TextBlock Text="{Binding CoordenadasTexto, StringFormat='🌐 {0}'}"
+                                                                                   FontSize="9.5" Foreground="{StaticResource TextMutedBrush}"/>
+                                                                    </StackPanel>
+
+                                                                    <!-- Fila 3: Botones de Acción (Ubicar en Mapa y Explorar Archivos) -->
+                                                                    <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,2,0,0">
+                                                                        <Button Command="{Binding DataContext.UbicarSubproyectoCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                                CommandParameter="{Binding}"
+                                                                                Style="{StaticResource GhostButton}"
+                                                                                Padding="6,2" Margin="0,0,4,0" FontSize="10"
+                                                                                ToolTip="Ubicar y enfocar este subproyecto en el mapa">
+                                                                            <StackPanel Orientation="Horizontal">
+                                                                                <TextBlock Text="🎯 " FontSize="10" VerticalAlignment="Center"/>
+                                                                                <TextBlock Text="Ubicar" FontSize="10" VerticalAlignment="Center"/>
+                                                                            </StackPanel>
+                                                                        </Button>
+
+                                                                        <Button Command="{Binding DataContext.AbrirArchivosSubproyectoCommand, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                                                CommandParameter="{Binding}"
+                                                                                Style="{StaticResource GhostButton}"
+                                                                                Padding="6,2" FontSize="10"
+                                                                                ToolTip="Abrir la subcarpeta de este subproyecto en el explorador de archivos">
+                                                                            <StackPanel Orientation="Horizontal">
+                                                                                <TextBlock Text="📂 " FontSize="10" VerticalAlignment="Center"/>
+                                                                                <TextBlock Text="Archivos" FontSize="10" VerticalAlignment="Center"/>
+                                                                            </StackPanel>
+                                                                        </Button>
+                                                                    </StackPanel>
+                                                                </Grid>
+                                                            </Border>
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                            </Border>
+                                        </Expander>
                                     </StackPanel>
                                 </Grid>
                             </Border>

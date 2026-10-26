@@ -16,6 +16,7 @@ using Geomatica.Domain.Entities;
 using Geomatica.Domain.Interfaces.Repositories;
 using Geomatica.Desktop.ViewModels;
 using Geomatica.Desktop.Services;
+using Geomatica.Desktop.Views;
 using Npgsql;
 
 namespace Geomatica.Desktop
@@ -24,7 +25,7 @@ namespace Geomatica.Desktop
     {
         private IServiceProvider? _serviceProvider;
 
-        protected override void OnStartup(StartupEventArgs e)
+        protected override async void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
 
@@ -167,6 +168,15 @@ namespace Geomatica.Desktop
                 return;
             }
 
+            // Configurar ShutdownMode para que cerrar la pantalla de carga no finalice la aplicación
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+            var splash = new SplashScreenWindow();
+            splash.Show();
+
+            splash.ActualizarEstado("Iniciando aplicación Geomática UIS...", "Cargando configuración institucional y credenciales...", 15);
+            await Task.Yield();
+
             // Configure DI
             var services = new ServiceCollection();
 
@@ -189,12 +199,13 @@ namespace Geomatica.Desktop
             }
 
             // Test DB connection early to provide clear feedback
+            splash.ActualizarEstado("Conectando con base de datos...", "Comprobando conexión con PostgreSQL UIS (10.0.29.8)...", 35);
             var dbOk = false;
             try
             {
                 using var testCon = new NpgsqlConnection(cs);
-                testCon.Open();
-                testCon.Close();
+                await testCon.OpenAsync();
+                await testCon.CloseAsync();
                 AppLogger.Info("Conexión a Base de Datos PostgreSQL exitosa.");
                 dbOk = true;
             }
@@ -205,21 +216,22 @@ namespace Geomatica.Desktop
                 {
                     var builderCheck = new NpgsqlConnectionStringBuilder(cs);
                     var msg = $"No se pudo conectar a la base de datos.\n\nTarget: Host={builderCheck.Host}:{builderCheck.Port}, Database={builderCheck.Database}\n\nError: {ex.Message}\n\nLa aplicación continuará, pero algunas funcionalidades podrán fallar.";
-                    MessageBox.Show(msg, "Error conexión Postgres", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show(splash, msg, "Error conexión Postgres", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
                 catch
                 {
-                    MessageBox.Show($"No se pudo conectar a la base de datos.\n\nError: {ex.Message}", "Error conexión Postgres", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    MessageBox.Show(splash, $"No se pudo conectar a la base de datos.\n\nError: {ex.Message}", "Error conexión Postgres", MessageBoxButton.OK, MessageBoxImage.Warning);
                 }
             }
 
             // If DB connected, verify required tables exist in schema 'geovisor'
             if (dbOk)
             {
+                splash.ActualizarEstado("Verificando esquema territorial...", "Comprobando tablas y registros espaciales geovisor...", 55);
                 try
                 {
                     using var con = new NpgsqlConnection(cs);
-                    con.Open();
+                    await con.OpenAsync();
 
                     var requiredTables = new[] { "proyecto", "municipio" };
                     var missing = new List<string>();
@@ -230,7 +242,7 @@ namespace Geomatica.Desktop
                             "SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema = 'geovisor' AND table_name = @t);",
                             con);
                         cmd.Parameters.AddWithValue("@t", tbl);
-                        var exists = (cmd.ExecuteScalar() as bool?) == true;
+                        var exists = ((await cmd.ExecuteScalarAsync()) as bool?) == true;
                         if (!exists) missing.Add(tbl);
                     }
 
@@ -238,13 +250,13 @@ namespace Geomatica.Desktop
                     {
                         var msg = $"La base de datos existe pero faltan tablas en el esquema 'geovisor': {string.Join(", ", missing)}.\n\nVerifica que la migración/creación de tablas se haya ejecutado.";
                         AppLogger.Warn($"Tablas faltantes en geovisor: {string.Join(", ", missing)}");
-                        MessageBox.Show(msg, "Tablas faltantes", MessageBoxButton.OK, MessageBoxImage.Warning);
+                        MessageBox.Show(splash, msg, "Tablas faltantes", MessageBoxButton.OK, MessageBoxImage.Warning);
                     }
 
                     try
                     {
                         using var cntCmd = new NpgsqlCommand("SELECT COUNT(*) FROM geovisor.proyecto;", con);
-                        var cntObj = cntCmd.ExecuteScalar();
+                        var cntObj = await cntCmd.ExecuteScalarAsync();
                         var count = cntObj == null || cntObj == DBNull.Value ? 0L : Convert.ToInt64(cntObj);
                         AppLogger.Info($"Proyectos registrados en geovisor.proyecto: {count}");
                     }
@@ -253,13 +265,15 @@ namespace Geomatica.Desktop
                         AppLogger.Warn($"Error contando proyectos: {ex.Message}");
                     }
 
-                    con.Close();
+                    await con.CloseAsync();
                 }
                 catch (Exception ex)
                 {
                     AppLogger.Error("Error verificando tablas", ex);
                 }
             }
+
+            splash.ActualizarEstado("Registrando servicios y módulos...", "Configurando inyección de dependencias y casos de uso...", 70);
 
             services.AddSingleton<IConfiguration>(config);
             services.AddSingleton<Geomatica.Desktop.Services.ISeguridadService, Geomatica.Desktop.Services.WindowsSeguridadService>();
@@ -271,6 +285,9 @@ namespace Geomatica.Desktop
             services.AddSingleton<CrearProyectoUseCase>();
             services.AddSingleton<ActualizarProyectoUseCase>();
             services.AddSingleton<ObtenerHistorialProyectoUseCase>();
+            services.AddSingleton<ObtenerSubproyectosUseCase>();
+            services.AddSingleton<GuardarSubproyectoUseCase>();
+            services.AddSingleton<EliminarSubproyectoUseCase>();
 
             services.AddSingleton<ObtenerProyectoDetalleUseCase>();
             services.AddSingleton<Geomatica.Desktop.Services.ProyectoArchivosService>();
@@ -303,7 +320,10 @@ namespace Geomatica.Desktop
                     sp.GetRequiredService<Geomatica.Desktop.Services.ProyectoArchivosService>(),
                     navigateBack,
                     onCreado,
-                    sp.GetRequiredService<INotificationService>()));
+                    sp.GetRequiredService<INotificationService>(),
+                    sp.GetRequiredService<GuardarSubproyectoUseCase>(),
+                    sp.GetRequiredService<ObtenerSubproyectosUseCase>(),
+                    sp.GetRequiredService<EliminarSubproyectoUseCase>()));
 
             services.AddSingleton<Func<ProyectoDetalleDto, Action, Action?, EditarProyectoViewModel>>(sp => (proyecto, navigateBack, onEditado) =>
                 new EditarProyectoViewModel(
@@ -315,7 +335,10 @@ namespace Geomatica.Desktop
                     sp.GetRequiredService<EliminarProyectoUseCase>(),
                     sp.GetRequiredService<INotificationService>(),
                     sp.GetRequiredService<Geomatica.Desktop.Services.ProyectoArchivosService>(),
-                    sp.GetRequiredService<Geomatica.Desktop.Services.ISeguridadService>()));
+                    sp.GetRequiredService<Geomatica.Desktop.Services.ISeguridadService>(),
+                    sp.GetRequiredService<GuardarSubproyectoUseCase>(),
+                    sp.GetRequiredService<ObtenerSubproyectosUseCase>(),
+                    sp.GetRequiredService<EliminarSubproyectoUseCase>()));
 
             services.AddSingleton<MainViewModel>(sp => new MainViewModel(
                 sp.GetRequiredService<FiltrosViewModel>(),
@@ -328,7 +351,8 @@ namespace Geomatica.Desktop
                 sp.GetRequiredService<Func<ProyectoDetalleDto, Action, Action?, EditarProyectoViewModel>>(),
                 sp.GetRequiredService<IProyectoRepository>(),
                 sp.GetRequiredService<ObtenerHistorialProyectoUseCase>(),
-                sp.GetRequiredService<Geomatica.Desktop.Services.ISeguridadService>()
+                sp.GetRequiredService<Geomatica.Desktop.Services.ISeguridadService>(),
+                sp.GetRequiredService<ObtenerSubproyectosUseCase>()
                 ));
 
             services.AddSingleton<MainWindow>();
@@ -336,35 +360,80 @@ namespace Geomatica.Desktop
             _serviceProvider = services.BuildServiceProvider();
             Application.Current.Properties["ServiceProvider"] = _serviceProvider;
 
-            // Precarga de cachés: departamentos y municipios se cargan en segundo plano
+            // Precarga estructurada: esquemas, catálogos territoriales y proyectos iniciales
+            splash.ActualizarEstado("Precargando información territorial y proyectos...", "Consultando departamentos, municipios y proyectos...", 80);
             var muniRepo = _serviceProvider.GetRequiredService<IMunicipioRepository>();
             var proyRepo = _serviceProvider.GetRequiredService<IProyectoRepository>();
-            _ = Task.Run(async () =>
+            var filtrosVm = _serviceProvider.GetRequiredService<FiltrosViewModel>();
+            var mapaVm = _serviceProvider.GetRequiredService<MapaViewModel>();
+            var buscarProyectos = _serviceProvider.GetRequiredService<BuscarProyectosUseCase>();
+
+            try
             {
+                var sw = Stopwatch.StartNew();
+                AppLogger.Info("Iniciando precarga estructurada de catálogos y esquema territorial...");
+
+                await Task.WhenAll(
+                    proyRepo.AsegurarTablaAuditoriaAsync(),
+                    proyRepo.AsegurarColumnasProyectoAsync(),
+                    proyRepo.AsegurarTablaSubproyectosAsync(),
+                    filtrosVm.InicializarFiltrosAsync()
+                );
+
+                // Precargar la lista inicial de proyectos en FiltrosViewModel
+                splash.ActualizarEstado("Cargando proyectos en visor...", "Recuperando proyectos territoriales registrados...", 90);
+                var proyectosIniciales = await buscarProyectos.EjecutarAsync(null, null, null, null, null, null, null, null, null);
+                var idsIniciales = proyectosIniciales.Select(p => p.Id).ToList();
+                IReadOnlyDictionary<int, IReadOnlyList<SubproyectoDto>> subsIniciales;
                 try
                 {
-                    var sw = Stopwatch.StartNew();
-                    AppLogger.Info("Iniciando precarga en segundo plano de departamentos y municipios, tabla de auditoría y columnas de proyecto...");
-                    await Task.WhenAll(
-                        muniRepo.ListarDepartamentosAsync(),
-                        muniRepo.ListarTodosMunicipiosAsync(),
-                        proyRepo.AsegurarTablaAuditoriaAsync(),
-                        proyRepo.AsegurarColumnasProyectoAsync()
-                    );
-                    sw.Stop();
-                    AppLogger.Info($"Precarga y verificación completada exitosamente en {sw.ElapsedMilliseconds}ms");
+                    subsIniciales = await proyRepo.ObtenerSubproyectosPorProyectosAsync(idsIniciales);
                 }
-                catch (Exception ex)
+                catch
                 {
-                    AppLogger.Error("Error en precarga de departamentos/municipios o tabla de auditoría", ex);
+                    subsIniciales = new Dictionary<int, IReadOnlyList<SubproyectoDto>>();
                 }
-            });
+                mapaVm.ActualizarResultadosFiltros(proyectosIniciales, subsIniciales);
+
+                // Cargar y renderizar inmediatamente las capas base (municipios, proyectos y subproyectos) mientras el Splash sigue visible
+                splash.ActualizarEstado("Cargando capas cartográficas y municipios...", "Construyendo capas de municipios, proyectos y subproyectos...", 93);
+                var todosSubs = subsIniciales.Values.SelectMany(x => x).ToList();
+                mapaVm.MostrarSubproyectosEnMapa(todosSubs);
+                await mapaVm.ActualizarCapasConFiltroAsync(proyectosIniciales);
+
+                // Esperar a que el mapa y sus capas operacionales se carguen completamente antes de finalizar el splash
+                if (mapaVm.Map != null)
+                {
+                    splash.ActualizarEstado("Cargando geometrías cartográficas...", "Finalizando precarga de municipios...", 96);
+                    try
+                    {
+                        await mapaVm.Map.LoadAsync();
+                        foreach (var layer in mapaVm.Map.OperationalLayers)
+                        {
+                            await layer.LoadAsync();
+                        }
+                    }
+                    catch (Exception exMapLoad)
+                    {
+                        AppLogger.Warn($"Aviso durante carga de capas en splash: {exMapLoad.Message}");
+                    }
+                }
+
+                sw.Stop();
+                AppLogger.Info($"Precarga territorial y proyectos completada exitosamente en {sw.ElapsedMilliseconds}ms ({proyectosIniciales.Count} proyectos listados)");
+            }
+            catch (Exception ex)
+            {
+                AppLogger.Error("Error en precarga de información territorial o proyectos", ex);
+            }
+
+            splash.ActualizarEstado("Iniciando visor principal...", "Interfaz lista.", 98);
 
             var main = _serviceProvider.GetRequiredService<MainWindow>();
             var mainVm = _serviceProvider.GetRequiredService<MainViewModel>();
             main.DataContext = mainVm;
 
-            main.Loaded += (s, args) =>
+            main.Loaded += async (s, args) =>
             {
                 var apiKey = config["ArcGIS:ApiKey"];
 
@@ -395,6 +464,12 @@ namespace Geomatica.Desktop
                 {
                     AppLogger.Error("Error al ejecutar ShowMapaCommand inicial", ex);
                 }
+
+                // Transferir ShutdownMode a la ventana principal y cerrar el Splash Screen con desvanecimiento suave
+                MainWindow = main;
+                ShutdownMode = ShutdownMode.OnMainWindowClose;
+                main.Activate();
+                await splash.CerrarConFadeOutAsync();
             };
 
             main.Show();
