@@ -81,5 +81,23 @@ public class ProyectoArchivosServicePermisosTests : IDisposable
         resultado.BadgeTexto.Should().Be("📂 Vinculada (Escritura)");
         resultado.Mensaje.Should().Contain("lectura y escritura");
     }
+
+    [Fact]
+    public void TryObtenerPermisosCacheados_Y_InvalidarIndice_GestionanCachePermisosCorrectamente()
+    {
+        // Arrange: inicialmente no hay permisos cacheados para la carpeta
+        _service.TryObtenerPermisosCacheados(_tempDir, out _).Should().BeFalse();
+
+        // Act 1: Evaluar permisos almacena el resultado en caché con TTL
+        var evaluado = _service.EvaluarPermisosCarpeta(_tempDir);
+        _service.TryObtenerPermisosCacheados(_tempDir, out var cacheado).Should().BeTrue();
+        cacheado.Should().Be(evaluado);
+
+        // Act 2: InvalidarIndice limpia tanto el índice como la caché de permisos
+        _service.InvalidarIndice(_tempDir);
+
+        // Assert
+        _service.TryObtenerPermisosCacheados(_tempDir, out _).Should().BeFalse();
+    }
 }
 

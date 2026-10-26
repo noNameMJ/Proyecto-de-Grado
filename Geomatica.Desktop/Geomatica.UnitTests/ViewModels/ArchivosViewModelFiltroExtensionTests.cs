@@ -265,4 +265,96 @@ public class ArchivosViewModelFiltroExtensionTests : IDisposable
         vm.ExtensionesDisponibles.Should().Contain(e => e.Extension == ".dwg" && e.Categoria == "CAD");
         vm.HasExtensionesFiltrables.Should().BeTrue();
     }
+
+    [Fact]
+    public async Task BusquedaTexto_SinFiltroExtension_ConIndiceConstruido_BuscaGlobalmenteEnTodoElProyecto()
+    {
+        // Arrange
+        var subDir1 = Path.Combine(_tempDir, "Datos_Espaciales", "LiDAR");
+        var subDir2 = Path.Combine(_tempDir, "Documentos", "Informes");
+        Directory.CreateDirectory(subDir1);
+        Directory.CreateDirectory(subDir2);
+
+        File.WriteAllText(Path.Combine(subDir1, "curvas_magdalena.las"), "las");
+        File.WriteAllText(Path.Combine(subDir2, "memoria_curvas.pdf"), "pdf");
+        File.WriteAllText(Path.Combine(_tempDir, "ortofoto_general.tif"), "tif");
+
+        // Pre-construir el índice del proyecto en caché
+        await _service.ObtenerIndiceAsync(_tempDir);
+
+        var dto = new ProyectoDetalleDto(1, "Proyecto Búsqueda Global", null, null, null, _tempDir, -73.1, 7.1, "68001", "Bucaramanga");
+        var ficha = new FichaProyectoViewModel(dto, () => { });
+        var vm = new ArchivosViewModel(_filtros, _service, _repoMock.Object)
+        {
+            IndexarEnSegundoPlano = false,
+            ProyectoDetalle = ficha
+        };
+
+        // Act: Escribir en BusquedaTexto sin ningún filtro de extensión activo
+        vm.BusquedaTexto = "curvas";
+
+        // Assert: Debe encontrar ambos archivos ubicados en distintas subcarpetas profundas
+        vm.IsFiltradoPorExtension.Should().BeFalse();
+        vm.BannerFiltroTexto.Should().Contain("curvas");
+        vm.Items.Should().HaveCount(2);
+        var nombres = vm.Items.OfType<Geomatica.Desktop.Models.ArchivoVirtual>().Select(a => a.Nombre).ToList();
+        nombres.Should().Contain("curvas_magdalena.las");
+        nombres.Should().Contain("memoria_curvas.pdf");
+    }
+
+    [Fact]
+    public async Task MoverElementoAFolder_MueveArchivo_InvalidaIndiceYRegistraAuditoriaConRutaCompleta()
+    {
+        // Arrange
+        var dirOrigen = Path.Combine(_tempDir, "Otros");
+        var dirDestino = Path.Combine(_tempDir, "Datos_Espaciales", "Subcarpeta");
+        Directory.CreateDirectory(dirOrigen);
+        Directory.CreateDirectory(dirDestino);
+
+        string archivoFisico = Path.Combine(dirOrigen, "levantamiento.shp");
+        File.WriteAllText(archivoFisico, "shp content");
+
+        // Pre-cargar índice para comprobar que MoverElementoAFolder lo invalida
+        await _service.ObtenerIndiceAsync(_tempDir);
+        _service.TryObtenerIndice(_tempDir, out _).Should().BeTrue();
+
+        var dto = new ProyectoDetalleDto(77, "Proyecto Trazabilidad", null, null, null, _tempDir, -73.1, 7.1, "68001", "Bucaramanga");
+        var ficha = new FichaProyectoViewModel(dto, () => { });
+        var vm = new ArchivosViewModel(_filtros, _service, _repoMock.Object)
+        {
+            IndexarEnSegundoPlano = false,
+            ProyectoDetalle = ficha
+        };
+
+        var nodoArchivo = new Geomatica.Desktop.Models.ArchivoVirtual
+        {
+            Nombre = "levantamiento.shp",
+            RutaRelativaVirtual = "Otros/levantamiento.shp",
+            UbicacionRelativa = "Otros",
+            Extension = ".shp"
+        };
+
+        // Act
+        bool movido = vm.MoverElementoAFolder(nodoArchivo, "Datos_Espaciales/Subcarpeta");
+
+        // Assert
+        movido.Should().BeTrue();
+        File.Exists(archivoFisico).Should().BeFalse();
+        File.Exists(Path.Combine(dirDestino, "levantamiento.shp")).Should().BeTrue();
+        vm.Estado.Should().Contain("Datos_Espaciales/Subcarpeta/levantamiento.shp");
+
+        // El índice en caché debe haberse invalidado tras el movimiento
+        _service.TryObtenerIndice(_tempDir, out _).Should().BeFalse();
+
+        // Debe haberse invocado el registro de auditoría con la acción MOVER y las rutas relativas
+        _repoMock.Verify(r => r.RegistrarAuditoriaAsync(
+            77,
+            "Proyecto Trazabilidad",
+            "MOVER",
+            It.Is<string>(d => d.Contains("Otros/levantamiento.shp") && d.Contains("Datos_Espaciales/Subcarpeta/levantamiento.shp")),
+            It.IsAny<string?>(),
+            It.IsAny<string?>(),
+            It.IsAny<System.Threading.CancellationToken>()), Times.Once);
+    }
 }
+

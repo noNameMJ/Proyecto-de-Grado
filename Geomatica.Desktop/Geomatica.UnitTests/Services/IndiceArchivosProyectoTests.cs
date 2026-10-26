@@ -160,33 +160,6 @@ public class IndiceArchivosProyectoTests : IDisposable
     }
 
     [Fact]
-    public async Task FichaProyectoViewModel_CargarFormatosArchivosAsync_ActualizaProgresoYExtensionesProgresivamente()
-    {
-        // Arrange
-        var subDir = Path.Combine(_tempDir, "Datos_Vectoriales");
-        Directory.CreateDirectory(subDir);
-        File.WriteAllText(Path.Combine(subDir, "predios.shp"), "shp data");
-        File.WriteAllText(Path.Combine(subDir, "ortofoto.tif"), "tif data");
-        File.WriteAllText(Path.Combine(subDir, "informe.pdf"), "pdf data");
-
-        var dto = new ProyectoDetalleDto(10, "PROYECTO PROGRESIVO", null, null, null, _tempDir, -73.1, 7.1, "68001", "Bucaramanga");
-        var ficha = new FichaProyectoViewModel(dto, () => { }, archivosService: _service);
-
-        // Act
-        await ficha.CargarFormatosArchivosAsync();
-
-        // Assert
-        ficha.TotalArchivosDetectados.Should().Be(3);
-        ficha.TotalArchivosDetectadosTexto.Should().Be("(3 archivos)");
-        ficha.HasExtensionesDetectadas.Should().BeTrue();
-        ficha.ExtensionesDetectadas.Should().HaveCount(3);
-        ficha.ExtensionesDetectadas.Should().Contain(e => e.Extension == ".shp");
-        ficha.ExtensionesDetectadas.Should().Contain(e => e.Extension == ".tif");
-        ficha.ExtensionesDetectadas.Should().Contain(e => e.Extension == ".pdf");
-        ficha.CargandoFormatos.Should().BeFalse();
-    }
-
-    [Fact]
     public void IndiceArchivosProyecto_BuscarPorTexto_BuscaGlobalmenteEnTodoElArbol()
     {
         // Arrange

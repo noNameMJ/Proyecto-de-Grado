@@ -348,8 +348,27 @@ namespace Geomatica.Desktop.ViewModels
         public ObservableCollection<FiltroExtensionOption> ExtensionesDisponibles { get; } = new();
         private readonly object _extensionesLock = new();
 
-        public IEnumerable<FiltroExtensionOption> ExtensionesFiltrables => ExtensionesDisponibles.Where(e => !string.IsNullOrEmpty(e.Extension));
-        public bool HasExtensionesFiltrables => ExtensionesDisponibles.Any(e => !string.IsNullOrEmpty(e.Extension));
+        public IEnumerable<FiltroExtensionOption> ExtensionesFiltrables
+        {
+            get
+            {
+                lock (_extensionesLock)
+                {
+                    return ExtensionesDisponibles.Where(e => e != null && !string.IsNullOrEmpty(e.Extension)).ToList();
+                }
+            }
+        }
+
+        public bool HasExtensionesFiltrables
+        {
+            get
+            {
+                lock (_extensionesLock)
+                {
+                    return ExtensionesDisponibles.Any(e => e != null && !string.IsNullOrEmpty(e.Extension));
+                }
+            }
+        }
 
         [ObservableProperty]
         private FiltroExtensionOption? _filtroExtensionSeleccionado;
@@ -363,18 +382,40 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty]
         private bool _isMenuFiltroTiposAbierto;
 
-        public IReadOnlyList<string> ExtensionesSeleccionadas => ExtensionesDisponibles
-            .Where(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected)
-            .Select(e => e.Extension)
-            .ToList();
+        public IReadOnlyList<string> ExtensionesSeleccionadas
+        {
+            get
+            {
+                lock (_extensionesLock)
+                {
+                    return ExtensionesDisponibles
+                        .Where(e => e != null && !string.IsNullOrEmpty(e.Extension) && e.IsSelected)
+                        .Select(e => e.Extension)
+                        .ToList();
+                }
+            }
+        }
 
-        public bool HayExtensionesSeleccionadas => ExtensionesDisponibles.Any(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected);
+        public bool HayExtensionesSeleccionadas
+        {
+            get
+            {
+                lock (_extensionesLock)
+                {
+                    return ExtensionesDisponibles.Any(e => e != null && !string.IsNullOrEmpty(e.Extension) && e.IsSelected);
+                }
+            }
+        }
 
         public string TextoBotonFiltroExtension
         {
             get
             {
-                var seleccionadas = ExtensionesDisponibles.Where(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected).ToList();
+                List<FiltroExtensionOption> seleccionadas;
+                lock (_extensionesLock)
+                {
+                    seleccionadas = ExtensionesDisponibles.Where(e => e != null && !string.IsNullOrEmpty(e.Extension) && e.IsSelected).ToList();
+                }
                 if (seleccionadas.Count == 0)
                 {
                     return "Todos los tipos ▾";
@@ -405,7 +446,12 @@ namespace Geomatica.Desktop.ViewModels
             _isUpdatingExtensionSelection = true;
             try
             {
-                foreach (var opt in ExtensionesDisponibles)
+                List<FiltroExtensionOption> snapshot;
+                lock (_extensionesLock)
+                {
+                    snapshot = ExtensionesDisponibles.Where(e => e != null).ToList();
+                }
+                foreach (var opt in snapshot)
                 {
                     opt.IsSelected = !string.IsNullOrEmpty(opt.Extension);
                 }
@@ -436,7 +482,12 @@ namespace Geomatica.Desktop.ViewModels
             bool algunCoincidente = false;
             try
             {
-                foreach (var opt in ExtensionesDisponibles.Where(e => !string.IsNullOrEmpty(e.Extension)))
+                List<FiltroExtensionOption> snapshot;
+                lock (_extensionesLock)
+                {
+                    snapshot = ExtensionesDisponibles.Where(e => e != null).ToList();
+                }
+                foreach (var opt in snapshot.Where(e => !string.IsNullOrEmpty(e.Extension)))
                 {
                     bool coincide = extsPorCategoria.Contains(opt.Extension) ||
                                     opt.Categoria.Contains(categoria, StringComparison.OrdinalIgnoreCase);
@@ -444,7 +495,7 @@ namespace Geomatica.Desktop.ViewModels
                     if (coincide) algunCoincidente = true;
                 }
 
-                var opcionTodos = ExtensionesDisponibles.FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
+                var opcionTodos = snapshot.FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
                 if (opcionTodos != null)
                 {
                     opcionTodos.IsSelected = !algunCoincidente;
@@ -470,14 +521,19 @@ namespace Geomatica.Desktop.ViewModels
             _isUpdatingExtensionSelection = true;
             try
             {
-                var opcionTodos = ExtensionesDisponibles.FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
-                var seleccionadas = ExtensionesDisponibles.Where(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected).ToList();
+                List<FiltroExtensionOption> snapshot;
+                lock (_extensionesLock)
+                {
+                    snapshot = ExtensionesDisponibles.Where(e => e != null).ToList();
+                }
+                var opcionTodos = snapshot.FirstOrDefault(e => string.IsNullOrEmpty(e.Extension));
+                var seleccionadas = snapshot.Where(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected).ToList();
 
                 if (string.IsNullOrEmpty(opt.Extension))
                 {
                     if (opt.IsSelected)
                     {
-                        foreach (var o in ExtensionesDisponibles.Where(e => !string.IsNullOrEmpty(e.Extension)))
+                        foreach (var o in snapshot.Where(e => !string.IsNullOrEmpty(e.Extension)))
                         {
                             o.IsSelected = false;
                         }
@@ -523,7 +579,12 @@ namespace Geomatica.Desktop.ViewModels
             {
                 if (value != null)
                 {
-                    foreach (var opt in ExtensionesDisponibles.ToList())
+                    List<FiltroExtensionOption> snapshot;
+                    lock (_extensionesLock)
+                    {
+                        snapshot = ExtensionesDisponibles.Where(e => e != null).ToList();
+                    }
+                    foreach (var opt in snapshot)
                     {
                         opt.IsSelected = (opt == value);
                     }
@@ -738,7 +799,10 @@ namespace Geomatica.Desktop.ViewModels
             }
             else
             {
-                ExtensionesDisponibles.Clear();
+                lock (_extensionesLock)
+                {
+                    ExtensionesDisponibles.Clear();
+                }
                 FiltroExtensionSeleccionado = null;
                 IsFiltradoPorExtension = false;
                 BannerFiltroTexto = "";
@@ -799,15 +863,16 @@ namespace Geomatica.Desktop.ViewModels
                     };
                     ExtensionesDisponibles.Add(opcionTodos);
 
-                    var extensionesSnapshot = ficha.ExtensionesDetectadas.ToList();
+                    var extensionesSnapshot = ficha.ObtenerExtensionesDetectadasSnapshot();
                     if (extensionesSnapshot.Count == 0 && !string.IsNullOrWhiteSpace(_rutaRaizProyecto) &&
                         _archivosService.TryObtenerIndice(_rutaRaizProyecto, out var idx) && idx != null)
                     {
                         var resumen = idx.GenerarResumenFormatos();
-                        extensionesSnapshot = resumen.ExtensionesLista.ToList();
+                        extensionesSnapshot = resumen.ExtensionesLista.Where(e => e != null).ToList();
                     }
                     foreach (var ext in extensionesSnapshot)
                     {
+                        if (ext == null) continue;
                         bool wasSelected = seleccionadasAnteriores.Contains(ext.Extension) ||
                                            (!string.IsNullOrEmpty(seleccionadoActual) && ext.Extension.Equals(seleccionadoActual, StringComparison.OrdinalIgnoreCase));
 
@@ -1076,10 +1141,14 @@ namespace Geomatica.Desktop.ViewModels
                     return;
                 }
 
-                var seleccionadas = ExtensionesDisponibles
-                    .Where(e => !string.IsNullOrEmpty(e.Extension) && e.IsSelected)
-                    .Select(e => e.Extension)
-                    .ToList();
+                List<string> seleccionadas;
+                lock (_extensionesLock)
+                {
+                    seleccionadas = ExtensionesDisponibles
+                        .Where(e => e != null && !string.IsNullOrEmpty(e.Extension) && e.IsSelected)
+                        .Select(e => e.Extension)
+                        .ToList();
+                }
 
                 if (seleccionadas.Count == 0 && FiltroExtensionSeleccionado != null && !string.IsNullOrEmpty(FiltroExtensionSeleccionado.Extension))
                 {

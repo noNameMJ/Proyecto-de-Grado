@@ -77,45 +77,6 @@ namespace Geomatica.UnitTests.Services
             var fill = Assert.IsType<SimpleFillSymbol>(footprintGraphic.Symbol);
             Assert.True(fill.Color.A < 100, "El polígono de huella debe ser traslúcido para no tapar el mapa.");
         }
-
-        [Fact]
-        public void ProyectoItem_FormateaPropiedadesVisualesConMetadatosGenuinos()
-        {
-            var item = new FiltrosViewModel.ProyectoItem(
-                42,
-                "Levantamiento Cuenca Río Lebrija",
-                -73.18,
-                7.22,
-                @"C:\Proyectos\VueloLebrija",
-                new DateTime(2026, 4, 15),
-                "cuenca, rio, topografia",
-                "Ing. María Gómez",
-                -73.25, 7.15, -73.10, 7.30);
-
-            Assert.Equal("#PROY-0042", item.CodigoId);
-            Assert.Equal("15/04/2026", item.FechaTexto);
-            Assert.True(item.HasPalabrasClave);
-            Assert.Equal("cuenca, rio, topografia", item.PalabrasClaveTexto);
-            Assert.True(item.TieneExtentValido);
-            Assert.Contains("7.2200°N", item.CoordenadasTexto);
-            Assert.Contains("-73.1800°W", item.CoordenadasTexto);
-        }
-
-        [Fact]
-        public void ProyectoItem_SinExtent_TieneExtentValidoEsFalso()
-        {
-            var item = new FiltrosViewModel.ProyectoItem(
-                1,
-                "Proyecto Punto Fijo",
-                -73.12,
-                7.14,
-                null);
-
-            Assert.False(item.TieneExtentValido);
-            Assert.Equal("#PROY-0001", item.CodigoId);
-            Assert.Equal("Sin fecha", item.FechaTexto);
-            Assert.False(item.HasPalabrasClave);
-        }
     }
 }
 

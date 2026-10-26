@@ -94,17 +94,33 @@ public class FiltrosViewModelTests
     }
 
     [Fact]
-    public void ProyectoItem_FormateaCodigoIdYCoordenadasCorrectamente()
+    public void ProyectoItem_FormateaPropiedadesVisualesYCoordenadasCorrectamente()
     {
         // Arrange & Act
-        var itemConCoords = new FiltrosViewModel.ProyectoItem(12, "Proyecto Bucaramanga", -73.1234, 7.1234, "C:\\Ruta");
+        var itemConCoords = new FiltrosViewModel.ProyectoItem(
+            12,
+            "Proyecto Bucaramanga",
+            -73.1234,
+            7.1234,
+            "C:\\Ruta",
+            new DateTime(2026, 4, 15),
+            "cuenca, rio",
+            "Ing. María Gómez",
+            -73.25, 7.10, -73.10, 7.20);
         var itemSinCoords = new FiltrosViewModel.ProyectoItem(3, "Proyecto Sin Coordenadas", 0, 0, null);
 
         // Assert
         itemConCoords.CodigoId.Should().Be("#PROY-0012");
         itemConCoords.CoordenadasTexto.Should().Contain("7.1234°N").And.Contain("-73.1234°W");
+        itemConCoords.FechaTexto.Should().Be("15/04/2026");
+        itemConCoords.HasPalabrasClave.Should().BeTrue();
+        itemConCoords.TieneExtentValido.Should().BeTrue();
+
         itemSinCoords.CodigoId.Should().Be("#PROY-0003");
         itemSinCoords.CoordenadasTexto.Should().Be("Sin coordenadas");
+        itemSinCoords.FechaTexto.Should().Be("Sin fecha");
+        itemSinCoords.HasPalabrasClave.Should().BeFalse();
+        itemSinCoords.TieneExtentValido.Should().BeFalse();
     }
 }
 

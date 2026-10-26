@@ -211,6 +211,15 @@ namespace Geomatica.Desktop.ViewModels
 
         public event EventHandler<string>? ExtensionSeleccionadaParaFiltrado;
         public event EventHandler? ExtensionesActualizadas;
+        private readonly object _extensionesSyncLock = new();
+
+        public List<FormatoExtensionItem> ObtenerExtensionesDetectadasSnapshot()
+        {
+            lock (_extensionesSyncLock)
+            {
+                return ExtensionesDetectadas.Where(e => e != null).ToList();
+            }
+        }
 
         public void NotificarExtensionesActualizadas()
         {
@@ -707,18 +716,24 @@ namespace Geomatica.Desktop.ViewModels
 
                 var progreso = new Progress<ProgresoEscaneoFormatos>(p =>
                 {
+                    if (!CargandoFormatos) return;
+
                     TotalArchivosDetectados = p.TotalArchivos;
                     TextoProgresoFormatos = $"⏳ Analizando archivos en el repositorio... ({p.TotalArchivos:N0} encontrados)";
 
                     if (p.ExtensionesParciales.Count > 0)
                     {
-                        var lista = p.ExtensionesParciales.ToList();
-                        ExtensionesDetectadas.Clear();
-                        for (int i = 0; i < lista.Count; i++)
+                        var lista = p.ExtensionesParciales.Where(e => e != null).ToList();
+                        lock (_extensionesSyncLock)
                         {
-                            ExtensionesDetectadas.Add(lista[i]);
+                            if (!CargandoFormatos) return;
+                            ExtensionesDetectadas.Clear();
+                            for (int i = 0; i < lista.Count; i++)
+                            {
+                                ExtensionesDetectadas.Add(lista[i]);
+                            }
+                            HasExtensionesDetectadas = true;
                         }
-                        HasExtensionesDetectadas = true;
 
                         var primarios = lista.Where(e => !e.EsAuxiliar).Select(e => $".{e.ExtensionMayus} ({e.CantidadArchivos})");
                         ResumenInsumosTexto = string.Join(", ", primarios);
@@ -728,30 +743,36 @@ namespace Geomatica.Desktop.ViewModels
 
                 var resumen = await _archivosService.EscanearFormatosArchivosAsync(RutaArchivos, progreso, ct);
 
-                if (resumen.TotalArchivos == 0 && ExtensionesDetectadas.Count > 0)
+                lock (_extensionesSyncLock)
                 {
-                    return;
-                }
+                    if (resumen.TotalArchivos == 0 && ExtensionesDetectadas.Count > 0)
+                    {
+                        return;
+                    }
 
-                FormatosDetectados.Clear();
-                foreach (var cat in resumen.Categorias)
-                {
-                    FormatosDetectados.Add(cat);
-                }
+                    FormatosDetectados.Clear();
+                    foreach (var cat in resumen.Categorias)
+                    {
+                        FormatosDetectados.Add(cat);
+                    }
 
-                ExtensionesDetectadas.Clear();
-                foreach (var ext in resumen.ExtensionesLista)
-                {
-                    ExtensionesDetectadas.Add(ext);
-                }
+                    ExtensionesDetectadas.Clear();
+                    foreach (var ext in resumen.ExtensionesLista)
+                    {
+                        if (ext != null)
+                        {
+                            ExtensionesDetectadas.Add(ext);
+                        }
+                    }
 
-                TotalArchivosDetectados = resumen.TotalArchivos;
-                HasFormatosDetectados = FormatosDetectados.Count > 0;
-                HasExtensionesDetectadas = ExtensionesDetectadas.Count > 0;
+                    TotalArchivosDetectados = resumen.TotalArchivos;
+                    HasFormatosDetectados = FormatosDetectados.Count > 0;
+                    HasExtensionesDetectadas = ExtensionesDetectadas.Count > 0;
+                }
 
                 if (HasExtensionesDetectadas)
                 {
-                    var primarios = resumen.ExtensionesLista.Where(e => !e.EsAuxiliar).Select(e => $".{e.ExtensionMayus} ({e.CantidadArchivos})");
+                    var primarios = resumen.ExtensionesLista.Where(e => e != null && !e.EsAuxiliar).Select(e => $".{e.ExtensionMayus} ({e.CantidadArchivos})");
                     ResumenInsumosTexto = string.Join(", ", primarios);
                 }
                 else

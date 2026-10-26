@@ -101,7 +101,7 @@ public class GeoTiffSidecarResolverTests : IDisposable
         await File.WriteAllTextAsync(tfwPath, "0.0001\n0.0\n0.0\n-0.0001\n-73.0\n7.0\n");
 
         var reportes = new List<(int porcentaje, string detalle)>();
-        IProgress<(int, string)> progress = new Progress<(int, string)>(p => reportes.Add(p));
+        IProgress<(int, string)> progress = new SynchronousProgress<(int, string)>(p => reportes.Add(p));
 
         // Act
         await GeoTiffSidecarResolver.AsegurarAuxXmlGeorreferenciadoAsync(tifPath, progress);
@@ -109,6 +109,13 @@ public class GeoTiffSidecarResolverTests : IDisposable
         // Assert
         var cachePath = GeoTiffSidecarResolver.ObtenerRutaRasterCache(tifPath);
         File.Exists(cachePath).Should().BeTrue();
+        reportes.Should().NotBeEmpty("debe emitir notificaciones de progreso durante la preparación del caché ráster");
+        reportes.Last().porcentaje.Should().Be(100);
+    }
+
+    private sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>
+    {
+        public void Report(T value) => handler(value);
     }
 
     [Fact]
