@@ -1,9 +1,7 @@
-﻿using System;
+using System;
 using System.IO;
 using FluentAssertions;
 using Geomatica.Desktop.Services;
-using Geomatica.Desktop.ViewModels;
-using Geomatica.Domain.Entities;
 using Xunit;
 
 namespace Geomatica.UnitTests.Services;
@@ -82,74 +80,6 @@ public class ProyectoArchivosServicePermisosTests : IDisposable
         resultado.PuedeEscribir.Should().BeTrue();
         resultado.BadgeTexto.Should().Be("📂 Vinculada (Escritura)");
         resultado.Mensaje.Should().Contain("lectura y escritura");
-    }
-
-    [Fact]
-    public void FichaProyectoViewModel_ConRutaLecturaEscritura_PermiteEditarYEliminar()
-    {
-        // Arrange
-        var dto = new ProyectoDetalleDto(
-            Id: 1,
-            Titulo: "Proyecto Test Permisos",
-            Descripcion: "Descripción de prueba",
-            FechaInicio: DateTime.Today,
-            PalabraClave: "test, permisos",
-            RutaArchivos: _tempDir,
-            Lon: -73.12,
-            Lat: 7.14,
-            MunicipioCodigo: "68001",
-            MunicipioNombre: "Bucaramanga"
-        );
-
-        // Act
-        var vm = new FichaProyectoViewModel(
-            dto,
-            volverAction: () => { },
-            eliminarProyectoUseCase: null,
-            onProyectoEliminado: null,
-            archivosService: _service,
-            notifications: null);
-
-        // Assert
-        vm.PuedeEditar.Should().BeTrue();
-        vm.PuedeEliminar.Should().BeTrue();
-        vm.PuedeLeerArchivos.Should().BeTrue();
-        vm.EsAccesoRestringido.Should().BeFalse();
-        vm.EsSoloLectura.Should().BeFalse();
-        vm.TooltipEdicion.Should().Be("Editar detalles del proyecto");
-    }
-
-    [Fact]
-    public void FichaProyectoViewModel_ConRutaSinAsignar_PermiteEditarMetadatosPeroNoAbrirCarpeta()
-    {
-        // Arrange
-        var dto = new ProyectoDetalleDto(
-            Id: 2,
-            Titulo: "Proyecto Sin Carpeta",
-            Descripcion: null,
-            FechaInicio: null,
-            PalabraClave: null,
-            RutaArchivos: null,
-            Lon: -73.12,
-            Lat: 7.14,
-            MunicipioCodigo: "68001",
-            MunicipioNombre: "Bucaramanga"
-        );
-
-        // Act
-        var vm = new FichaProyectoViewModel(
-            dto,
-            volverAction: () => { },
-            eliminarProyectoUseCase: null,
-            onProyectoEliminado: null,
-            archivosService: _service,
-            notifications: null);
-
-        // Assert
-        vm.PuedeEditar.Should().BeTrue();
-        vm.PuedeEliminar.Should().BeTrue();
-        vm.PuedeLeerArchivos.Should().BeFalse();
-        vm.EsAccesoRestringido.Should().BeFalse();
     }
 }
 

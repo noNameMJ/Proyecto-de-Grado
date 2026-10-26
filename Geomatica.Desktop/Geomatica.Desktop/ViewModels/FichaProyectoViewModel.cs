@@ -728,6 +728,11 @@ namespace Geomatica.Desktop.ViewModels
 
                 var resumen = await _archivosService.EscanearFormatosArchivosAsync(RutaArchivos, progreso, ct);
 
+                if (resumen.TotalArchivos == 0 && ExtensionesDetectadas.Count > 0)
+                {
+                    return;
+                }
+
                 FormatosDetectados.Clear();
                 foreach (var cat in resumen.Categorias)
                 {
