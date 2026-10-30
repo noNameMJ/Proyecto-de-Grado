@@ -31,6 +31,7 @@ packages/
 
 # Publicación
 publish/
+publish_server/
 artifacts/
 *.Publish.xml
 
@@ -76,11 +77,3 @@ $RECYCLE.BIN/
 
 # Paquetes de símbolos
 *.snupkg
-/Geomatica.Desktop/Geomatica.Desktop/API_KEY.txt
-/Geomatica.Desktop/Geomatica.Desktop/SECRET.txt
-/Geomatica.Desktop/Geomatica.Desktop/CLIENT_ID.txt
-/Geomatica.Desktop/BenchmarkSuite2
-/Geomatica.Desktop/BenchmarkSuite3
-Benchmark*
-/.claude
-/Documentos/Chats

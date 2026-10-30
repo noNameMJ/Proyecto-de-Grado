@@ -899,5 +899,386 @@ namespace Geomatica.Data.Repositories
                 Debug.WriteLine($"[ProyectoRepository] Advertencia al verificar tabla subproyecto: {ex.Message}");
             }
         }
+
+        #region Auditoria de Archivos (geovisor.auditoria_archivo)
+
+        public async Task AsegurarTablaAuditoriaArchivoAsync(CancellationToken ct = default)
+        {
+            const string sql = @"
+                CREATE TABLE IF NOT EXISTS geovisor.auditoria_archivo (
+                    id_auditoria_archivo SERIAL PRIMARY KEY,
+                    id_proyecto INT NOT NULL REFERENCES geovisor.proyecto(id_proyecto) ON DELETE CASCADE,
+                    ruta_relativa VARCHAR(1000) NOT NULL,
+                    nombre_archivo VARCHAR(255) NOT NULL,
+                    accion VARCHAR(50) NOT NULL,
+                    usuario VARCHAR(150) NOT NULL,
+                    equipo VARCHAR(100),
+                    fecha_hora TIMESTAMPTZ DEFAULT NOW(),
+                    tamano_bytes BIGINT,
+                    fecha_archivo TIMESTAMPTZ,
+                    detalles TEXT
+                );
+                CREATE INDEX IF NOT EXISTS idx_auditoria_archivo_proyecto_ruta ON geovisor.auditoria_archivo (id_proyecto, lower(ruta_relativa));
+                CREATE INDEX IF NOT EXISTS idx_auditoria_archivo_proyecto_fecha ON geovisor.auditoria_archivo (id_proyecto, fecha_hora DESC);
+                CREATE INDEX IF NOT EXISTS idx_auditoria_archivo_eliminados ON geovisor.auditoria_archivo (id_proyecto, accion, fecha_hora DESC);
+
+                CREATE OR REPLACE FUNCTION geovisor.fn_purgar_auditoria_archivo_vejez(
+                    p_dias_retencion integer DEFAULT 7,
+                    p_minimo_registros integer DEFAULT 5
+                )
+                RETURNS integer
+                LANGUAGE plpgsql
+                AS $function$
+                DECLARE
+                    v_borrados integer := 0;
+                BEGIN
+                    WITH registros_ordenados AS (
+                        SELECT
+                            id_auditoria_archivo,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY id_proyecto, lower(ruta_relativa)
+                                ORDER BY fecha_hora DESC, id_auditoria_archivo DESC
+                            ) AS num_fila,
+                            fecha_hora
+                        FROM geovisor.auditoria_archivo
+                    ),
+                    candidatos_borrado AS (
+                        SELECT id_auditoria_archivo
+                        FROM registros_ordenados
+                        WHERE num_fila > p_minimo_registros
+                          AND fecha_hora < (NOW() - (p_dias_retencion || ' days')::interval)
+                    )
+                    DELETE FROM geovisor.auditoria_archivo
+                    WHERE id_auditoria_archivo IN (SELECT id_auditoria_archivo FROM candidatos_borrado);
+
+                    GET DIAGNOSTICS v_borrados = ROW_COUNT;
+                    RETURN v_borrados;
+                END;
+                $function$;";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                await cmd.ExecuteNonQueryAsync(ct);
+                Debug.WriteLine("[ProyectoRepository] Tabla geovisor.auditoria_archivo y función de purga verificadas exitosamente.");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Advertencia al verificar tabla auditoria_archivo: {ex.Message}");
+            }
+        }
+
+        public async Task RegistrarAuditoriaArchivoAsync(
+            int idProyecto,
+            string rutaRelativa,
+            string nombreArchivo,
+            string accion,
+            string? detalles,
+            long? tamanoBytes = null,
+            string? usuario = null,
+            string? equipo = null,
+            DateTime? fechaArchivo = null,
+            CancellationToken ct = default)
+        {
+            if (idProyecto <= 0 || string.IsNullOrWhiteSpace(rutaRelativa)) return;
+
+            string user = !string.IsNullOrWhiteSpace(usuario) ? usuario.Trim() : ObtenerUsuarioActual();
+            string eq = !string.IsNullOrWhiteSpace(equipo) ? equipo.Trim() : Environment.MachineName;
+
+            const string sql = @"
+                INSERT INTO geovisor.auditoria_archivo (
+                    id_proyecto, ruta_relativa, nombre_archivo, accion,
+                    detalles, tamano_bytes, usuario, equipo, fecha_archivo, fecha_hora
+                ) VALUES (
+                    @idProyecto, @rutaRelativa, @nombreArchivo, @accion,
+                    @detalles, @tamanoBytes, @usuario, @equipo, @fechaArchivo, NOW()
+                );";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("idProyecto", idProyecto);
+                cmd.Parameters.AddWithValue("rutaRelativa", rutaRelativa.Replace('\\', '/'));
+                cmd.Parameters.AddWithValue("nombreArchivo", nombreArchivo);
+                cmd.Parameters.AddWithValue("accion", accion.ToUpperInvariant().Trim());
+                cmd.Parameters.AddWithValue("detalles", (object?)detalles ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("tamanoBytes", (object?)tamanoBytes ?? DBNull.Value);
+                cmd.Parameters.AddWithValue("usuario", user);
+                cmd.Parameters.AddWithValue("equipo", eq);
+                cmd.Parameters.AddWithValue("fechaArchivo", (object?)fechaArchivo ?? DBNull.Value);
+
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error al registrar auditoría de archivo para proyecto {idProyecto}: {ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task<AuditoriaArchivoDto?> ObtenerUltimoEstadoArchivoAsync(
+            int idProyecto,
+            string rutaRelativa,
+            CancellationToken ct = default)
+        {
+            if (idProyecto <= 0 || string.IsNullOrWhiteSpace(rutaRelativa)) return null;
+
+            const string sql = @"
+                SELECT id_auditoria_archivo, id_proyecto, ruta_relativa, nombre_archivo,
+                       accion, usuario, equipo, fecha_hora, tamano_bytes, detalles, fecha_archivo
+                FROM geovisor.auditoria_archivo
+                WHERE id_proyecto = @idProyecto AND lower(ruta_relativa) = lower(@rutaRelativa)
+                ORDER BY fecha_hora DESC, id_auditoria_archivo DESC
+                LIMIT 1;";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("idProyecto", idProyecto);
+                cmd.Parameters.AddWithValue("rutaRelativa", rutaRelativa.Replace('\\', '/'));
+
+                using var reader = await cmd.ExecuteReaderAsync(ct);
+                if (await reader.ReadAsync(ct))
+                {
+                    return MapearAuditoriaArchivo(reader);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error al obtener último estado de archivo {rutaRelativa}: {ex.Message}");
+            }
+
+            return null;
+        }
+
+        public async Task ReasignarRutaAuditoriaArchivoAsync(
+            int idProyecto,
+            string rutaRelativaAntigua,
+            string rutaRelativaNueva,
+            string nombreArchivoNuevo,
+            CancellationToken ct = default)
+        {
+            if (idProyecto <= 0 || string.IsNullOrWhiteSpace(rutaRelativaAntigua) || string.IsNullOrWhiteSpace(rutaRelativaNueva))
+                return;
+
+            const string sql = @"
+                UPDATE geovisor.auditoria_archivo
+                SET ruta_relativa = @rutaNueva,
+                    nombre_archivo = @nombreNuevo
+                WHERE id_proyecto = @idProyecto
+                  AND lower(ruta_relativa) = lower(@rutaAntigua);";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("idProyecto", idProyecto);
+                cmd.Parameters.AddWithValue("rutaAntigua", rutaRelativaAntigua.Replace('\\', '/'));
+                cmd.Parameters.AddWithValue("rutaNueva", rutaRelativaNueva.Replace('\\', '/'));
+                cmd.Parameters.AddWithValue("nombreNuevo", nombreArchivoNuevo);
+
+                await cmd.ExecuteNonQueryAsync(ct);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error al reasignar ruta de auditoría de archivo: {ex.Message}");
+                throw;
+            }
+        }
+
+        public async Task<IReadOnlyList<AuditoriaArchivoDto>> ObtenerHistorialArchivoAsync(
+            int idProyecto,
+            string rutaRelativa,
+            int limite = 5,
+            CancellationToken ct = default)
+        {
+            var lista = new List<AuditoriaArchivoDto>();
+            if (idProyecto <= 0 || string.IsNullOrWhiteSpace(rutaRelativa)) return lista;
+
+            const string sql = @"
+                SELECT id_auditoria_archivo, id_proyecto, ruta_relativa, nombre_archivo,
+                       accion, usuario, equipo, fecha_hora, tamano_bytes, detalles, fecha_archivo
+                FROM geovisor.auditoria_archivo
+                WHERE id_proyecto = @idProyecto AND lower(ruta_relativa) = lower(@rutaRelativa)
+                ORDER BY fecha_hora DESC, id_auditoria_archivo DESC
+                LIMIT @limite;";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("idProyecto", idProyecto);
+                cmd.Parameters.AddWithValue("rutaRelativa", rutaRelativa.Replace('\\', '/'));
+                cmd.Parameters.AddWithValue("limite", limite > 0 ? limite : 5);
+
+                using var reader = await cmd.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    lista.Add(MapearAuditoriaArchivo(reader));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error al obtener historial de archivo {rutaRelativa}: {ex.Message}");
+            }
+
+            return lista;
+        }
+
+        public async Task<IReadOnlyList<AuditoriaArchivoDto>> ObtenerHistorialArchivosProyectoAsync(
+            int idProyecto,
+            int limite = 50,
+            CancellationToken ct = default)
+        {
+            var lista = new List<AuditoriaArchivoDto>();
+            if (idProyecto <= 0) return lista;
+
+            const string sql = @"
+                SELECT id_auditoria_archivo, id_proyecto, ruta_relativa, nombre_archivo,
+                       accion, usuario, equipo, fecha_hora, tamano_bytes, detalles, fecha_archivo
+                FROM geovisor.auditoria_archivo
+                WHERE id_proyecto = @idProyecto
+                ORDER BY fecha_hora DESC, id_auditoria_archivo DESC
+                LIMIT @limite;";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("idProyecto", idProyecto);
+                cmd.Parameters.AddWithValue("limite", limite > 0 ? limite : 50);
+
+                using var reader = await cmd.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    lista.Add(MapearAuditoriaArchivo(reader));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error al obtener historial de archivos del proyecto {idProyecto}: {ex.Message}");
+            }
+
+            return lista;
+        }
+
+        public async Task<IReadOnlyList<AuditoriaArchivoDto>> ObtenerArchivosEliminadosProyectoAsync(
+            int idProyecto,
+            int limite = 50,
+            CancellationToken ct = default)
+        {
+            var lista = new List<AuditoriaArchivoDto>();
+            if (idProyecto <= 0) return lista;
+
+            const string sql = @"
+                SELECT id_auditoria_archivo, id_proyecto, ruta_relativa, nombre_archivo,
+                       accion, usuario, equipo, fecha_hora, tamano_bytes, detalles, fecha_archivo
+                FROM geovisor.auditoria_archivo
+                WHERE id_proyecto = @idProyecto AND accion = 'ELIMINAR'
+                ORDER BY fecha_hora DESC, id_auditoria_archivo DESC
+                LIMIT @limite;";
+
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("idProyecto", idProyecto);
+                cmd.Parameters.AddWithValue("limite", limite > 0 ? limite : 50);
+
+                using var reader = await cmd.ExecuteReaderAsync(ct);
+                while (await reader.ReadAsync(ct))
+                {
+                    lista.Add(MapearAuditoriaArchivo(reader));
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error al obtener archivos eliminados del proyecto {idProyecto}: {ex.Message}");
+            }
+
+            return lista;
+        }
+
+        public async Task<bool> TieneAuditoriaArchivoAsync(int idProyecto, CancellationToken ct = default)
+        {
+            if (idProyecto <= 0) return false;
+
+            const string sql = "SELECT 1 FROM geovisor.auditoria_archivo WHERE id_proyecto = @idProyecto LIMIT 1;";
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("idProyecto", idProyecto);
+                var res = await cmd.ExecuteScalarAsync(ct);
+                return res != null && res != DBNull.Value;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error al verificar existencia de auditoría para proyecto {idProyecto}: {ex.Message}");
+                return false;
+            }
+        }
+
+        public async Task<int> PurgarAuditoriaArchivoPorVejezAsync(int diasRetencion = 7, int minimoRegistros = 5, CancellationToken ct = default)
+        {
+            const string sql = "SELECT geovisor.fn_purgar_auditoria_archivo_vejez(@diasRetencion, @minimoRegistros);";
+            try
+            {
+                using var con = new NpgsqlConnection(_cn);
+                await con.OpenAsync(ct);
+                using var cmd = new NpgsqlCommand(sql, con);
+                cmd.Parameters.AddWithValue("diasRetencion", diasRetencion);
+                cmd.Parameters.AddWithValue("minimoRegistros", minimoRegistros);
+
+                var res = await cmd.ExecuteScalarAsync(ct);
+                return res != null && res != DBNull.Value ? Convert.ToInt32(res) : 0;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ProyectoRepository] Error al purgar auditoría de archivos por vejez: {ex.Message}");
+                return 0;
+            }
+        }
+
+        private static AuditoriaArchivoDto MapearAuditoriaArchivo(NpgsqlDataReader reader)
+        {
+            int idAuditoria = reader.GetInt32(0);
+            int idProyecto = reader.GetInt32(1);
+            string rutaRelativa = reader.GetString(2);
+            string nombreArchivo = reader.GetString(3);
+            string accion = reader.GetString(4);
+            string usuario = reader.GetString(5);
+            string? equipo = reader.IsDBNull(6) ? null : reader.GetString(6);
+            DateTime fechaHora = reader.GetDateTime(7);
+            long? tamanoBytes = reader.IsDBNull(8) ? null : reader.GetInt64(8);
+            string? detalles = reader.IsDBNull(9) ? null : reader.GetString(9);
+            DateTime? fechaArchivo = reader.IsDBNull(10) ? null : reader.GetDateTime(10);
+
+            return new AuditoriaArchivoDto(
+                idAuditoria,
+                idProyecto,
+                rutaRelativa,
+                nombreArchivo,
+                accion,
+                usuario,
+                equipo,
+                fechaHora,
+                tamanoBytes,
+                detalles,
+                fechaArchivo);
+        }
+
+        #endregion
     }
 }

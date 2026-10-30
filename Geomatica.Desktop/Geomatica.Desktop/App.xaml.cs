@@ -285,6 +285,10 @@ namespace Geomatica.Desktop
             services.AddSingleton<CrearProyectoUseCase>();
             services.AddSingleton<ActualizarProyectoUseCase>();
             services.AddSingleton<ObtenerHistorialProyectoUseCase>();
+            services.AddSingleton<ObtenerHistorialArchivoUseCase>();
+            services.AddSingleton<ObtenerHistorialArchivosProyectoUseCase>();
+            services.AddSingleton<ObtenerArchivosEliminadosUseCase>();
+            services.AddSingleton<RegistrarAuditoriaArchivoUseCase>();
             services.AddSingleton<ObtenerSubproyectosUseCase>();
             services.AddSingleton<GuardarSubproyectoUseCase>();
             services.AddSingleton<EliminarSubproyectoUseCase>();
@@ -375,6 +379,7 @@ namespace Geomatica.Desktop
 
                 await Task.WhenAll(
                     proyRepo.AsegurarTablaAuditoriaAsync(),
+                    proyRepo.AsegurarTablaAuditoriaArchivoAsync(),
                     proyRepo.AsegurarColumnasProyectoAsync(),
                     proyRepo.AsegurarTablaSubproyectosAsync(),
                     filtrosVm.InicializarFiltrosAsync()

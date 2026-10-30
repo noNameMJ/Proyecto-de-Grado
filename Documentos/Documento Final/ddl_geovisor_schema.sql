@@ -423,6 +423,105 @@ ALTER TABLE ONLY geovisor.subproyecto
 ALTER TABLE ONLY geovisor.subproyecto
     ADD CONSTRAINT subproyecto_mpio_cdpmp_fkey FOREIGN KEY (mpio_cdpmp) REFERENCES geovisor.municipio(mpio_cdpmp) ON DELETE SET NULL;
 
+
+
+
+--
+-- Name: auditoria_archivo; Type: TABLE; Schema: geovisor; Owner: -
+--
+
+CREATE TABLE geovisor.auditoria_archivo (
+    id_auditoria_archivo integer NOT NULL,
+    id_proyecto integer NOT NULL,
+    ruta_relativa character varying(1000) NOT NULL,
+    nombre_archivo character varying(255) NOT NULL,
+    accion character varying(50) NOT NULL,
+    usuario character varying(150) NOT NULL,
+    equipo character varying(100),
+    fecha_hora timestamp with time zone DEFAULT now(),
+    tamano_bytes bigint,
+    fecha_archivo timestamp with time zone,
+    detalles text
+);
+
+
+--
+-- Name: TABLE auditoria_archivo; Type: COMMENT; Schema: geovisor; Owner: -
+--
+
+COMMENT ON TABLE geovisor.auditoria_archivo IS 'Trazabilidad y auditoria de eventos de archivos con retencion por vejez y piso minimo de 5 registros';
+
+
+--
+-- Name: auditoria_archivo_id_auditoria_archivo_seq; Type: SEQUENCE; Schema: geovisor; Owner: -
+--
+
+CREATE SEQUENCE geovisor.auditoria_archivo_id_auditoria_archivo_seq
+    AS integer
+    START WITH 1
+    INCREMENT BY 1
+    NO MINVALUE
+    NO MAXVALUE
+    CACHE 1;
+
+ALTER SEQUENCE geovisor.auditoria_archivo_id_auditoria_archivo_seq OWNED BY geovisor.auditoria_archivo.id_auditoria_archivo;
+
+ALTER TABLE ONLY geovisor.auditoria_archivo ALTER COLUMN id_auditoria_archivo SET DEFAULT nextval('geovisor.auditoria_archivo_id_auditoria_archivo_seq'::regclass);
+
+ALTER TABLE ONLY geovisor.auditoria_archivo
+    ADD CONSTRAINT auditoria_archivo_pkey PRIMARY KEY (id_auditoria_archivo);
+
+CREATE INDEX idx_auditoria_archivo_proyecto_ruta ON geovisor.auditoria_archivo USING btree (id_proyecto, lower(ruta_relativa));
+
+CREATE INDEX idx_auditoria_archivo_proyecto_fecha ON geovisor.auditoria_archivo USING btree (id_proyecto, fecha_hora DESC);
+
+CREATE INDEX idx_auditoria_archivo_eliminados ON geovisor.auditoria_archivo USING btree (id_proyecto, accion, fecha_hora DESC);
+
+ALTER TABLE ONLY geovisor.auditoria_archivo
+    ADD CONSTRAINT auditoria_archivo_id_proyecto_fkey FOREIGN KEY (id_proyecto) REFERENCES geovisor.proyecto(id_proyecto) ON DELETE CASCADE;
+
+
+--
+-- Name: fn_purgar_auditoria_archivo_vejez(integer, integer); Type: FUNCTION; Schema: geovisor; Owner: -
+--
+
+CREATE OR REPLACE FUNCTION geovisor.fn_purgar_auditoria_archivo_vejez(
+    p_dias_retencion integer DEFAULT 7,
+    p_minimo_registros integer DEFAULT 5
+)
+RETURNS integer AS $$
+DECLARE
+    v_eliminados integer := 0;
+BEGIN
+    WITH protegidos AS (
+        -- Identificar los N registros mas recientes de cada archivo individual
+        SELECT id_auditoria_archivo
+        FROM (
+            SELECT id_auditoria_archivo,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY id_proyecto, lower(ruta_relativa)
+                       ORDER BY fecha_hora DESC, id_auditoria_archivo DESC
+                   ) AS ranking
+            FROM geovisor.auditoria_archivo
+        ) ranked
+        WHERE ranked.ranking <= p_minimo_registros
+    ),
+    borrados AS (
+        -- Eliminar registros que superen los dias de retencion y NO esten protegidos
+        DELETE FROM geovisor.auditoria_archivo a
+        WHERE a.fecha_hora < (NOW() - (p_dias_retencion || ' days')::interval)
+          AND a.id_auditoria_archivo NOT IN (SELECT id_auditoria_archivo FROM protegidos)
+        RETURNING a.id_auditoria_archivo
+    )
+    SELECT count(*) INTO v_eliminados FROM borrados;
+
+    RETURN v_eliminados;
+END;
+$$ LANGUAGE plpgsql;
+
+COMMENT ON FUNCTION geovisor.fn_purgar_auditoria_archivo_vejez(integer, integer) 
+IS 'Purga registros de auditoria de archivo con mas de N dias de antiguedad, garantizando un piso de al menos M registros por archivo.';
+
 --
 -- PostgreSQL database dump complete
 --

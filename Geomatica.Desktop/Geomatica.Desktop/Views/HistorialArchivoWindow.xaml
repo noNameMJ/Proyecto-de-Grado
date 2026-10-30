@@ -1,0 +1,180 @@
+<Window x:Class="Geomatica.Desktop.Views.HistorialArchivoWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="{Binding TituloVentana}"
+        Width="680" Height="580" MinWidth="520" MinHeight="440"
+        WindowStartupLocation="CenterOwner"
+        FontFamily="{StaticResource AppFont}"
+        Background="#F8FAFC">
+
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis"/>
+    </Window.Resources>
+
+    <Grid Margin="18,16,18,16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/> <!-- Encabezado -->
+            <RowDefinition Height="*"/>    <!-- Contenido / Lista de cambios -->
+            <RowDefinition Height="Auto"/> <!-- Pie / Acciones -->
+        </Grid.RowDefinitions>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             1. ENCABEZADO
+             ═══════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="0" Background="White" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                CornerRadius="8" Padding="14,12" Margin="0,0,0,12">
+            <DockPanel LastChildFill="True">
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Right" VerticalAlignment="Center">
+                    <Border Background="#EBF3EE" BorderBrush="#B2DFBF" BorderThickness="1"
+                            CornerRadius="6" Padding="8,4" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding ContadorTexto}" FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{StaticResource UisGreenBrush}"/>
+                    </Border>
+                </StackPanel>
+
+                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                    <Border Width="38" Height="38" CornerRadius="8" Background="#F1F5F9"
+                            Margin="0,0,12,0" VerticalAlignment="Center">
+                        <TextBlock Text="{Binding SoloEliminados, Converter={x:Null}}"
+                                   FontSize="18" HorizontalAlignment="Center" VerticalAlignment="Center">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Text" Value="📜"/>
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding SoloEliminados}" Value="True">
+                                            <Setter Property="Text" Value="🗑️"/>
+                                        </DataTrigger>
+                                        <DataTrigger Binding="{Binding EsModoProyecto}" Value="True">
+                                            <Setter Property="Text" Value="🗂️"/>
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Border>
+                    <StackPanel VerticalAlignment="Center">
+                        <TextBlock Text="{Binding TituloVentana}" FontSize="14" FontWeight="Bold"
+                                   Foreground="{StaticResource TextPrimaryBrush}"/>
+                        <TextBlock Text="{Binding SubtituloVentana}" FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}" TextTrimming="CharacterEllipsis"
+                                   MaxWidth="420"/>
+                    </StackPanel>
+                </StackPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             2. CONTENIDO (HISTORIAL DE EVENTOS)
+             ═══════════════════════════════════════════════════════════ -->
+        <Border Grid.Row="1" Background="White" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                CornerRadius="8" Padding="12" Margin="0,0,0,12">
+            <Grid>
+                <!-- Indicador de carga -->
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Visibility="{Binding Cargando, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="Cargando historial..." FontSize="12.5" Foreground="{StaticResource TextSecondaryBrush}"
+                               HorizontalAlignment="Center" Margin="0,0,0,4"/>
+                    <TextBlock Text="Consultando registros en base de datos..." FontSize="11" Foreground="{StaticResource TextMutedBrush}"
+                               HorizontalAlignment="Center" FontStyle="Italic"/>
+                </StackPanel>
+
+                <!-- Estado vacío -->
+                <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Visibility="{Binding HasNoHistorial, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="📂" FontSize="36" HorizontalAlignment="Center" Margin="0,0,0,6" Opacity="0.6"/>
+                    <TextBlock Text="Sin registros de auditoría" FontSize="13" FontWeight="SemiBold"
+                               Foreground="{StaticResource TextSecondaryBrush}" HorizontalAlignment="Center"/>
+                    <TextBlock Text="No se encontraron cambios registrados para este elemento."
+                               FontSize="11.5" Foreground="{StaticResource TextMutedBrush}"
+                               HorizontalAlignment="Center" Margin="0,3,0,0"/>
+                </StackPanel>
+
+                <!-- Lista de registros con Scroll -->
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                              Visibility="{Binding HasHistorial, Converter={StaticResource BoolToVis}}">
+                    <ItemsControl ItemsSource="{Binding Historial}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Background="#FAFBFC" BorderBrush="{StaticResource BorderSubtleBrush}" BorderThickness="1"
+                                        CornerRadius="6" Padding="12,10" Margin="0,0,0,8">
+                                    <Grid>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                            <RowDefinition Height="Auto"/>
+                                        </Grid.RowDefinitions>
+
+                                        <!-- Cabecera del evento: Badge de acción + Fecha/Hora -->
+                                        <DockPanel Grid.Row="0" LastChildFill="False" Margin="0,0,0,6">
+                                            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                                                <Border Background="{Binding AccionBadgeBg}"
+                                                        BorderBrush="{Binding AccionBadgeBorder}"
+                                                        BorderThickness="1" CornerRadius="4" Padding="7,2" Margin="0,0,8,0">
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="{Binding AccionIcono}" FontSize="11" Margin="0,0,4,0"/>
+                                                        <TextBlock Text="{Binding Accion}" FontSize="11" FontWeight="Bold"
+                                                                   Foreground="{Binding AccionBadgeColor}"/>
+                                                    </StackPanel>
+                                                </Border>
+
+                                                <TextBlock Text="{Binding FechaHoraTexto}" FontSize="11.5" FontWeight="SemiBold"
+                                                           Foreground="{StaticResource TextPrimaryBrush}" VerticalAlignment="Center"/>
+                                            </StackPanel>
+
+                                            <!-- Tamaño de archivo (si aplica) -->
+                                            <Border DockPanel.Dock="Right" Background="#F1F5F9" CornerRadius="4" Padding="6,2"
+                                                    VerticalAlignment="Center">
+                                                <TextBlock Text="{Binding TamanoTexto, StringFormat='📦 {0}'}" FontSize="10.5"
+                                                           Foreground="{StaticResource TextSecondaryBrush}" FontWeight="SemiBold"/>
+                                            </Border>
+                                        </DockPanel>
+
+                                        <!-- Ruta / Archivo (Especialmente útil en vista de eliminados o movimientos) -->
+                                        <TextBlock Grid.Row="1" Text="{Binding RutaRelativa, StringFormat='📁 {0}'}"
+                                                   FontSize="11" FontFamily="Consolas, Segoe UI Mono, monospace"
+                                                   Foreground="{StaticResource UisGreenBrush}" FontWeight="SemiBold"
+                                                   Margin="0,0,0,4" TextTrimming="CharacterEllipsis"/>
+
+                                        <!-- Metadatos de Autoría + Detalle -->
+                                        <StackPanel Grid.Row="2">
+                                            <TextBlock Text="{Binding Detalles}" FontSize="11.5"
+                                                       Foreground="{StaticResource TextPrimaryBrush}" TextWrapping="Wrap"
+                                                       Margin="0,0,0,6"/>
+
+                                            <DockPanel LastChildFill="True">
+                                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                                    <TextBlock Text="👤 " FontSize="11"/>
+                                                    <TextBlock Text="{Binding Usuario}" FontSize="11" FontWeight="SemiBold"
+                                                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                    <TextBlock Text="  •  💻 " FontSize="11" Margin="4,0,0,0"/>
+                                                    <TextBlock Text="{Binding Equipo, TargetNullValue='(PC desconocido)'}"
+                                                               FontSize="11" Foreground="{StaticResource TextMutedBrush}"/>
+                                                </StackPanel>
+                                            </DockPanel>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </Border>
+
+        <!-- ═══════════════════════════════════════════════════════════
+             3. PIE DE VENTANA
+             ═══════════════════════════════════════════════════════════ -->
+        <DockPanel Grid.Row="2" LastChildFill="False">
+            <StackPanel Orientation="Horizontal" DockPanel.Dock="Left" VerticalAlignment="Center">
+                <TextBlock Text="ℹ️ " FontSize="11"/>
+                <TextBlock Text="Política de retención: Movimientos de los últimos 7 días (conservando siempre un piso mínimo de 5 cambios por archivo)."
+                           FontSize="10.5" Foreground="{StaticResource TextMutedBrush}" VerticalAlignment="Center"/>
+            </StackPanel>
+
+            <Button Content="Cerrar" Command="{Binding CerrarCommand}" Click="Cerrar_Click"
+                    DockPanel.Dock="Right" Style="{StaticResource PrimaryButton}"
+                    Padding="16,6" FontSize="12" IsCancel="True" IsDefault="True"/>
+        </DockPanel>
+    </Grid>
+</Window>
+

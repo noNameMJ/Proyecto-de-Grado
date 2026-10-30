@@ -136,6 +136,9 @@
                     <Button Content="{Binding ExtenderBotonTexto}" Command="{Binding ToggleExtenderCommand}"
                             Style="{StaticResource ToolbarButton}" ToolTip="{Binding ExtenderBotonTooltip}"
                             Padding="8,3" FontWeight="SemiBold"/>
+                    <Button Content="🗑️ Eliminados" Command="{Binding VerArchivosEliminadosCommand}"
+                            Style="{StaticResource ToolbarButton}" ToolTip="Ver registro de archivos eliminados de este proyecto"
+                            Padding="8,3" FontWeight="SemiBold" Margin="4,0,0,0"/>
                 </StackPanel>
 
                 <!-- Path takes remaining space -->
@@ -253,6 +256,8 @@
                         <MenuItem Header="📋  Copiar ruta completa" Command="{Binding CopiarRutaCompletaCommand}"
                                   Visibility="{Binding IsElementoSeleccionado, Converter={StaticResource BoolToVis}}"/>
                         <MenuItem Header="📁  Mostrar en el Explorador de Windows" Command="{Binding MostrarEnExploradorCommand}"/>
+                        <MenuItem Header="📜  Ver historial de cambios..." Command="{Binding VerHistorialArchivoCommand}"
+                                  Visibility="{Binding IsArchivoSeleccionado, Converter={StaticResource BoolToVis}}"/>
 
                         <!-- Opciones de directorio / fondo vacío -->
                         <Separator/>

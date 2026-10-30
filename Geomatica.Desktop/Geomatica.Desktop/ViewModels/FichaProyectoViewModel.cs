@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using Geomatica.AppCore.UseCases;
 using Geomatica.Data.Repositories;
 using Geomatica.Desktop.Services;
+using Geomatica.Domain.Catalogos;
 using Geomatica.Domain.Entities;
 using Geomatica.Domain.Interfaces.Repositories;
 using System.Collections.ObjectModel;
@@ -23,6 +24,61 @@ namespace Geomatica.Desktop.ViewModels
     {
         public string DisplayTexto => $"{Nombre} ({Cantidad})";
         public override string ToString() => DisplayTexto;
+    }
+
+    public partial class CategoriaTabItem : ObservableObject
+    {
+        public string Nombre { get; init; } = "";
+        public string Icono { get; init; } = "";
+        public int CantidadArchivos { get; init; }
+        public bool EsTodos => string.Equals(Nombre, "Todos", StringComparison.OrdinalIgnoreCase);
+
+        [ObservableProperty]
+        private bool _isSelected;
+    }
+
+    public partial class CategoriaGrupoItem : ObservableObject
+    {
+        public string Categoria { get; init; } = "";
+        public string Icono { get; init; } = "";
+        public string BadgeBgHex { get; init; } = "#F1F5F9";
+        public string BadgeBorderHex { get; init; } = "#CBD5E1";
+        public string BadgeFgHex { get; init; } = "#475569";
+        public int CantidadArchivos { get; init; }
+        public long TamanoTotalBytes { get; init; }
+        public string TamanoTexto => FormatearTamano(TamanoTotalBytes);
+
+        public IReadOnlyList<FormatoExtensionItem> ExtensionesPrincipales { get; init; } = Array.Empty<FormatoExtensionItem>();
+        public IReadOnlyList<FormatoExtensionItem> ExtensionesAuxiliares { get; init; } = Array.Empty<FormatoExtensionItem>();
+
+        public bool TieneExtensionesPrincipales => ExtensionesPrincipales.Count > 0;
+        public bool TieneExtensionesAuxiliares => ExtensionesAuxiliares.Count > 0;
+        public int TotalAuxiliaresConteo => ExtensionesAuxiliares.Sum(e => e.CantidadArchivos);
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(TextoToggleAuxiliares))]
+        private bool _mostrarAuxiliares;
+
+        public string TextoToggleAuxiliares => MostrarAuxiliares
+            ? $"▲ Ocultar {ExtensionesAuxiliares.Count} formatos auxiliares / sidecars"
+            : $"📎 Ver {ExtensionesAuxiliares.Count} archivos auxiliares y sidecars ({TotalAuxiliaresConteo} archivos) ▼";
+
+        public string ResumenAuxiliaresTexto =>
+            $"{ExtensionesAuxiliares.Count} formatos auxiliares ({TotalAuxiliaresConteo} archivos): {string.Join(", ", ExtensionesAuxiliares.Select(e => $".{e.ExtensionMayus}"))}";
+
+        [RelayCommand]
+        private void ToggleAuxiliares()
+        {
+            MostrarAuxiliares = !MostrarAuxiliares;
+        }
+
+        public static string FormatearTamano(long bytes) => bytes switch
+        {
+            < 1024 => $"{bytes} B",
+            < 1024 * 1024 => $"{bytes / 1024.0:F1} KB",
+            < 1024 * 1024 * 1024 => $"{bytes / (1024.0 * 1024):F1} MB",
+            _ => $"{bytes / (1024.0 * 1024 * 1024):F2} GB"
+        };
     }
 
     public partial class FichaProyectoViewModel : ObservableObject
@@ -167,6 +223,8 @@ namespace Geomatica.Desktop.ViewModels
         private ObservableCollection<FormatoExtensionItem> _extensionesDetectadas = new();
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ShowNoGruposFormatos))]
+        [NotifyPropertyChangedFor(nameof(HasNoFormatosDetectados))]
         private bool _hasFormatosDetectados;
 
         [ObservableProperty]
@@ -176,6 +234,7 @@ namespace Geomatica.Desktop.ViewModels
         private string? _resumenInsumosTexto;
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasNoFormatosDetectados))]
         private bool _cargandoFormatos;
 
         [ObservableProperty]
@@ -201,6 +260,7 @@ namespace Geomatica.Desktop.ViewModels
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(TotalArchivosDetectadosTexto))]
+        [NotifyPropertyChangedFor(nameof(HasNoFormatosDetectados))]
         private int _totalArchivosDetectados;
 
         public string TotalArchivosDetectadosTexto => TotalArchivosDetectados > 0
@@ -208,9 +268,39 @@ namespace Geomatica.Desktop.ViewModels
             : "";
 
         [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(TamanoTotalDetectadoTexto))]
+        private long _tamanoTotalDetectadoBytes;
+
+        public string TamanoTotalDetectadoTexto => CategoriaGrupoItem.FormatearTamano(TamanoTotalDetectadoBytes);
+        public int TotalCategoriasDetectadas => FormatosDetectados.Count > 0 ? FormatosDetectados.Count : GruposFormatos.Count;
+        public int TotalExtensionesPrincipales => ExtensionesDetectadas.Count(e => e != null && !e.EsAuxiliar);
+        public int TotalExtensionesAuxiliares => ExtensionesDetectadas.Count(e => e != null && e.EsAuxiliar);
+
+        [ObservableProperty]
+        private string _filtroCategoriaSeleccionada = "Todos";
+
+        [ObservableProperty]
+        private string _busquedaFormatoTexto = "";
+
+        public bool HasBusquedaFormatoTexto => !string.IsNullOrWhiteSpace(BusquedaFormatoTexto);
+        public bool HasNoBusquedaFormatoTexto => string.IsNullOrWhiteSpace(BusquedaFormatoTexto);
+
+        public ObservableCollection<CategoriaGrupoItem> GruposFormatos { get; } = new();
+        public ObservableCollection<CategoriaGrupoItem> GruposFormatosFiltrados { get; } = new();
+        public ObservableCollection<CategoriaTabItem> CategoriasTabs { get; } = new();
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(ShowNoGruposFormatos))]
+        private bool _hasGruposFormatos;
+
+        public bool ShowNoGruposFormatos => HasFormatosDetectados && !HasGruposFormatos;
+        public bool HasNoFormatosDetectados => HasRutaArchivos && !CargandoFormatos && !HasFormatosDetectados;
+
+        [ObservableProperty]
         private string _textoProgresoFormatos = "Analizando tipos de archivos en la carpeta...";
 
         public event EventHandler<string>? ExtensionSeleccionadaParaFiltrado;
+        public event EventHandler<string>? CategoriaSeleccionadaParaFiltrado;
         public event EventHandler? ExtensionesActualizadas;
         private readonly object _extensionesSyncLock = new();
 
@@ -225,6 +315,13 @@ namespace Geomatica.Desktop.ViewModels
         public void NotificarExtensionesActualizadas()
         {
             OnPropertyChanged(nameof(ExtensionesDetectadas));
+            OnPropertyChanged(nameof(FormatosDetectados));
+            OnPropertyChanged(nameof(TotalCategoriasDetectadas));
+            OnPropertyChanged(nameof(TotalExtensionesPrincipales));
+            OnPropertyChanged(nameof(TotalExtensionesAuxiliares));
+            OnPropertyChanged(nameof(TamanoTotalDetectadoTexto));
+            OnPropertyChanged(nameof(HasNoFormatosDetectados));
+            OnPropertyChanged(nameof(ShowNoGruposFormatos));
             ExtensionesActualizadas?.Invoke(this, EventArgs.Empty);
         }
 
@@ -235,6 +332,44 @@ namespace Geomatica.Desktop.ViewModels
             {
                 ExtensionSeleccionadaParaFiltrado?.Invoke(this, extension);
             }
+        }
+
+        [RelayCommand]
+        public void SeleccionarTabCategoria(string? categoria)
+        {
+            var nombreCat = string.IsNullOrWhiteSpace(categoria) ? "Todos" : categoria;
+            FiltroCategoriaSeleccionada = nombreCat;
+            foreach (var tab in CategoriasTabs)
+            {
+                tab.IsSelected = string.Equals(tab.Nombre, nombreCat, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        [RelayCommand]
+        public void ExplorarCategoria(string? categoria)
+        {
+            if (!string.IsNullOrWhiteSpace(categoria))
+            {
+                CategoriaSeleccionadaParaFiltrado?.Invoke(this, categoria);
+            }
+        }
+
+        [RelayCommand]
+        public void LimpiarBusquedaFormato()
+        {
+            BusquedaFormatoTexto = string.Empty;
+        }
+
+        partial void OnBusquedaFormatoTextoChanged(string value)
+        {
+            OnPropertyChanged(nameof(HasBusquedaFormatoTexto));
+            OnPropertyChanged(nameof(HasNoBusquedaFormatoTexto));
+            AplicarFiltroGruposFormatos();
+        }
+
+        partial void OnFiltroCategoriaSeleccionadaChanged(string value)
+        {
+            AplicarFiltroGruposFormatos();
         }
 
         public IReadOnlyList<string> PalabrasClaveLista { get; }
@@ -279,6 +414,54 @@ namespace Geomatica.Desktop.ViewModels
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(HasNoHistorial))]
         private bool _hasHistorial;
+
+        [ObservableProperty]
+        private ObservableCollection<AuditoriaArchivoDto> _historialArchivos = new();
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasNoHistorialArchivos))]
+        private bool _hasHistorialArchivos;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(HasNoHistorialArchivos))]
+        private bool _cargandoHistorialArchivos;
+
+        public bool HasNoHistorialArchivos => !CargandoHistorialArchivos && !HasHistorialArchivos;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(EsAuditoriaProyectoSeleccionada))]
+        [NotifyPropertyChangedFor(nameof(EsAuditoriaArchivosSeleccionada))]
+        private bool _verAuditoriaArchivos;
+
+        public bool EsAuditoriaProyectoSeleccionada => !VerAuditoriaArchivos;
+        public bool EsAuditoriaArchivosSeleccionada => VerAuditoriaArchivos;
+
+        [ObservableProperty]
+        [NotifyPropertyChangedFor(nameof(TextoVerMasArchivos))]
+        private int _totalMovimientosArchivos;
+
+        [ObservableProperty]
+        private bool _tieneMasMovimientosArchivos;
+
+        public string TextoVerMasArchivos => $"Ver todos los movimientos ({TotalMovimientosArchivos})...";
+
+        public Action<HistorialArchivoViewModel>? AbrirModalHistorialAction { get; set; }
+
+        [RelayCommand]
+        public void SeleccionarAuditoriaProyecto()
+        {
+            VerAuditoriaArchivos = false;
+        }
+
+        [RelayCommand]
+        public void SeleccionarAuditoriaArchivos()
+        {
+            VerAuditoriaArchivos = true;
+            if (HistorialArchivos.Count == 0 && !CargandoHistorialArchivos)
+            {
+                _ = CargarHistorialArchivosAsync();
+            }
+        }
 
         [ObservableProperty]
         [NotifyPropertyChangedFor(nameof(HasCreadorInfo))]
@@ -424,6 +607,17 @@ namespace Geomatica.Desktop.ViewModels
         private void ToggleHistorial()
         {
             MostrarHistorial = !MostrarHistorial;
+            if (MostrarHistorial)
+            {
+                if (HistorialAuditoria.Count == 0 && !CargandoHistorial)
+                {
+                    _ = CargarHistorialAuditoriaAsync();
+                }
+                if (VerAuditoriaArchivos && HistorialArchivos.Count == 0 && !CargandoHistorialArchivos)
+                {
+                    _ = CargarHistorialArchivosAsync();
+                }
+            }
         }
 
         public IRelayCommand VolverCommand { get; }
@@ -770,10 +964,82 @@ namespace Geomatica.Desktop.ViewModels
             }
         }
 
+        public async Task CargarHistorialArchivosAsync(CancellationToken ct = default)
+        {
+            if (_proyectoRepository == null || Id <= 0) return;
+
+            try
+            {
+                CargandoHistorialArchivos = true;
+                var list = await _proyectoRepository.ObtenerHistorialArchivosProyectoAsync(Id, limite: 50, ct);
+
+                TotalMovimientosArchivos = list.Count;
+                TieneMasMovimientosArchivos = list.Count > 5;
+
+                HistorialArchivos.Clear();
+                foreach (var item in list.Take(5))
+                {
+                    HistorialArchivos.Add(item);
+                }
+
+                HasHistorialArchivos = HistorialArchivos.Count > 0;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[FichaProyecto] Error al cargar historial de archivos: {ex.Message}");
+            }
+            finally
+            {
+                CargandoHistorialArchivos = false;
+            }
+        }
+
+        [RelayCommand]
+        public void VerMasActividadArchivos()
+        {
+            if (Id <= 0) return;
+
+            var vm = new HistorialArchivoViewModel(
+                idProyecto: Id,
+                rutaRelativa: string.Empty,
+                nombreArchivo: string.Empty,
+                tituloProyecto: Titulo,
+                proyectoRepository: _proyectoRepository,
+                soloEliminados: false);
+
+            if (AbrirModalHistorialAction != null)
+            {
+                AbrirModalHistorialAction(vm);
+                return;
+            }
+
+            var win = new Views.HistorialArchivoWindow(vm)
+            {
+                Owner = Application.Current?.MainWindow
+            };
+            vm.RequestClose += () => win.Close();
+            win.ShowDialog();
+        }
+
         public async Task CargarFormatosArchivosAsync(CancellationToken ct = default)
         {
             if (string.IsNullOrWhiteSpace(RutaArchivos) || !PuedeLeerArchivos)
+            {
+                lock (_extensionesSyncLock)
+                {
+                    FormatosDetectados.Clear();
+                    ExtensionesDetectadas.Clear();
+                    GruposFormatos.Clear();
+                    GruposFormatosFiltrados.Clear();
+                    CategoriasTabs.Clear();
+                    TotalArchivosDetectados = 0;
+                    TamanoTotalDetectadoBytes = 0;
+                    HasFormatosDetectados = false;
+                    HasExtensionesDetectadas = false;
+                    HasGruposFormatos = false;
+                }
                 return;
+            }
 
             await _formatosLock.WaitAsync(ct);
             try
@@ -800,6 +1066,19 @@ namespace Geomatica.Desktop.ViewModels
                                 ExtensionesDetectadas.Add(lista[i]);
                             }
                             HasExtensionesDetectadas = true;
+
+                            if (p.CategoriasParciales != null && p.CategoriasParciales.Count > 0)
+                            {
+                                FormatosDetectados.Clear();
+                                foreach (var cat in p.CategoriasParciales)
+                                {
+                                    FormatosDetectados.Add(cat);
+                                }
+                                HasFormatosDetectados = true;
+                            }
+
+                            TamanoTotalDetectadoBytes = lista.Sum(e => e.TamanoTotalBytes);
+                            GenerarGruposFormatos(ExtensionesDetectadas, FormatosDetectados, TamanoTotalDetectadoBytes);
                         }
 
                         var primarios = lista.Where(e => !e.EsAuxiliar).Select(e => $".{e.ExtensionMayus} ({e.CantidadArchivos})");
@@ -833,8 +1112,11 @@ namespace Geomatica.Desktop.ViewModels
                     }
 
                     TotalArchivosDetectados = resumen.TotalArchivos;
+                    TamanoTotalDetectadoBytes = resumen.TamanoTotalBytes;
                     HasFormatosDetectados = FormatosDetectados.Count > 0;
                     HasExtensionesDetectadas = ExtensionesDetectadas.Count > 0;
+
+                    GenerarGruposFormatos(ExtensionesDetectadas, FormatosDetectados, TamanoTotalDetectadoBytes);
                 }
 
                 if (HasExtensionesDetectadas)
@@ -855,8 +1137,197 @@ namespace Geomatica.Desktop.ViewModels
             finally
             {
                 CargandoFormatos = false;
+                OnPropertyChanged(nameof(HasNoFormatosDetectados));
+                OnPropertyChanged(nameof(ShowNoGruposFormatos));
                 _formatosLock.Release();
             }
+        }
+
+        private static string ObtenerCategoriaEfectiva(FormatoExtensionItem ext, bool tieneVectorial, bool tieneRaster)
+        {
+            if (!ext.EsAuxiliar && !ext.Categoria.Equals(CatalogoFormatosGis.CategoriaAuxiliar, StringComparison.OrdinalIgnoreCase))
+            {
+                return ext.Categoria;
+            }
+
+            var extNorm = ext.Extension.Trim().ToLowerInvariant();
+            if (extNorm == ".dbf" || extNorm == ".shx" || extNorm == ".prj" || extNorm == ".cpg" || extNorm == ".sbn" || extNorm == ".sbx" || extNorm == ".qmd")
+            {
+                return tieneVectorial ? CatalogoFormatosGis.CategoriaVectorial : CatalogoFormatosGis.CategoriaAuxiliar;
+            }
+            if (extNorm == ".tfw" || extNorm == ".ovr" || extNorm == ".rrd" || extNorm == ".j2w" || extNorm == ".wld")
+            {
+                return tieneRaster ? CatalogoFormatosGis.CategoriaRaster : CatalogoFormatosGis.CategoriaAuxiliar;
+            }
+            if (extNorm == ".aux.xml" || extNorm == ".aux")
+            {
+                if (tieneRaster) return CatalogoFormatosGis.CategoriaRaster;
+                if (tieneVectorial) return CatalogoFormatosGis.CategoriaVectorial;
+            }
+            return ext.Categoria;
+        }
+
+        private void GenerarGruposFormatos(IEnumerable<FormatoExtensionItem> extensiones, IEnumerable<CategoriaFormatoItem> categorias, long tamanoTotal)
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.CheckAccess())
+            {
+                dispatcher.Invoke(() => GenerarGruposFormatos(extensiones, categorias, tamanoTotal));
+                return;
+            }
+
+            var catMetaDict = categorias.Where(c => c != null).ToDictionary(c => c.Categoria, StringComparer.OrdinalIgnoreCase);
+
+            var listaExt = extensiones.Where(e => e != null).ToList();
+            bool tieneVectorial = listaExt.Any(e => !e.EsAuxiliar && e.Categoria.Equals(CatalogoFormatosGis.CategoriaVectorial, StringComparison.OrdinalIgnoreCase));
+            bool tieneRaster = listaExt.Any(e => !e.EsAuxiliar && e.Categoria.Equals(CatalogoFormatosGis.CategoriaRaster, StringComparison.OrdinalIgnoreCase));
+
+            var agrupados = listaExt
+                .GroupBy(e => ObtenerCategoriaEfectiva(e, tieneVectorial, tieneRaster), StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            var grupos = new List<CategoriaGrupoItem>();
+
+            foreach (var grp in agrupados)
+            {
+                string catNombre = grp.Key;
+                catMetaDict.TryGetValue(catNombre, out var meta);
+
+                var principales = grp.Where(e => !e.EsAuxiliar).OrderByDescending(e => e.CantidadArchivos).ToList();
+                var auxiliares = grp.Where(e => e.EsAuxiliar).OrderByDescending(e => e.CantidadArchivos).ToList();
+
+                var primerItem = grp.FirstOrDefault(e => !e.EsAuxiliar) ?? grp.FirstOrDefault();
+
+                grupos.Add(new CategoriaGrupoItem
+                {
+                    Categoria = catNombre,
+                    Icono = meta?.Icono ?? (primerItem?.Icono ?? "📁"),
+                    BadgeBgHex = meta?.BadgeBgHex ?? (primerItem?.BadgeBgHex ?? "#F1F5F9"),
+                    BadgeBorderHex = meta?.BadgeBorderHex ?? (primerItem?.BadgeBorderHex ?? "#CBD5E1"),
+                    BadgeFgHex = meta?.BadgeFgHex ?? (primerItem?.BadgeFgHex ?? "#334155"),
+                    CantidadArchivos = grp.Sum(e => e.CantidadArchivos),
+                    TamanoTotalBytes = grp.Sum(e => e.TamanoTotalBytes),
+                    ExtensionesPrincipales = principales,
+                    ExtensionesAuxiliares = auxiliares
+                });
+            }
+
+            grupos = grupos.OrderByDescending(g => g.CantidadArchivos).ToList();
+
+            GruposFormatos.Clear();
+            foreach (var g in grupos)
+            {
+                GruposFormatos.Add(g);
+            }
+
+            CategoriasTabs.Clear();
+            CategoriasTabs.Add(new CategoriaTabItem
+            {
+                Nombre = "Todos",
+                Icono = "📁",
+                CantidadArchivos = TotalArchivosDetectados,
+                IsSelected = string.IsNullOrWhiteSpace(FiltroCategoriaSeleccionada) || string.Equals(FiltroCategoriaSeleccionada, "Todos", StringComparison.OrdinalIgnoreCase)
+            });
+
+            foreach (var g in grupos)
+            {
+                CategoriasTabs.Add(new CategoriaTabItem
+                {
+                    Nombre = g.Categoria,
+                    Icono = g.Icono,
+                    CantidadArchivos = g.CantidadArchivos,
+                    IsSelected = string.Equals(FiltroCategoriaSeleccionada, g.Categoria, StringComparison.OrdinalIgnoreCase)
+                });
+            }
+
+            AplicarFiltroGruposFormatos();
+        }
+
+        public void AplicarFiltroGruposFormatos()
+        {
+            var dispatcher = Application.Current?.Dispatcher;
+            if (dispatcher != null && !dispatcher.CheckAccess())
+            {
+                dispatcher.Invoke(AplicarFiltroGruposFormatos);
+                return;
+            }
+
+            if (GruposFormatos.Count == 0)
+            {
+                GruposFormatosFiltrados.Clear();
+                HasGruposFormatos = false;
+                OnPropertyChanged(nameof(ShowNoGruposFormatos));
+                return;
+            }
+
+            var query = GruposFormatos.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(FiltroCategoriaSeleccionada) &&
+                !FiltroCategoriaSeleccionada.Equals("Todos", StringComparison.OrdinalIgnoreCase))
+            {
+                query = query.Where(g => string.Equals(g.Categoria, FiltroCategoriaSeleccionada, StringComparison.OrdinalIgnoreCase));
+            }
+
+            var busqueda = BusquedaFormatoTexto?.Trim();
+            if (!string.IsNullOrWhiteSpace(busqueda))
+            {
+                var term = busqueda.TrimStart('.').ToLowerInvariant();
+                var resultadoGrupos = new List<CategoriaGrupoItem>();
+
+                foreach (var g in query)
+                {
+                    bool coincideCategoria = g.Categoria.Contains(busqueda, StringComparison.OrdinalIgnoreCase);
+
+                    var princ = g.ExtensionesPrincipales
+                        .Where(e => e.ExtensionMayus.ToLowerInvariant().Contains(term) ||
+                                    e.Extension.ToLowerInvariant().Contains(term) ||
+                                    e.Categoria.Contains(busqueda, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
+                    var aux = g.ExtensionesAuxiliares
+                        .Where(e => e.ExtensionMayus.ToLowerInvariant().Contains(term) ||
+                                    e.Extension.ToLowerInvariant().Contains(term) ||
+                                    e.Categoria.Contains(busqueda, StringComparison.OrdinalIgnoreCase))
+                        .ToList();
+
+                    if (coincideCategoria || princ.Count > 0 || aux.Count > 0)
+                    {
+                        var mostrarPrinc = coincideCategoria ? g.ExtensionesPrincipales : princ;
+                        var mostrarAux = coincideCategoria ? g.ExtensionesAuxiliares : aux;
+
+                        resultadoGrupos.Add(new CategoriaGrupoItem
+                        {
+                            Categoria = g.Categoria,
+                            Icono = g.Icono,
+                            BadgeBgHex = g.BadgeBgHex,
+                            BadgeBorderHex = g.BadgeBorderHex,
+                            BadgeFgHex = g.BadgeFgHex,
+                            CantidadArchivos = g.CantidadArchivos,
+                            TamanoTotalBytes = g.TamanoTotalBytes,
+                            ExtensionesPrincipales = mostrarPrinc,
+                            ExtensionesAuxiliares = mostrarAux,
+                            MostrarAuxiliares = g.MostrarAuxiliares || aux.Count > 0
+                        });
+                    }
+                }
+
+                GruposFormatosFiltrados.Clear();
+                foreach (var g in resultadoGrupos)
+                {
+                    GruposFormatosFiltrados.Add(g);
+                }
+            }
+            else
+            {
+                GruposFormatosFiltrados.Clear();
+                foreach (var g in query)
+                {
+                    GruposFormatosFiltrados.Add(g);
+                }
+            }
+
+            HasGruposFormatos = GruposFormatosFiltrados.Count > 0;
+            OnPropertyChanged(nameof(ShowNoGruposFormatos));
         }
 
         partial void OnFiltroMunicipioTextoChanged(string value)

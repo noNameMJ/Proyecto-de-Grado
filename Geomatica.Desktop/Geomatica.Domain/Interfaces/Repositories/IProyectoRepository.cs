@@ -36,4 +36,15 @@ public interface IProyectoRepository
     Task ActualizarSubproyectoAsync(int idSubproyecto, string nombre, string? mpioCdpmp, string subcarpeta, double lon, double lat, string? descripcion = null, CancellationToken ct = default);
     Task EliminarSubproyectoAsync(int idSubproyecto, CancellationToken ct = default);
     Task AsegurarTablaSubproyectosAsync(CancellationToken ct = default);
+
+    // Auditoría de Archivos (geovisor.auditoria_archivo)
+    Task AsegurarTablaAuditoriaArchivoAsync(CancellationToken ct = default);
+    Task RegistrarAuditoriaArchivoAsync(int idProyecto, string rutaRelativa, string nombreArchivo, string accion, string? detalles, long? tamanoBytes = null, string? usuario = null, string? equipo = null, DateTime? fechaArchivo = null, CancellationToken ct = default);
+    Task<AuditoriaArchivoDto?> ObtenerUltimoEstadoArchivoAsync(int idProyecto, string rutaRelativa, CancellationToken ct = default);
+    Task ReasignarRutaAuditoriaArchivoAsync(int idProyecto, string rutaRelativaAntigua, string rutaRelativaNueva, string nombreArchivoNuevo, CancellationToken ct = default);
+    Task<IReadOnlyList<AuditoriaArchivoDto>> ObtenerHistorialArchivoAsync(int idProyecto, string rutaRelativa, int limite = 5, CancellationToken ct = default);
+    Task<IReadOnlyList<AuditoriaArchivoDto>> ObtenerHistorialArchivosProyectoAsync(int idProyecto, int limite = 50, CancellationToken ct = default);
+    Task<IReadOnlyList<AuditoriaArchivoDto>> ObtenerArchivosEliminadosProyectoAsync(int idProyecto, int limite = 50, CancellationToken ct = default);
+    Task<bool> TieneAuditoriaArchivoAsync(int idProyecto, CancellationToken ct = default);
+    Task<int> PurgarAuditoriaArchivoPorVejezAsync(int diasRetencion = 7, int minimoRegistros = 5, CancellationToken ct = default);
 }

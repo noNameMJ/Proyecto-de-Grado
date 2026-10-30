@@ -305,4 +305,145 @@ public class FichaProyectoMetadatosTests
         vm.ChevronSeccion1.Should().Be("▶");
         vm.ChevronSeccion6.Should().Be("▶");
     }
+
+    [Fact]
+    public async Task CargarFormatosArchivosAsync_AgrupaFormatosPrincipalesYAuxiliares()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), "GeomaticaTest_GruposVM_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            // Vectorial: 1 shp principal + 3 auxiliares (shx, dbf, prj)
+            File.WriteAllText(Path.Combine(tempDir, "cuenca.shp"), "dummy-shp-bytes");
+            File.WriteAllText(Path.Combine(tempDir, "cuenca.shx"), "dummy-shx");
+            File.WriteAllText(Path.Combine(tempDir, "cuenca.dbf"), "dummy-dbf");
+            File.WriteAllText(Path.Combine(tempDir, "cuenca.prj"), "dummy-prj");
+
+            // Raster: 1 tif principal + 1 aux (tfw)
+            File.WriteAllText(Path.Combine(tempDir, "ortofoto.tif"), "dummy-tif-large-bytes");
+            File.WriteAllText(Path.Combine(tempDir, "ortofoto.tfw"), "dummy-tfw");
+
+            // Documentación: 1 pdf principal
+            File.WriteAllText(Path.Combine(tempDir, "informe.pdf"), "dummy-pdf");
+
+            var dto = CrearDto(rutaArchivos: tempDir);
+            var service = new ProyectoArchivosService();
+            var vm = new FichaProyectoViewModel(proyecto: dto, volverAction: () => { }, archivosService: service);
+
+            // Act
+            await vm.CargarFormatosArchivosAsync();
+
+            // Assert
+            vm.HasFormatosDetectados.Should().BeTrue();
+            vm.TotalArchivosDetectados.Should().Be(7);
+            vm.TotalCategoriasDetectadas.Should().Be(3);
+            vm.TotalExtensionesPrincipales.Should().Be(3); // .shp, .tif, .pdf
+            vm.TotalExtensionesAuxiliares.Should().Be(4); // .shx, .dbf, .prj, .tfw
+            vm.TamanoTotalDetectadoBytes.Should().BeGreaterThan(0);
+            vm.TamanoTotalDetectadoTexto.Should().NotBe("0 B");
+
+            // Grupos clasificados
+            vm.GruposFormatos.Should().HaveCount(3);
+            var grupoVectorial = vm.GruposFormatos.FirstOrDefault(g => g.Categoria == "Vectorial");
+            grupoVectorial.Should().NotBeNull();
+            grupoVectorial!.ExtensionesPrincipales.Should().ContainSingle(e => e.Extension == ".shp");
+            grupoVectorial.ExtensionesAuxiliares.Should().HaveCount(3);
+            grupoVectorial.TieneExtensionesPrincipales.Should().BeTrue();
+            grupoVectorial.TieneExtensionesAuxiliares.Should().BeTrue();
+            grupoVectorial.TotalAuxiliaresConteo.Should().Be(3);
+            grupoVectorial.TextoToggleAuxiliares.Should().Contain("Ver 3 archivos auxiliares y sidecars");
+
+            // Toggle auxiliares
+            grupoVectorial.MostrarAuxiliares.Should().BeFalse();
+            grupoVectorial.ToggleAuxiliaresCommand.Execute(null);
+            grupoVectorial.MostrarAuxiliares.Should().BeTrue();
+            grupoVectorial.TextoToggleAuxiliares.Should().Contain("Ocultar 3 formatos auxiliares");
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public async Task SeleccionarTabCategoriaCommand_Y_BusquedaFormatoTexto_FiltranCorrectamente()
+    {
+        // Arrange
+        string tempDir = Path.Combine(Path.GetTempPath(), "GeomaticaTest_FiltroTabsVM_" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tempDir);
+
+        try
+        {
+            File.WriteAllText(Path.Combine(tempDir, "red.shp"), "dummy");
+            File.WriteAllText(Path.Combine(tempDir, "red.dbf"), "dummy");
+            File.WriteAllText(Path.Combine(tempDir, "mapa.tif"), "dummy");
+            File.WriteAllText(Path.Combine(tempDir, "doc.pdf"), "dummy");
+
+            var dto = CrearDto(rutaArchivos: tempDir);
+            var service = new ProyectoArchivosService();
+            var vm = new FichaProyectoViewModel(proyecto: dto, volverAction: () => { }, archivosService: service);
+            await vm.CargarFormatosArchivosAsync();
+
+            // Tabs generadas: Todos, Vectorial, Raster / Ortofoto, Documentación
+            vm.CategoriasTabs.Should().HaveCount(4);
+            vm.CategoriasTabs.First(t => t.EsTodos).IsSelected.Should().BeTrue();
+            vm.GruposFormatosFiltrados.Should().HaveCount(3);
+
+            // Act 1: Seleccionar Tab "Vectorial"
+            vm.SeleccionarTabCategoriaCommand.Execute("Vectorial");
+
+            // Assert 1
+            vm.FiltroCategoriaSeleccionada.Should().Be("Vectorial");
+            vm.CategoriasTabs.First(t => t.Nombre == "Vectorial").IsSelected.Should().BeTrue();
+            vm.CategoriasTabs.First(t => t.EsTodos).IsSelected.Should().BeFalse();
+            vm.GruposFormatosFiltrados.Should().HaveCount(1);
+            vm.GruposFormatosFiltrados[0].Categoria.Should().Be("Vectorial");
+
+            // Act 2: Resetear a "Todos"
+            vm.SeleccionarTabCategoriaCommand.Execute("Todos");
+            vm.GruposFormatosFiltrados.Should().HaveCount(3);
+
+            // Act 3: Buscar por texto "pdf"
+            vm.BusquedaFormatoTexto = "pdf";
+            vm.HasBusquedaFormatoTexto.Should().BeTrue();
+            vm.GruposFormatosFiltrados.Should().HaveCount(1);
+            vm.GruposFormatosFiltrados[0].Categoria.Should().Be("Documentación");
+
+            // Act 4: Buscar formato auxiliar "dbf" -> debe auto-expandir MostrarAuxiliares
+            vm.BusquedaFormatoTexto = "dbf";
+            vm.GruposFormatosFiltrados.Should().HaveCount(1);
+            vm.GruposFormatosFiltrados[0].Categoria.Should().Be("Vectorial");
+            vm.GruposFormatosFiltrados[0].MostrarAuxiliares.Should().BeTrue();
+
+            // Act 5: Limpiar búsqueda
+            vm.LimpiarBusquedaFormatoCommand.Execute(null);
+            vm.BusquedaFormatoTexto.Should().BeEmpty();
+            vm.HasBusquedaFormatoTexto.Should().BeFalse();
+            vm.GruposFormatosFiltrados.Should().HaveCount(3);
+        }
+        finally
+        {
+            if (Directory.Exists(tempDir))
+                Directory.Delete(tempDir, true);
+        }
+    }
+
+    [Fact]
+    public void ExplorarCategoriaCommand_DebeDispararEventoCategoriaSeleccionadaParaFiltrado()
+    {
+        // Arrange
+        var dto = CrearDto();
+        var vm = new FichaProyectoViewModel(dto, () => { });
+        string? categoriaDisparada = null;
+        vm.CategoriaSeleccionadaParaFiltrado += (sender, cat) => categoriaDisparada = cat;
+
+        // Act
+        vm.ExplorarCategoriaCommand.Execute("Vectorial");
+
+        // Assert
+        categoriaDisparada.Should().Be("Vectorial");
+    }
 }
